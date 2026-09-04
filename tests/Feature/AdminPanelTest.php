@@ -955,6 +955,110 @@ class AdminPanelTest extends TestCase
         $this->assertNull($document->reviewed_at);
     }
 
+    public function test_a_document_whose_source_questionnaire_extraction_failed_is_demoted_off_ai_generated(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+        ]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission]);
+
+        $document->refresh();
+        $this->assertSame('custom', $document->delivery_source->value);
+        $component->assertSee('The AI extraction for this Compliance & Ethics Manual is failed. You should regenerate or custom upload your file');
+    }
+
+    public function test_a_document_whose_source_questionnaire_extraction_succeeded_keeps_ai_generated(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        IntakeUpload::factory()->completed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+        ]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission]);
+
+        $document->refresh();
+        $this->assertSame('ai_generated', $document->delivery_source->value);
+        $component->assertDontSee('AI extraction for this');
+    }
+
+    public function test_a_failed_extraction_document_that_is_already_approved_is_not_retroactively_demoted(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->approved()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+        ]);
+
+        Livewire::actingAs($admin)->test('admin.submission-detail', ['submission' => $submission]);
+
+        $document->refresh();
+        $this->assertSame('ai_generated', $document->delivery_source->value);
+    }
+
+    public function test_a_failed_extraction_document_that_already_has_a_custom_file_is_not_demoted(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+            'custom_storage_path' => 'private/compliance/1/custom/corrected.pdf',
+            'custom_original_filename' => 'corrected.pdf',
+        ]);
+
+        Livewire::actingAs($admin)->test('admin.submission-detail', ['submission' => $submission]);
+
+        $document->refresh();
+        $this->assertSame('ai_generated', $document->delivery_source->value);
+    }
+
+    public function test_a_per_upload_document_is_demoted_when_its_own_linked_upload_extraction_failed(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $upload = IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::PolishedClientDocument,
+            'intake_upload_id' => $upload->id,
+        ]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission]);
+
+        $document->refresh();
+        $this->assertSame('custom', $document->delivery_source->value);
+        $component->assertSee('The AI extraction for this Reviewed & Polished Document is failed. You should regenerate or custom upload your file');
+    }
+
     // ── Leads ───────────────────────────────────────────────────────────────
 
     public function test_admin_can_view_leads_list(): void

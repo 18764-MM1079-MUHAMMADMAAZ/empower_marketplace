@@ -40,6 +40,36 @@ new class extends Component
         $this->reviewerNotes = $submission->reviewer_notes ?? '';
 
         $this->ensureExpectedDocumentsExist($submission);
+        $this->demoteDocumentsWithFailedExtraction($submission);
+    }
+
+    /**
+     * A document generated from a questionnaire whose AI extraction failed is filled with
+     * "[No response provided]" placeholders rather than real practice data — GenerateComplianceDocument
+     * has no visibility into extraction failures, so it still marks the document Completed with its
+     * default "ai_generated" delivery source. Force it off that default so it isn't silently
+     * approvable until the admin uploads a custom file or deliberately re-selects the AI version.
+     * Already-approved documents are left untouched so a past delivery isn't retroactively hidden.
+     */
+    private function demoteDocumentsWithFailedExtraction(IntakeSubmission $submission): void
+    {
+        $uploadsByType = $submission->intakeUploads->keyBy(fn (IntakeUpload $u) => $u->upload_type->value);
+
+        GeneratedDocument::where('order_id', $submission->order_id)
+            ->where('delivery_source', DocumentDeliverySource::AiGenerated)
+            ->whereNull('custom_storage_path')
+            ->whereNull('reviewed_at')
+            ->get()
+            ->each(function (GeneratedDocument $document) use ($uploadsByType) {
+                $linkedType = $document->document_type->linkedQuestionnaireType();
+                $upload = $document->intake_upload_id
+                    ? $document->intakeUpload
+                    : ($linkedType ? $uploadsByType->get($linkedType->value) : null);
+
+                if ($upload?->ai_extraction_status === AiExtractionStatus::Failed) {
+                    $document->update(['delivery_source' => DocumentDeliverySource::Custom]);
+                }
+            });
     }
 
     /**
@@ -169,14 +199,20 @@ new class extends Component
     {
         $submission = $this->submission;
         $uploadedTypes = $submission->intakeUploads->map(fn ($u) => $u->upload_type)->all();
+        $uploadsByType = $submission->intakeUploads->keyBy(fn (IntakeUpload $u) => $u->upload_type->value);
 
         return GeneratedDocument::where('order_id', $submission->order_id)
             ->with(['reviewedBy', 'intakeUpload'])
             ->orderBy('document_type')
             ->get()
-            ->map(function (GeneratedDocument $document) use ($uploadedTypes) {
+            ->map(function (GeneratedDocument $document) use ($uploadedTypes, $uploadsByType) {
                 $linkedType = $document->document_type->linkedQuestionnaireType();
                 $document->showsCustomUploadSlot = $linkedType === null || in_array($linkedType, $uploadedTypes, true);
+
+                $sourceUpload = $document->intake_upload_id
+                    ? $document->intakeUpload
+                    : ($linkedType ? $uploadsByType->get($linkedType->value) : null);
+                $document->extractionFailed = $sourceUpload?->ai_extraction_status === AiExtractionStatus::Failed;
 
                 return $document;
             });
@@ -725,6 +761,8 @@ new class extends Component
                                 </p>
                                 @if($document->isApproved())
                                     <p class="text-xs text-empower-muted">Approved by {{ $document->reviewedBy?->name ?? 'admin' }} &middot; {{ $document->reviewed_at->format('M j, Y') }} &middot; delivered the {{ $document->delivery_source === DocumentDeliverySource::Custom ? 'custom' : 'AI-generated' }} file</p>
+                                @elseif($document->extractionFailed && ! $document->hasCustomDocument())
+                                    <p class="text-xs text-[#a53b3b]">The AI extraction for this {{ $document->document_type->label() }} is failed. You should regenerate or custom upload your file</p>
                                 @elseif($document->status === DocumentStatus::Failed && $document->hasCustomDocument())
                                     <p class="text-xs text-[#9a6700]">AI generation failed — a custom file will be delivered instead.</p>
                                 @elseif($document->status === DocumentStatus::Failed)
