@@ -74,6 +74,8 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
         ->name('discount-codes.send');
     Route::get('/intake-uploads/{upload}/download', [IntakeUploadDownloadController::class, 'show'])
         ->name('uploads.download');
+    Route::get('/questionnaire-settings', fn () => view('admin.questionnaire-settings'))
+        ->name('questionnaire-settings');
     Route::get('/users', fn () => view('admin.users'))->name('users');
     Route::get('/users/create', fn () => view('admin.users-form'))->name('users.create');
     Route::get('/users/{user}/edit', fn (User $user) => view('admin.users-form', compact('user')))

@@ -1629,4 +1629,80 @@ class AdminPanelTest extends TestCase
 
         $this->actingAs($client)->get(route('admin.uploads.download', $upload))->assertRedirect(route('login'));
     }
+
+    // ── Questionnaire settings ──────────────────────────────────────────────
+
+    public function test_guest_cannot_access_the_questionnaire_settings_page(): void
+    {
+        $this->withoutVite()->get(route('admin.questionnaire-settings'))
+            ->assertRedirect(route('login'))
+            ->assertSessionHas('status', 'Please log in to access this page.');
+    }
+
+    public function test_client_cannot_access_the_questionnaire_settings_page(): void
+    {
+        $client = User::factory()->create(['role' => UserRole::Client]);
+
+        $this->withoutVite()->actingAs($client)->get(route('admin.questionnaire-settings'))
+            ->assertRedirect(route('login'))
+            ->assertSessionHas('status', 'Please log in to access this page.');
+    }
+
+    public function test_admin_can_view_the_questionnaire_settings_list_with_default_visibility(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.questionnaire-settings'))
+            ->assertOk()
+            ->assertSee('Compliance & Ethics Questionnaire')
+            ->assertSee('HIPAA Business Associate Questionnaire')
+            ->assertSee('HIPAA Privacy Questionnaire')
+            ->assertSee('HIPAA Security Questionnaire')
+            ->assertSeeInOrder(['Required', 'Visible']);
+    }
+
+    public function test_admin_can_hide_a_questionnaire_and_it_writes_an_activity_log(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.questionnaire-setting-list')
+            ->call('toggleVisibility', IntakeUploadType::HipaaPrivacyQuestionnaire->value);
+
+        $this->assertDatabaseHas('questionnaire_settings', [
+            'upload_type' => 'hipaa_privacy_questionnaire',
+            'is_visible' => false,
+        ]);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'questionnaire.hidden']);
+    }
+
+    public function test_toggling_a_questionnaire_twice_returns_it_to_the_default_state(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $component = Livewire::actingAs($admin)->test('admin.questionnaire-setting-list');
+        $component->call('toggleVisibility', IntakeUploadType::HipaaPrivacyQuestionnaire->value);
+        $component->call('toggleVisibility', IntakeUploadType::HipaaPrivacyQuestionnaire->value);
+
+        $this->assertDatabaseHas('questionnaire_settings', [
+            'upload_type' => 'hipaa_privacy_questionnaire',
+            'is_visible' => true,
+        ]);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'questionnaire.shown']);
+    }
+
+    public function test_hiding_the_required_questionnaire_writes_a_reassignment_activity_log(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.questionnaire-setting-list')
+            ->call('toggleVisibility', IntakeUploadType::ComplianceEthicsQuestionnaire->value);
+
+        $this->assertDatabaseHas('questionnaire_settings', [
+            'upload_type' => 'hipaa_business_associate_questionnaire',
+            'is_required' => true,
+        ]);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'questionnaire.required_reassigned']);
+    }
 }

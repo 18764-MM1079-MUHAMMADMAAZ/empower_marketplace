@@ -23,6 +23,7 @@ use App\Models\Order;
 use App\Models\Package;
 use App\Models\Practice;
 use App\Models\User;
+use App\Support\Questionnaires;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -1547,6 +1548,49 @@ class PortalTest extends TestCase
             ->test('portal')
             ->call('submitIntake')
             ->assertHasErrors(['questionnaireFiles.compliance_ethics_questionnaire']);
+    }
+
+    public function test_hiding_the_required_questionnaire_removes_it_from_step_2_and_promotes_another(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+
+        Questionnaires::setVisibility(IntakeUploadType::ComplianceEthicsQuestionnaire, false);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 2)
+            ->set('intakeMethod', 'download')
+            ->assertDontSee('Compliance & Ethics Questionnaire')
+            ->assertSee('HIPAA Business Associate Questionnaire');
+    }
+
+    public function test_submitting_intake_without_the_promoted_questionnaire_blocks_submission_the_way_the_original_required_one_did(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+
+        Questionnaires::setVisibility(IntakeUploadType::ComplianceEthicsQuestionnaire, false);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->call('submitIntake')
+            ->assertHasErrors(['questionnaireFiles.hipaa_business_associate_questionnaire'])
+            ->assertHasNoErrors(['questionnaireFiles.compliance_ethics_questionnaire']);
     }
 
     public function test_every_downloaded_questionnaire_becomes_mandatory_to_upload_and_stale_errors_clear_after_fixing(): void
