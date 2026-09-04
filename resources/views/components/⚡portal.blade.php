@@ -1461,7 +1461,7 @@ $progressPct = ($milestone / 4) * 100;
             @if($heroPackages->isNotEmpty())
             <div class="bg-white/92 rounded-[1.25rem] p-4 min-w-48">
                 <div class="text-empower-muted text-xs uppercase tracking-wider font-semibold mb-1">Summary</div>
-                <div class="text-xl font-extrabold text-navy mb-0.5">${{ number_format($heroTotal) }}</div>
+                <div class="text-xl font-extrabold text-navy mb-0.5">${{ number_format($heroTotal, $heroTotal == floor($heroTotal) ? 0 : 2) }}</div>
                 <div class="text-empower-muted text-xs">per provider / year</div>
                 <div class="text-empower-muted text-xs mt-1">
                     {{ $heroPackages->pluck('name')->implode(' + ') }}
@@ -1559,7 +1559,8 @@ $progressPct = ($milestone / 4) * 100;
             <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] mb-2">
                 <div>
                     <p class="text-sm font-semibold text-[#173045]">{{ $this->selectedPackage->name }}</p>
-                    <p class="text-xs text-empower-muted">${{ number_format($this->selectedPackage->annual_price) }} /
+                    @php $annualPrice = (float) $this->selectedPackage->annual_price; @endphp
+                    <p class="text-xs text-empower-muted">${{ number_format($annualPrice, $annualPrice == floor($annualPrice) ? 0 : 2) }} /
                         year</p>
                 </div>
                 <a href="{{ route('home') }}#pricing"
@@ -2479,7 +2480,8 @@ $progressPct = ($milestone / 4) * 100;
         @forelse($this->userOrders as $order)
         <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] last:border-b-0">
             <span class="text-sm font-semibold text-[#173045]">{{ $order->package?->name }}</span>
-            <span class="text-sm text-[#5d6e7f]">${{ number_format($order->amount_paid) }}</span>
+            @php $amountPaid = (float) $order->amount_paid; @endphp
+            <span class="text-sm text-[#5d6e7f]">${{ number_format($amountPaid, $amountPaid == floor($amountPaid) ? 0 : 2) }}</span>
             <span class="text-xs text-[#5d6e7f]">{{ $order->paid_at?->format('M j, Y') }}</span>
         </div>
         @empty
