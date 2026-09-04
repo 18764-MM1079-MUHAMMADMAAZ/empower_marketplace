@@ -24,6 +24,14 @@ class ProcessIntakeUpload implements ShouldQueue
 {
     use Queueable;
 
+    /**
+     * The larger structured questionnaires (HIPAA Security: 46 questions, HIPAA Privacy: 38) make
+     * two sequential OpenAI calls — extraction, then verifyAndCorrect() — each of which can take
+     * well over Laravel's default 60-second job timeout to generate that much structured output.
+     * Without this, the queue worker kills the job mid-request and it's recorded as a failure.
+     */
+    public int $timeout = 180;
+
     public function __construct(public readonly IntakeUpload $upload) {}
 
     public function handle(): void
@@ -288,7 +296,10 @@ PROMPT;
 
     private function openai(): PendingRequest
     {
-        return Http::withToken(config('services.openai.key'));
+        // Laravel's default 30-second HTTP timeout is comfortably enough for the smallest
+        // questionnaire (17 questions) but not reliably enough for the largest (46) — matches
+        // this job's own $timeout, which allows for both this call and verifyAndCorrect()'s.
+        return Http::withToken(config('services.openai.key'))->timeout(120);
     }
 
     private function openaiUrl(): string

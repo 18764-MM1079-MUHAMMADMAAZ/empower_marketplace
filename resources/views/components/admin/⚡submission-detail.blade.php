@@ -6,6 +6,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
+use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Models\ActivityLog;
@@ -61,15 +62,30 @@ new class extends Component
             ->whereNull('reviewed_at')
             ->get()
             ->each(function (GeneratedDocument $document) use ($uploadsByType) {
-                $linkedType = $document->document_type->linkedQuestionnaireType();
-                $upload = $document->intake_upload_id
-                    ? $document->intakeUpload
-                    : ($linkedType ? $uploadsByType->get($linkedType->value) : null);
+                $upload = $this->sourceUploadFor($document, $uploadsByType);
 
                 if ($upload?->ai_extraction_status === AiExtractionStatus::Failed) {
                     $document->update(['delivery_source' => DocumentDeliverySource::Custom]);
                 }
             });
+    }
+
+    /**
+     * The IntakeUpload a document's content was extracted from: the document's own
+     * intake_upload_id for per-upload types, or a lookup by the document type's linked
+     * questionnaire type for the questionnaire-linked manuals (which don't set intake_upload_id).
+     *
+     * @param  Collection<string, IntakeUpload>  $uploadsByType
+     */
+    private function sourceUploadFor(GeneratedDocument $document, Collection $uploadsByType): ?IntakeUpload
+    {
+        if ($document->intake_upload_id) {
+            return $document->intakeUpload;
+        }
+
+        $linkedType = $document->document_type->linkedQuestionnaireType();
+
+        return $linkedType ? $uploadsByType->get($linkedType->value) : null;
     }
 
     /**
@@ -209,10 +225,9 @@ new class extends Component
                 $linkedType = $document->document_type->linkedQuestionnaireType();
                 $document->showsCustomUploadSlot = $linkedType === null || in_array($linkedType, $uploadedTypes, true);
 
-                $sourceUpload = $document->intake_upload_id
-                    ? $document->intakeUpload
-                    : ($linkedType ? $uploadsByType->get($linkedType->value) : null);
+                $sourceUpload = $this->sourceUploadFor($document, $uploadsByType);
                 $document->extractionFailed = $sourceUpload?->ai_extraction_status === AiExtractionStatus::Failed;
+                $document->sourceUploadId = $sourceUpload?->id;
 
                 return $document;
             });
@@ -366,6 +381,46 @@ new class extends Component
         ActivityLog::record('document.deleted', "{$label} was deleted from order #{$submission->order_id} by an admin.", user: auth()->user(), order: $submission->order);
 
         unset($this->documentsForReview);
+    }
+
+    /**
+     * Re-runs AI extraction on the questionnaire a failed document was built from, rather than
+     * just re-running document generation (which would only re-merge the same missing data and
+     * fail the same way). Once extraction succeeds, ProcessIntakeUpload's own completion handler
+     * regenerates every document tied to the submission, this one included.
+     */
+    public function regenerateExtraction(int $documentId): void
+    {
+        $submission = $this->submission;
+
+        $document = GeneratedDocument::where('id', $documentId)
+            ->where('order_id', $submission->order_id)
+            ->firstOrFail();
+
+        $uploadsByType = $submission->intakeUploads->keyBy(fn (IntakeUpload $u) => $u->upload_type->value);
+        $upload = $this->sourceUploadFor($document, $uploadsByType);
+
+        if (! $upload) {
+            return;
+        }
+
+        $upload->update([
+            'ai_extraction_status' => AiExtractionStatus::Pending,
+            'ai_extracted_data' => null,
+            'ai_error_message' => null,
+            'processed_at' => null,
+        ]);
+
+        ProcessIntakeUpload::dispatch($upload);
+
+        ActivityLog::record(
+            'upload.extraction_regenerate_requested',
+            "AI extraction re-requested for {$upload->original_filename} (order #{$submission->order_id}).",
+            user: auth()->user(),
+            order: $submission->order,
+        );
+
+        unset($this->submission, $this->documentsForReview);
     }
 
     /** Undoes an accidental rejection — clears the reviewer notes and puts it back under review. */
@@ -641,6 +696,7 @@ new class extends Component
         reopen: { title: 'Reopen this submission for review?', body: 'This clears the rejection and reviewer notes, and puts the submission back under review.', label: 'Reopen', danger: false },
         revokeApproval: { title: 'Revoke approval for this document?', body: 'It goes back to pending review and the client will no longer be able to download it until it is approved again.', label: 'Revoke', danger: true },
         deleteDocument: { title: 'Delete this document?', body: 'This permanently deletes the generated document and any custom file uploaded for it. This cannot be undone.', label: 'Delete', danger: true },
+        regenerateExtraction: { title: 'Regenerate this document?', body: 'Re-runs AI extraction on the source questionnaire and rebuilds every document for this submission once it completes. This can take a couple of minutes.', label: 'Regenerate', danger: false },
         deleteUpload: { title: 'Delete this uploaded file?', body: 'This permanently deletes the file the client uploaded. This cannot be undone.', label: 'Delete', danger: true },
         deleteSubmission: { title: 'Delete this intake submission?', body: 'This permanently deletes the submission and every file the client uploaded for it. This cannot be undone.', label: 'Delete', danger: true },
     },
@@ -779,6 +835,10 @@ new class extends Component
                                 @endif
                                 <button type="button" x-on:click="confirmAction = 'deleteDocument'; confirmDocumentId = {{ $document->id }}"
                                     class="text-xs font-bold text-red-600 hover:underline">Delete</button>
+                                @if($document->extractionFailed && $document->sourceUploadId)
+                                    <button type="button" x-on:click="confirmAction = 'regenerateExtraction'; confirmDocumentId = {{ $document->id }}"
+                                        class="text-xs font-bold text-[#0b9ed0] hover:underline">Regenerate</button>
+                                @endif
                             </div>
                         </div>
 
@@ -900,7 +960,7 @@ new class extends Component
                     class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition-colors">
                     Cancel
                 </button>
-                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,deleteDocument,deleteUpload,deleteSubmission'; @endphp
+                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,deleteDocument,regenerateExtraction,deleteUpload,deleteSubmission'; @endphp
                 <button type="button"
                     x-on:click="(confirmAction === 'approve' ? $wire.approve()
                         : confirmAction === 'reject' ? $wire.reject()
@@ -908,6 +968,7 @@ new class extends Component
                         : confirmAction === 'reopen' ? $wire.reopen()
                         : confirmAction === 'revokeApproval' ? $wire.revokeApproval(confirmDocumentId)
                         : confirmAction === 'deleteDocument' ? $wire.deleteGeneratedDocument(confirmDocumentId)
+                        : confirmAction === 'regenerateExtraction' ? $wire.regenerateExtraction(confirmDocumentId)
                         : confirmAction === 'deleteUpload' ? $wire.deleteIntakeUpload(confirmUploadId)
                         : $wire.deleteSubmission()
                     ).then(() => confirmAction = null).catch(() => {})"

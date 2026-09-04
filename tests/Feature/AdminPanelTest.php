@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiExtractionStatus;
 use App\Enums\DiscountType;
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
@@ -10,6 +11,7 @@ use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Jobs\GenerateComplianceDocument;
+use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Mail\DiscountCodeSharedMail;
@@ -639,6 +641,81 @@ class AdminPanelTest extends TestCase
         $this->assertTrue($documents->firstWhere('id', $uploadedDoc->id)->showsCustomUploadSlot);
         $this->assertFalse($documents->firstWhere('id', $notUploadedDoc->id)->showsCustomUploadSlot);
         $this->assertTrue($documents->firstWhere('id', $noQuestionnaireLinkDoc->id)->showsCustomUploadSlot);
+    }
+
+    // ── Regenerate failed extraction ─────────────────────────────────────────
+
+    public function test_admin_can_regenerate_extraction_for_a_failed_questionnaire_linked_document(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $upload = IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('regenerateExtraction', $document->id);
+
+        $upload->refresh();
+        $this->assertSame(AiExtractionStatus::Pending, $upload->ai_extraction_status);
+        $this->assertNull($upload->ai_extracted_data);
+        $this->assertNull($upload->ai_error_message);
+
+        Bus::assertDispatched(ProcessIntakeUpload::class, fn ($job) => $job->upload->is($upload));
+
+        $this->assertDatabaseHas('activity_logs', [
+            'event_type' => 'upload.extraction_regenerate_requested',
+        ]);
+    }
+
+    public function test_admin_can_regenerate_extraction_for_a_failed_per_upload_document(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $upload = IntakeUpload::factory()->failed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+        ]);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::PolishedClientDocument,
+            'intake_upload_id' => $upload->id,
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('regenerateExtraction', $document->id);
+
+        Bus::assertDispatched(ProcessIntakeUpload::class, fn ($job) => $job->upload->is($upload));
+    }
+
+    public function test_regenerating_extraction_for_a_document_with_no_resolvable_upload_does_nothing(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::EmployeeHandbookBasic,
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('regenerateExtraction', $document->id);
+
+        Bus::assertNotDispatched(ProcessIntakeUpload::class);
+        $this->assertDatabaseMissing('activity_logs', ['event_type' => 'upload.extraction_regenerate_requested']);
     }
 
     // ── Upload for review (alternate to questionnaire downloads) ────────────
