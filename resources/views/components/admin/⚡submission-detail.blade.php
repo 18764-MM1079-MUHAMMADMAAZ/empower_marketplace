@@ -6,11 +6,14 @@ use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
+use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Models\ActivityLog;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeQuestion;
+use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -92,7 +95,10 @@ new class extends Component
      * Materializes a Pending GeneratedDocument row for every document type the client's
      * uploaded questionnaires entitle them to, so Document Review shows every expected
      * document — and lets the admin upload a custom file for one — even before the AI
-     * generation pipeline has run, instead of only once a row already exists.
+     * generation pipeline has run, instead of only once a row already exists. Also does the
+     * same for the package's included (policy-driven) manual types — those aren't tied to any
+     * upload, so Document Review would otherwise show nothing for them until the submission is
+     * actually approved and generateIncludedDocuments() fires.
      *
      * Mirrors ProcessIntakeUpload::dispatchDocumentGeneration()'s branching exactly, but
      * uses firstOrCreate() instead of dispatch(). It uses the identical key tuple as
@@ -101,10 +107,23 @@ new class extends Component
      */
     private function ensureExpectedDocumentsExist(IntakeSubmission $submission): void
     {
-        $submission->loadMissing('order.user.practice.oshaLocations', 'intakeUploads');
+        $submission->loadMissing('order.package', 'order.user.practice.oshaLocations', 'intakeUploads');
         $order = $submission->order;
         $oshaLocations = $order->user->practice?->oshaLocations ?? collect();
         $uploadedQuestionnaireTypes = $submission->intakeUploads->map(fn ($u) => $u->upload_type)->unique();
+
+        foreach ($order->package?->included_document_types ?? [] as $typeValue) {
+            $docType = DocumentType::tryFrom($typeValue);
+
+            if ($docType !== null) {
+                GeneratedDocument::firstOrCreate([
+                    'order_id' => $order->id,
+                    'document_type' => $docType,
+                    'osha_location_id' => null,
+                    'intake_upload_id' => null,
+                ], ['status' => DocumentStatus::Pending]);
+            }
+        }
 
         foreach ($uploadedQuestionnaireTypes as $uploadType) {
             $docType = DocumentType::forQuestionnaireType($uploadType);
@@ -114,8 +133,15 @@ new class extends Component
             }
 
             if ($docType->isPerUpload()) {
+                // finalizeIntake() flips a wizard document upload from NotApplicable to Pending
+                // (and dispatches its AI review) only once the intake is actually submitted — an
+                // upload still sitting at NotApplicable belongs to an in-progress draft, so there's
+                // no "Reviewed & Polished Document" to expect for it yet. Without this filter,
+                // that row would show as stuck "Waiting on AI generation" forever, since nothing
+                // has dispatched its generation.
                 $submission->intakeUploads
                     ->where('upload_type', $uploadType)
+                    ->reject(fn (IntakeUpload $upload) => $upload->ai_extraction_status === AiExtractionStatus::NotApplicable)
                     ->each(fn (IntakeUpload $upload) => GeneratedDocument::firstOrCreate([
                         'order_id' => $order->id,
                         'document_type' => $docType,
@@ -162,8 +188,37 @@ new class extends Component
             'order.package',
             'order.user.practice.oshaLocations',
             'intakeUploads',
+            'intakeAnswers',
             'reviewer',
         ])->findOrFail($this->submissionId);
+    }
+
+    /**
+     * The Practice Intake wizard's 66 workflow questions, grouped by section, each paired with
+     * this submission's answer (if any) — read-only, for the admin to see what will drive the
+     * generated manuals' content. Empty for a submission with no answers at all (Essential
+     * tier, or one predating the wizard).
+     *
+     * @return Collection<int, array{label: string, questions: Collection}>
+     */
+    #[Computed]
+    public function intakeAnswersBySection(): Collection
+    {
+        $answersByQuestionId = $this->submission->intakeAnswers->keyBy('intake_question_id');
+
+        if ($answersByQuestionId->isEmpty()) {
+            return collect();
+        }
+
+        return IntakeSection::with('questions')->orderBy('sort_order')->get()
+            ->map(fn (IntakeSection $section) => [
+                'label' => $section->label,
+                'questions' => $section->questions->map(fn (IntakeQuestion $question) => [
+                    'title' => $question->title,
+                    'answer' => $answersByQuestionId->get($question->id),
+                ]),
+            ])
+            ->filter(fn (array $section) => $section['questions']->contains(fn (array $q) => $q['answer'] !== null));
     }
 
     /** Aggregate AI-extraction status across every uploaded file, for the prominent banner at
@@ -171,7 +226,11 @@ new class extends Component
     #[Computed]
     public function aiExtractionBanner(): ?array
     {
-        $statuses = $this->submission->intakeUploads->pluck('ai_extraction_status');
+        // Reference documents from the Practice Intake wizard are never extracted at all —
+        // excluded here so this banner doesn't falsely claim "AI Extraction Complete" for them.
+        $statuses = $this->submission->intakeUploads
+            ->pluck('ai_extraction_status')
+            ->reject(fn ($s) => $s === AiExtractionStatus::NotApplicable);
 
         if ($statuses->isEmpty()) {
             return null;
@@ -231,6 +290,20 @@ new class extends Component
 
                 return $document;
             });
+    }
+
+    /** Whether anything on this page is still mid-generation, so the view knows to poll for
+     *  live updates instead of leaving the admin to guess and manually refresh. */
+    #[Computed]
+    public function isGenerating(): bool
+    {
+        $uploadPending = $this->submission->intakeUploads
+            ->contains(fn (IntakeUpload $u) => in_array($u->ai_extraction_status, [AiExtractionStatus::Pending, AiExtractionStatus::Processing], true));
+
+        $documentPending = $this->documentsForReview
+            ->contains(fn (GeneratedDocument $d) => in_array($d->status, [DocumentStatus::Pending, DocumentStatus::Generating], true));
+
+        return $uploadPending || $documentPending;
     }
 
     public function startReview(): void
@@ -361,6 +434,45 @@ new class extends Component
         unset($this->documentsForReview);
     }
 
+    /**
+     * Approves a single ready document without touching the submission's own status — for a
+     * document the client uploaded for review after their submission was already approved (the
+     * bulk Approve/Reject section only reappears for a Submitted/UnderReview submission, which
+     * would otherwise leave a document like this stuck with no way to release it). Safe to use
+     * during the normal review flow too: it only ever acts on the one document given.
+     */
+    public function approveDocument(int $documentId): void
+    {
+        $submission = $this->submission;
+
+        $document = GeneratedDocument::where('id', $documentId)
+            ->where('order_id', $submission->order_id)
+            ->firstOrFail();
+
+        if (! $document->canBeApproved()) {
+            return;
+        }
+
+        $document->update(['reviewed_at' => now(), 'reviewed_by' => auth()->id(), 'revoked_at' => null]);
+
+        ActivityLog::record(
+            'document.approved',
+            "{$document->document_type->label()} approved for order #{$document->order_id}.",
+            user: auth()->user(),
+            order: $document->order,
+            subject: $document,
+        );
+
+        try {
+            Mail::to($document->order->user->email)->send(new ClientDocumentsApprovedMail($document->order, $document->newCollection([$document])));
+        } catch (\Throwable $e) {
+            report($e);
+            $this->notice = 'Document approved, but the client notification email failed to send.';
+        }
+
+        unset($this->documentsForReview);
+    }
+
     public function deleteGeneratedDocument(int $documentId): void
     {
         $submission = $this->submission;
@@ -473,6 +585,8 @@ new class extends Component
             subject: $submission,
         );
 
+        $this->generateIncludedDocuments($submission->order);
+
         // Approving the submission is the only approval action now — finalize every document
         // that already has a file ready to go (AI-generated or custom) in the same step, rather
         // than requiring a separate per-document approval. Doesn't email on its own — the
@@ -507,6 +621,36 @@ new class extends Component
         }
 
         unset($this->submission);
+    }
+
+    /**
+     * Dispatches generation for every one of the package's included document types that
+     * doesn't already have a document row for this order yet — first-time generation only.
+     * A document that already exists (from an earlier approval) is left as-is; regenerating
+     * it after the fact is the existing explicit "Regenerate" admin/client action, not
+     * something approving the submission does implicitly.
+     */
+    private function generateIncludedDocuments(Order $order): void
+    {
+        $includedTypes = $order->package?->included_document_types ?? [];
+
+        // Excludes Pending rows deliberately — ensureExpectedDocumentsExist() pre-creates those
+        // as placeholders the moment this page loads, well before approval, so their presence
+        // alone can't mean "already generated." Only a status past Pending means generation was
+        // actually attempted at least once.
+        $alreadyGeneratedTypes = GeneratedDocument::where('order_id', $order->id)
+            ->where('status', '!=', DocumentStatus::Pending)
+            ->pluck('document_type');
+
+        foreach ($includedTypes as $typeValue) {
+            $documentType = DocumentType::tryFrom($typeValue);
+
+            if ($documentType === null || $alreadyGeneratedTypes->contains($documentType)) {
+                continue;
+            }
+
+            GenerateComplianceDocument::dispatch($order, $documentType);
+        }
     }
 
     /** Marks each document approved, as part of approving the submission as a whole. Does NOT
@@ -695,6 +839,7 @@ new class extends Component
         deleteCustom: { title: 'Remove this custom file?', body: 'This cannot be undone. The AI-generated file will be delivered instead unless a new custom file is uploaded.', label: 'Remove', danger: true },
         reopen: { title: 'Reopen this submission for review?', body: 'This clears the rejection and reviewer notes, and puts the submission back under review.', label: 'Reopen', danger: false },
         revokeApproval: { title: 'Revoke approval for this document?', body: 'It goes back to pending review and the client will no longer be able to download it until it is approved again.', label: 'Revoke', danger: true },
+        approveDocument: { title: 'Approve this document?', body: 'It becomes visible to the client immediately and they are emailed a notification.', label: 'Approve', danger: false },
         deleteDocument: { title: 'Delete this document?', body: 'This permanently deletes the generated document and any custom file uploaded for it. This cannot be undone.', label: 'Delete', danger: true },
         regenerateExtraction: { title: 'Regenerate this document?', body: 'Re-runs AI extraction on the source questionnaire and rebuilds every document for this submission once it completes. This can take a couple of minutes.', label: 'Regenerate', danger: false },
         deleteUpload: { title: 'Delete this uploaded file?', body: 'This permanently deletes the file the client uploaded. This cannot be undone.', label: 'Delete', danger: true },
@@ -770,7 +915,8 @@ new class extends Component
             <div class="flex items-center justify-between gap-3 py-2.5 border-b border-empower-border last:border-b-0">
                 <div>
                     <p class="text-sm font-semibold text-empower-text">{{ $upload->original_filename }}</p>
-                    <p class="text-xs text-empower-muted">{{ $upload->upload_type->value }} &middot; {{ $upload->fileSizeForHumans() }} &middot; AI extraction: {{ $upload->ai_extraction_status->value }}</p>
+                    <p class="text-xs text-empower-muted">{{ $upload->upload_type->value }} &middot; {{ $upload->fileSizeForHumans() }} &middot;
+                        {{ $upload->ai_extraction_status === AiExtractionStatus::NotApplicable ? 'Reference document (not AI-processed)' : 'AI extraction: '.$upload->ai_extraction_status->value }}</p>
                     @if($upload->ai_extraction_status === AiExtractionStatus::Failed && $upload->ai_error_message)
                         <p class="text-xs text-[#a53b3b] mt-0.5">{{ $upload->ai_error_message }}</p>
                     @endif
@@ -786,11 +932,48 @@ new class extends Component
         @endforelse
     </div>
 
+    @if($this->intakeAnswersBySection->isNotEmpty())
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+        <h3 class="text-sm font-semibold text-navy mb-1">Practice Intake Answers</h3>
+        <p class="text-xs text-empower-muted mb-4">What the practice typed into the intake wizard — this drives the generated manuals' content. Read-only.</p>
+
+        <div class="space-y-5">
+            @foreach($this->intakeAnswersBySection as $section)
+            <div>
+                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">{{ $section['label'] }}</p>
+                <div class="space-y-3">
+                    @foreach($section['questions'] as $q)
+                    <div class="border-b border-empower-border last:border-b-0 pb-3 last:pb-0">
+                        <p class="text-sm font-semibold text-empower-text">{{ $q['title'] }}</p>
+                        @if(! $q['answer'])
+                        <p class="text-xs text-empower-muted italic mt-0.5">Not yet answered.</p>
+                        @elseif(! $q['answer']->has_documented_process)
+                        <p class="text-xs text-[#9a6700] italic mt-0.5">No documented process.</p>
+                        @else
+                        <p class="text-sm text-empower-muted mt-0.5 whitespace-pre-line">{{ $q['answer']->response }}</p>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    <div @if($this->isGenerating) wire:poll.5s="$refresh" @endif
+        class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
                 <h3 class="text-sm font-semibold text-navy">Document Review</h3>
             </div>
-            <p class="text-xs text-empower-muted mb-4">Every document expected from the uploaded questionnaires, with its current AI generation status. If a document fails or takes too long to generate, upload a corrected file below and choose which version to deliver, then use Approve/Reject below to finalize the whole submission.</p>
+            <p class="text-xs text-empower-muted mb-4">Every document this package includes, with its current generation status. Policy-driven manuals generate once the submission is approved. If a document fails or takes too long to generate, upload a corrected file below and choose which version to deliver, then use Approve/Reject below to finalize the whole submission.</p>
+
+            @if($this->isGenerating)
+                <div class="mb-4 flex items-center gap-2 text-xs font-semibold text-empower-text bg-page border border-empower-border rounded-xl px-3 py-2">
+                    <x-spinner class="h-3.5 w-3.5 text-accent" />
+                    Documents are being generated — this updates automatically every few seconds.
+                </div>
+            @endif
 
             <div class="space-y-4">
                 @forelse($this->documentsForReview as $document)
@@ -834,6 +1017,9 @@ new class extends Component
                                 @if($document->isApproved())
                                     <button type="button" x-on:click="confirmAction = 'revokeApproval'; confirmDocumentId = {{ $document->id }}"
                                         class="text-xs font-bold text-red-600 hover:underline">Revoke</button>
+                                @elseif($document->canBeApproved())
+                                    <button type="button" x-on:click="confirmAction = 'approveDocument'; confirmDocumentId = {{ $document->id }}"
+                                        class="text-xs font-bold text-[#0b9ed0] hover:underline">Approve</button>
                                 @endif
                                 <button type="button" x-on:click="confirmAction = 'deleteDocument'; confirmDocumentId = {{ $document->id }}"
                                     class="text-xs font-bold text-red-600 hover:underline">Delete</button>
@@ -897,7 +1083,7 @@ new class extends Component
                         </div>
                     </div>
                 @empty
-                    <p class="text-sm text-empower-muted italic">No documents are expected yet — this practice hasn't uploaded a questionnaire that maps to a compliance document.</p>
+                    <p class="text-sm text-empower-muted italic">No documents are expected — this package doesn't include any auto-generated manuals, and the practice hasn't uploaded a questionnaire that maps to one.</p>
                 @endforelse
             </div>
         </div>
@@ -962,13 +1148,14 @@ new class extends Component
                     class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition-colors">
                     Cancel
                 </button>
-                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,deleteDocument,regenerateExtraction,deleteUpload,deleteSubmission'; @endphp
+                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,approveDocument,deleteDocument,regenerateExtraction,deleteUpload,deleteSubmission'; @endphp
                 <button type="button"
                     x-on:click="(confirmAction === 'approve' ? $wire.approve()
                         : confirmAction === 'reject' ? $wire.reject()
                         : confirmAction === 'deleteCustom' ? $wire.deleteCustomDocument(confirmDocumentId)
                         : confirmAction === 'reopen' ? $wire.reopen()
                         : confirmAction === 'revokeApproval' ? $wire.revokeApproval(confirmDocumentId)
+                        : confirmAction === 'approveDocument' ? $wire.approveDocument(confirmDocumentId)
                         : confirmAction === 'deleteDocument' ? $wire.deleteGeneratedDocument(confirmDocumentId)
                         : confirmAction === 'regenerateExtraction' ? $wire.regenerateExtraction(confirmDocumentId)
                         : confirmAction === 'deleteUpload' ? $wire.deleteIntakeUpload(confirmUploadId)

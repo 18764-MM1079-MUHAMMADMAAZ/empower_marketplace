@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'intake_submission_id', 'upload_type', 'original_filename', 'storage_path',
+    'intake_submission_id', 'upload_type', 'document_category', 'original_filename', 'storage_path',
     'mime_type', 'file_size', 'ai_extraction_status',
     'ai_extracted_data', 'ai_error_message', 'processed_at',
 ])]

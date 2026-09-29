@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\DocumentStatus;
 use App\Enums\IntakeSubmissionStatus;
 use App\Models\IntakeSubmission;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -32,7 +33,18 @@ new class extends Component
     public function submissions(): LengthAwarePaginator
     {
         return IntakeSubmission::query()
-            ->with(['order.package', 'order.user.practice'])
+            ->where('status', '!=', IntakeSubmissionStatus::Draft)
+            ->with([
+                'order.package',
+                'order.user.practice',
+                // A document can be sitting ready for review without the submission's own status
+                // changing at all — e.g. the client sent one more document for AI review from
+                // the Dashboard well after this submission was already approved — so this can't
+                // be inferred from $submission->status alone; it needs its own indicator below.
+                'order.generatedDocuments' => fn ($q) => $q->where('status', DocumentStatus::Completed)
+                    ->whereNull('reviewed_at')
+                    ->where('is_stale', false),
+            ])
             ->when($this->status !== 'all', fn ($q) => $q->where('status', $this->status))
             ->when($this->search !== '', function ($q) {
                 $search = $this->search;
@@ -47,6 +59,7 @@ new class extends Component
     public function statusCounts(): array
     {
         return IntakeSubmission::query()
+            ->where('status', '!=', IntakeSubmissionStatus::Draft)
             ->selectRaw('status, count(*) as aggregate')
             ->groupBy('status')
             ->pluck('aggregate', 'status')
@@ -108,10 +121,20 @@ new class extends Component
                                     IntakeSubmissionStatus::UnderReview => 'bg-[#fff3cd] text-[#9a6700]',
                                     default => 'bg-[#eef6fb] text-empower-muted',
                                 };
+                                $pendingDocumentCount = $submission->order?->generatedDocuments->count() ?? 0;
                             @endphp
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold uppercase tracking-wider {{ $badgeClasses }}">
-                                {{ str_replace('_', ' ', $submission->status->value) }}
-                            </span>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold uppercase tracking-wider {{ $badgeClasses }}">
+                                    {{ str_replace('_', ' ', $submission->status->value) }}
+                                </span>
+                                @if($pendingDocumentCount > 0)
+                                <span title="{{ $pendingDocumentCount }} document(s) generated and waiting on your review"
+                                    class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[0.65rem] font-extrabold uppercase tracking-wider bg-[#fff3cd] text-[#9a6700]">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-[#9a6700]"></span>
+                                    {{ $pendingDocumentCount }} to review
+                                </span>
+                                @endif
+                            </div>
                         </td>
                         <td class="px-5 py-3.5 text-empower-muted text-xs">{{ $submission->submitted_at?->diffForHumans() ?? '—' }}</td>
                         <td class="px-5 py-3.5 text-right">

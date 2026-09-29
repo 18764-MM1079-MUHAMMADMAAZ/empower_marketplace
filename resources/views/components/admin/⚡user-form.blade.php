@@ -2,10 +2,13 @@
 
 use App\Enums\UserRole;
 use App\Models\ActivityLog;
+use App\Models\Order;
 use App\Models\OshaLocation;
 use App\Models\Practice;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 
 new class extends Component
@@ -33,6 +36,46 @@ new class extends Component
     public ?int $practiceBillableProvidersCount = null;
 
     public bool $practiceIsLocked = false;
+
+    public string $practiceComplianceOfficerName = '';
+
+    public string $practiceComplianceOfficerPhone = '';
+
+    public string $practiceComplianceOfficerEmail = '';
+
+    public string $practiceHipaaPrivacyOfficerName = '';
+
+    public string $practiceHipaaPrivacyOfficerPhone = '';
+
+    public string $practiceHipaaPrivacyOfficerEmail = '';
+
+    public string $practiceHipaaSecurityOfficerName = '';
+
+    public string $practiceHipaaSecurityOfficerPhone = '';
+
+    public string $practiceHipaaSecurityOfficerEmail = '';
+
+    public string $practiceReleaseOfInfoOfficerName = '';
+
+    public string $practiceReleaseOfInfoOfficerPhone = '';
+
+    public string $practiceReleaseOfInfoOfficerEmail = '';
+
+    public string $practiceItVendorName = '';
+
+    public string $practiceComplianceHotlineNumber = '';
+
+    public string $practiceComplianceHotlineEmail = '';
+
+    public bool $practiceUsesEhcpHotline = false;
+
+    public ?int $practiceHotlinePosterCount = null;
+
+    /** @var array<int, array{name: string, title: string}> */
+    public array $practiceCommitteeMembers = [];
+
+    /** @var array<int, array{name: string, title: string}> */
+    public array $practiceGoverningBoardMembers = [];
 
     /** @var array<int, array<string, mixed>> */
     public array $oshaLocations = [];
@@ -67,7 +110,44 @@ new class extends Component
         $this->practiceBillableProvidersCount = $practice->billable_providers_count;
         $this->practiceIsLocked = $practice->is_profile_locked;
 
+        $this->practiceComplianceOfficerName = $practice->compliance_officer_name ?? '';
+        $this->practiceComplianceOfficerPhone = $practice->compliance_officer_phone ?? '';
+        $this->practiceComplianceOfficerEmail = $practice->compliance_officer_email ?? '';
+        $this->practiceHipaaPrivacyOfficerName = $practice->hipaa_privacy_officer_name ?? '';
+        $this->practiceHipaaPrivacyOfficerPhone = $practice->hipaa_privacy_officer_phone ?? '';
+        $this->practiceHipaaPrivacyOfficerEmail = $practice->hipaa_privacy_officer_email ?? '';
+        $this->practiceHipaaSecurityOfficerName = $practice->hipaa_security_officer_name ?? '';
+        $this->practiceHipaaSecurityOfficerPhone = $practice->hipaa_security_officer_phone ?? '';
+        $this->practiceHipaaSecurityOfficerEmail = $practice->hipaa_security_officer_email ?? '';
+        $this->practiceReleaseOfInfoOfficerName = $practice->release_of_info_officer_name ?? '';
+        $this->practiceReleaseOfInfoOfficerPhone = $practice->release_of_info_officer_phone ?? '';
+        $this->practiceReleaseOfInfoOfficerEmail = $practice->release_of_info_officer_email ?? '';
+        $this->practiceItVendorName = $practice->it_vendor_name ?? '';
+        $this->practiceComplianceHotlineNumber = $practice->compliance_hotline_number ?? '';
+        $this->practiceComplianceHotlineEmail = $practice->compliance_hotline_email ?? '';
+        $this->practiceUsesEhcpHotline = (bool) $practice->uses_ehcp_hotline;
+        $this->practiceHotlinePosterCount = $practice->hotline_poster_count;
+        $this->practiceCommitteeMembers = $practice->compliance_committee_members ?? [];
+        $this->practiceGoverningBoardMembers = $practice->compliance_governing_board_members ?? [];
+
         $this->oshaLocations = $practice->oshaLocations->map(fn (OshaLocation $location) => $this->locationToArray($location))->all();
+    }
+
+    /** Every order this user has placed, with its intake submission (if any) — for the Practice
+     *  Intake status card, so support can see (and jump to) a client's wizard progress even
+     *  before it's certified/submitted, since Draft submissions are deliberately hidden from the
+     *  main submissions list. */
+    #[Computed]
+    public function orders(): Collection
+    {
+        if (! $this->userId) {
+            return collect();
+        }
+
+        return Order::where('user_id', $this->userId)
+            ->with(['package', 'intakeSubmission'])
+            ->latest()
+            ->get();
     }
 
     /** @return array<string, mixed> */
@@ -146,7 +226,32 @@ new class extends Component
                 'practiceAddress' => 'nullable|string|max:255',
                 'practiceSpecialty' => 'nullable|string|max:100',
                 'practiceBillableProvidersCount' => 'nullable|integer|min:1|max:9999',
+                'practiceComplianceOfficerName' => 'nullable|string|max:150',
+                'practiceComplianceOfficerPhone' => 'nullable|string|max:30',
+                'practiceComplianceOfficerEmail' => 'nullable|email|max:150',
+                'practiceHipaaPrivacyOfficerName' => 'nullable|string|max:150',
+                'practiceHipaaPrivacyOfficerPhone' => 'nullable|string|max:30',
+                'practiceHipaaPrivacyOfficerEmail' => 'nullable|email|max:150',
+                'practiceHipaaSecurityOfficerName' => 'nullable|string|max:150',
+                'practiceHipaaSecurityOfficerPhone' => 'nullable|string|max:30',
+                'practiceHipaaSecurityOfficerEmail' => 'nullable|email|max:150',
+                'practiceReleaseOfInfoOfficerName' => 'nullable|string|max:150',
+                'practiceReleaseOfInfoOfficerPhone' => 'nullable|string|max:30',
+                'practiceReleaseOfInfoOfficerEmail' => 'nullable|email|max:150',
+                'practiceItVendorName' => 'nullable|string|max:150',
+                'practiceComplianceHotlineNumber' => 'nullable|string|max:30',
+                'practiceComplianceHotlineEmail' => 'nullable|email|max:150',
+                'practiceHotlinePosterCount' => 'nullable|integer|min:0|max:999',
+                'practiceCommitteeMembers.*.name' => 'nullable|string|max:150',
+                'practiceCommitteeMembers.*.title' => 'nullable|string|max:150',
+                'practiceGoverningBoardMembers.*.name' => 'nullable|string|max:150',
+                'practiceGoverningBoardMembers.*.title' => 'nullable|string|max:150',
             ]);
+
+            $filterMembers = fn (array $members) => collect($members)
+                ->filter(fn ($m) => trim($m['name'] ?? '') !== '')
+                ->values()
+                ->all();
 
             $practice = Practice::findOrFail($this->practiceId);
             $practice->update([
@@ -156,12 +261,53 @@ new class extends Component
                 'billable_providers_count' => $this->practiceBillableProvidersCount ?? 1,
                 'is_profile_locked' => $this->practiceIsLocked,
                 'locked_at' => $this->practiceIsLocked ? ($practice->locked_at ?? now()) : null,
+                'compliance_officer_name' => $this->practiceComplianceOfficerName ?: null,
+                'compliance_officer_phone' => $this->practiceComplianceOfficerPhone ?: null,
+                'compliance_officer_email' => $this->practiceComplianceOfficerEmail ?: null,
+                'hipaa_privacy_officer_name' => $this->practiceHipaaPrivacyOfficerName ?: null,
+                'hipaa_privacy_officer_phone' => $this->practiceHipaaPrivacyOfficerPhone ?: null,
+                'hipaa_privacy_officer_email' => $this->practiceHipaaPrivacyOfficerEmail ?: null,
+                'hipaa_security_officer_name' => $this->practiceHipaaSecurityOfficerName ?: null,
+                'hipaa_security_officer_phone' => $this->practiceHipaaSecurityOfficerPhone ?: null,
+                'hipaa_security_officer_email' => $this->practiceHipaaSecurityOfficerEmail ?: null,
+                'release_of_info_officer_name' => $this->practiceReleaseOfInfoOfficerName ?: null,
+                'release_of_info_officer_phone' => $this->practiceReleaseOfInfoOfficerPhone ?: null,
+                'release_of_info_officer_email' => $this->practiceReleaseOfInfoOfficerEmail ?: null,
+                'it_vendor_name' => $this->practiceItVendorName ?: null,
+                'compliance_hotline_number' => $this->practiceUsesEhcpHotline ? null : ($this->practiceComplianceHotlineNumber ?: null),
+                'compliance_hotline_email' => $this->practiceUsesEhcpHotline ? null : ($this->practiceComplianceHotlineEmail ?: null),
+                'uses_ehcp_hotline' => $this->practiceUsesEhcpHotline,
+                'hotline_poster_count' => $this->practiceHotlinePosterCount,
+                'compliance_committee_members' => $filterMembers($this->practiceCommitteeMembers),
+                'compliance_governing_board_members' => $filterMembers($this->practiceGoverningBoardMembers),
             ]);
 
             ActivityLog::record('practice.updated', "{$practice->name}'s practice profile was updated by an admin.", user: auth()->user(), subject: $practice);
         }
 
         $this->redirect(route('admin.users'), navigate: true);
+    }
+
+    public function addCommitteeMember(): void
+    {
+        $this->practiceCommitteeMembers[] = ['name' => '', 'title' => ''];
+    }
+
+    public function removeCommitteeMember(int $index): void
+    {
+        unset($this->practiceCommitteeMembers[$index]);
+        $this->practiceCommitteeMembers = array_values($this->practiceCommitteeMembers);
+    }
+
+    public function addBoardMember(): void
+    {
+        $this->practiceGoverningBoardMembers[] = ['name' => '', 'title' => ''];
+    }
+
+    public function removeBoardMember(int $index): void
+    {
+        unset($this->practiceGoverningBoardMembers[$index]);
+        $this->practiceGoverningBoardMembers = array_values($this->practiceGoverningBoardMembers);
     }
 
     public function addOshaLocation(): void
@@ -398,6 +544,148 @@ new class extends Component
                         <span class="text-sm font-semibold text-[#173a59]">Profile locked (client can no longer edit their intake)</span>
                     </label>
                 </div>
+            </div>
+        </div>
+
+        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 space-y-5">
+            <div>
+                <h2 class="text-lg font-semibold text-navy mb-1">Compliance Team</h2>
+                <p class="text-sm text-empower-muted">Captured on the Practice Intake wizard's Team screen — edit here for corrections or support requests.</p>
+            </div>
+
+            @foreach([
+                ['prefix' => 'practiceComplianceOfficer', 'label' => 'Compliance Officer'],
+                ['prefix' => 'practiceHipaaPrivacyOfficer', 'label' => 'HIPAA Privacy Officer'],
+                ['prefix' => 'practiceHipaaSecurityOfficer', 'label' => 'HIPAA Security Officer'],
+                ['prefix' => 'practiceReleaseOfInfoOfficer', 'label' => 'Release of Information Officer'],
+            ] as $officer)
+            <div class="border-t border-empower-border pt-4">
+                <p class="text-sm font-semibold text-navy mb-2">{{ $officer['label'] }}</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <input wire:model="{{ $officer['prefix'] }}Name" type="text" placeholder="Name"
+                            class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Name') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error($officer['prefix'].'Name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <input wire:model="{{ $officer['prefix'] }}Phone" type="text" placeholder="Phone"
+                            class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Phone') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error($officer['prefix'].'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <input wire:model="{{ $officer['prefix'] }}Email" type="email" placeholder="Email"
+                            class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Email') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error($officer['prefix'].'Email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+            </div>
+            @endforeach
+
+            <div class="border-t border-empower-border pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-[#173a59] mb-1.5">IT Vendor</label>
+                    <input wire:model="practiceItVendorName" type="text"
+                        class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    @error('practiceItVendorName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Hotline posters needed</label>
+                    <input wire:model="practiceHotlinePosterCount" type="number" min="0"
+                        class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    @error('practiceHotlinePosterCount') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+            </div>
+
+            <div class="border-t border-empower-border pt-4">
+                <label class="inline-flex items-center gap-2 text-sm text-empower-text cursor-pointer mb-3">
+                    <input type="checkbox" wire:model.live="practiceUsesEhcpHotline" class="rounded border-empower-border text-navy focus:ring-accent">
+                    Uses Empower's shared compliance hotline instead of their own
+                </label>
+                @unless($practiceUsesEhcpHotline)
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Compliance hotline number</label>
+                        <input wire:model="practiceComplianceHotlineNumber" type="text"
+                            class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('practiceComplianceHotlineNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Compliance hotline email</label>
+                        <input wire:model="practiceComplianceHotlineEmail" type="email"
+                            class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('practiceComplianceHotlineEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+                @endunless
+            </div>
+
+            <div class="border-t border-empower-border pt-4">
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-sm font-semibold text-[#173a59]">Compliance committee members</p>
+                    <button type="button" wire:click="addCommitteeMember" class="text-xs font-bold text-[#0b9ed0] hover:underline">+ Add member</button>
+                </div>
+                @foreach($practiceCommitteeMembers as $i => $member)
+                <div class="flex gap-2 mb-2">
+                    <input wire:model="practiceCommitteeMembers.{{ $i }}.name" type="text" placeholder="Name"
+                        class="flex-1 rounded-xl border border-empower-border bg-page px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    <input wire:model="practiceCommitteeMembers.{{ $i }}.title" type="text" placeholder="Title"
+                        class="flex-1 rounded-xl border border-empower-border bg-page px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    <button type="button" wire:click="removeCommitteeMember({{ $i }})" class="text-xs font-bold text-red-600 hover:underline flex-shrink-0">Remove</button>
+                </div>
+                @endforeach
+            </div>
+
+            <div class="border-t border-empower-border pt-4">
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-sm font-semibold text-[#173a59]">Governing board members</p>
+                    <button type="button" wire:click="addBoardMember" class="text-xs font-bold text-[#0b9ed0] hover:underline">+ Add member</button>
+                </div>
+                @foreach($practiceGoverningBoardMembers as $i => $member)
+                <div class="flex gap-2 mb-2">
+                    <input wire:model="practiceGoverningBoardMembers.{{ $i }}.name" type="text" placeholder="Name"
+                        class="flex-1 rounded-xl border border-empower-border bg-page px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    <input wire:model="practiceGoverningBoardMembers.{{ $i }}.title" type="text" placeholder="Title"
+                        class="flex-1 rounded-xl border border-empower-border bg-page px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    <button type="button" wire:click="removeBoardMember({{ $i }})" class="text-xs font-bold text-red-600 hover:underline flex-shrink-0">Remove</button>
+                </div>
+                @endforeach
+            </div>
+
+            <div class="flex justify-end pt-2 border-t border-empower-border">
+                <button wire:click="save" wire:target="save"
+                    class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors"
+                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed" wire:target="save">
+                    <span wire:loading.remove wire:target="save">Save Changes &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="save" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving…</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+            <h2 class="text-lg font-semibold text-navy mb-3">Practice Intake</h2>
+            <div class="space-y-2">
+                @forelse($this->orders as $order)
+                <div class="flex items-center justify-between gap-3 py-2 border-b border-empower-border last:border-b-0">
+                    <div>
+                        <p class="text-sm font-semibold text-empower-text">{{ $order->package?->name ?? 'Package removed' }}</p>
+                        <p class="text-xs text-empower-muted">
+                            @if($order->intakeSubmission)
+                                Status: {{ str_replace('_', ' ', ucfirst($order->intakeSubmission->status->value)) }}
+                                @if($order->intakeSubmission->status->value === 'draft')
+                                    &middot; Wizard screen: {{ $order->intakeSubmission->wizard_screen ?? 'documents' }}
+                                @endif
+                            @else
+                                Not started
+                            @endif
+                        </p>
+                    </div>
+                    @if($order->intakeSubmission)
+                        <a href="{{ route('admin.submissions.show', $order->intakeSubmission) }}" wire:navigate class="text-xs font-bold text-[#0b9ed0] hover:underline flex-shrink-0">View &rarr;</a>
+                    @endif
+                </div>
+                @empty
+                <p class="text-sm text-empower-muted italic">No orders yet.</p>
+                @endforelse
             </div>
         </div>
 

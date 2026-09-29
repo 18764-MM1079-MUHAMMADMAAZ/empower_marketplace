@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
@@ -353,6 +354,93 @@ class AdminUsersOrdersTest extends TestCase
         $this->assertNull($practice->address);
         $this->assertNull($practice->specialty);
         $this->assertSame(1, $practice->billable_providers_count);
+    }
+
+    public function test_admin_can_edit_the_practices_compliance_team_fields(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+        $practice = Practice::factory()->create(['user_id' => $client->id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.user-form', ['user' => $client])
+            ->set('practiceComplianceOfficerName', 'Dr. Jane Rivera')
+            ->set('practiceComplianceOfficerPhone', '555-0100')
+            ->set('practiceComplianceOfficerEmail', 'jane@example.com')
+            ->set('practiceItVendorName', 'Acme IT')
+            ->set('practiceUsesEhcpHotline', false)
+            ->set('practiceComplianceHotlineNumber', '555-0199')
+            ->set('practiceComplianceHotlineEmail', 'hotline@example.com')
+            ->set('practiceHotlinePosterCount', 3)
+            ->call('addCommitteeMember')
+            ->set('practiceCommitteeMembers.0.name', 'T. Lee')
+            ->set('practiceCommitteeMembers.0.title', 'Nurse Manager')
+            ->call('save')
+            ->assertRedirect(route('admin.users'));
+
+        $practice->refresh();
+        $this->assertSame('Dr. Jane Rivera', $practice->compliance_officer_name);
+        $this->assertSame('555-0100', $practice->compliance_officer_phone);
+        $this->assertSame('jane@example.com', $practice->compliance_officer_email);
+        $this->assertSame('Acme IT', $practice->it_vendor_name);
+        $this->assertSame('555-0199', $practice->compliance_hotline_number);
+        $this->assertSame(3, $practice->hotline_poster_count);
+        $this->assertSame([['name' => 'T. Lee', 'title' => 'Nurse Manager']], $practice->compliance_committee_members);
+    }
+
+    public function test_using_the_shared_hotline_clears_the_practices_own_hotline_details(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+        $practice = Practice::factory()->create([
+            'user_id' => $client->id,
+            'compliance_hotline_number' => '555-0199',
+            'compliance_hotline_email' => 'hotline@example.com',
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.user-form', ['user' => $client])
+            ->set('practiceUsesEhcpHotline', true)
+            ->call('save')
+            ->assertRedirect(route('admin.users'));
+
+        $practice->refresh();
+        $this->assertTrue($practice->uses_ehcp_hotline);
+        $this->assertNull($practice->compliance_hotline_number);
+        $this->assertNull($practice->compliance_hotline_email);
+    }
+
+    public function test_users_page_shows_practice_intake_progress_and_links_to_the_submission(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+        Practice::factory()->create(['user_id' => $client->id]);
+        $package = Package::factory()->create();
+        $order = Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'basics',
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.user-form', ['user' => $client])
+            ->assertSee('Practice Intake')
+            ->assertSee('Wizard screen: basics')
+            ->assertSee(route('admin.submissions.show', $submission), false);
+    }
+
+    public function test_users_page_shows_not_started_for_an_order_with_no_submission_yet(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+        Practice::factory()->create(['user_id' => $client->id]);
+        $package = Package::factory()->create();
+        Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.user-form', ['user' => $client])
+            ->assertSee('Not started');
     }
 
     public function test_editing_a_practice_preserves_a_specialty_outside_the_preset_list(): void

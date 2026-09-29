@@ -4,6 +4,7 @@ use App\Enums\DocumentType;
 use App\Enums\IntakeUploadType;
 use App\Enums\PackageTier;
 use App\Models\ActivityLog;
+use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
 use App\Models\IntakeUpload;
 use App\Models\Questionnaire;
@@ -147,6 +148,20 @@ new class extends Component
         return $documentType?->label();
     }
 
+    /** Whether this document type has moved to the Practice Intake wizard's policy-driven
+     *  merge — if so, everything on this form (schema, re-uploaded template) has no effect on
+     *  any real client document anymore. */
+    public function isMigratedToWizard(): bool
+    {
+        if (! $this->uploadType) {
+            return false;
+        }
+
+        $documentType = DocumentType::forQuestionnaireType(IntakeUploadType::from($this->uploadType));
+
+        return $documentType && CompliancePolicy::where('manual', $documentType->value)->exists();
+    }
+
     public function save(): void
     {
         $rules = [
@@ -259,6 +274,16 @@ new class extends Component
             @if($this->resolvedDocumentType())
                 <div class="sm:col-span-2">
                     <p class="text-xs text-empower-muted">Feeds compliance manual: <span class="font-semibold text-navy">{{ $this->resolvedDocumentType() }}</span></p>
+                </div>
+            @endif
+
+            @if($this->isMigratedToWizard())
+                <div class="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <strong>This manual is now driven by the Practice Intake wizard.</strong> Clients answer its
+                    workflow questions directly in the portal — nothing below (schema, re-uploaded template) affects
+                    any real client document anymore. To change this manual's content, edit its questions under
+                    <a href="{{ route('admin.intake-questions') }}" wire:navigate class="underline font-semibold">Intake Questions</a>
+                    instead.
                 </div>
             @endif
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\DocumentType;
 use App\Enums\PackageTier;
 use App\Models\ActivityLog;
 use App\Models\Package;
@@ -7,6 +8,17 @@ use Livewire\Component;
 
 new class extends Component
 {
+    /** The only document types safe to auto-generate on submission approval today — every one
+     *  is policy-driven, merging from the Practice Intake wizard's answers (see
+     *  GenerateComplianceDocument). Other DocumentType values either need an uploaded file
+     *  (per-upload/per-location types) or haven't been migrated off the old questionnaire-upload
+     *  mechanism, so they're deliberately not offered here. */
+    public const AUTO_GENERATED_DOCUMENT_TYPES = [
+        DocumentType::ComplianceEthicsManual,
+        DocumentType::HipaaPrivacyPolicy,
+        DocumentType::HipaaSecurityManual,
+    ];
+
     public ?int $packageId = null;
 
     public string $slug = '';
@@ -29,6 +41,9 @@ new class extends Component
 
     public int $sortOrder = 0;
 
+    /** @var array<int, string> */
+    public array $includedDocumentTypes = [];
+
     public function mount(?Package $package = null): void
     {
         if (! $package) {
@@ -46,6 +61,7 @@ new class extends Component
         $this->featuresText = implode("\n", $package->features ?? []);
         $this->isActive = $package->is_active;
         $this->sortOrder = $package->sort_order;
+        $this->includedDocumentTypes = $package->included_document_types ?? [];
     }
 
     /** Tiers not yet backing an existing package — the only valid slugs for a new package. */
@@ -72,6 +88,8 @@ new class extends Component
             'annualPrice' => 'nullable|numeric|min:0',
             'description' => 'nullable|string|max:2000',
             'sortOrder' => 'required|integer|min:0|max:255',
+            'includedDocumentTypes' => 'array',
+            'includedDocumentTypes.*' => 'in:'.implode(',', array_map(fn ($type) => $type->value, self::AUTO_GENERATED_DOCUMENT_TYPES)),
         ];
 
         if (! $this->packageId) {
@@ -92,6 +110,7 @@ new class extends Component
             'features' => $features,
             'is_active' => $this->isActive,
             'sort_order' => $this->sortOrder,
+            'included_document_types' => $this->includedDocumentTypes,
         ];
 
         if ($this->packageId) {
@@ -101,7 +120,6 @@ new class extends Component
             ActivityLog::record('package.updated', "{$package->name} was updated.", user: auth()->user(), subject: $package);
         } else {
             $data['slug'] = $this->slug;
-            $data['included_document_types'] = [];
             $package = Package::create($data);
 
             ActivityLog::record('package.created', "{$package->name} was created.", user: auth()->user(), subject: $package);
@@ -198,6 +216,19 @@ new class extends Component
                 <textarea wire:model="featuresText" rows="5" placeholder="Employee Handbook (Basic)&#10;OSHA Safety Plan"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition"></textarea>
                 <p class="mt-1 text-xs text-empower-muted">Shown on the pricing page and in each client's dashboard.</p>
+            </div>
+
+            <div class="sm:col-span-2">
+                <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Auto-Generated Manuals</label>
+                <p class="text-xs text-empower-muted mb-2">Generated automatically once a submission on this package is approved, from the Practice Intake wizard's answers.</p>
+                <div class="space-y-2">
+                    @foreach(self::AUTO_GENERATED_DOCUMENT_TYPES as $type)
+                        <label class="flex items-center gap-2">
+                            <input wire:model="includedDocumentTypes" value="{{ $type->value }}" type="checkbox" class="rounded border-empower-border text-navy focus:ring-accent">
+                            <span class="text-sm text-empower-text">{{ $type->label() }}</span>
+                        </label>
+                    @endforeach
+                </div>
             </div>
 
             <div class="sm:col-span-2">

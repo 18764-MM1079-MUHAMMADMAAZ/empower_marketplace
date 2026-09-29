@@ -23,6 +23,24 @@
     [x-cloak] {
         display: none !important;
     }
+
+    /* Tailwind's preflight resets buttons to the browser's native (non-pointer) cursor; the
+       client portal wants every clickable link/button to show a pointer, matching the client
+       prototype. Scoped to .client-portal (layouts/app.blade.php) so the admin panel is
+       unaffected. Disabled buttons keep the "not allowed" cursor rather than looking clickable. */
+    .client-portal a,
+    .client-portal button:not(:disabled),
+    .client-portal [role='button']:not(:disabled),
+    .client-portal input[type='submit']:not(:disabled),
+    .client-portal input[type='button']:not(:disabled) {
+        cursor: pointer;
+    }
+
+    .client-portal button:disabled,
+    .client-portal input[type='submit']:disabled,
+    .client-portal input[type='button']:disabled {
+        cursor: not-allowed;
+    }
 }
 
 /* Indeterminate linear progress bar — for a background task with no known completion percentage

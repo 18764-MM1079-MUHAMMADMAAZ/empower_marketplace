@@ -7,7 +7,9 @@ use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Models\ActivityLog;
+use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeAnswer;
 use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\OshaLocation;
@@ -16,12 +18,15 @@ use App\Services\CompliancePdfGenerator;
 use App\Support\ManualQuestionSets;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PhpOffice\PhpWord\IOFactory;
+use PhpOffice\PhpWord\Settings;
 use PhpOffice\PhpWord\TemplateProcessor;
+use ZipArchive;
 
 class GenerateComplianceDocument implements ShouldQueue
 {
@@ -241,7 +246,7 @@ class GenerateComplianceDocument implements ShouldQueue
         $html = $this->convertDocxToHtml($docxPath);
 
         $schema = ManualQuestionSets::forDocumentType($this->documentType);
-        $officer = $this->resolveOfficerInfo($schema, $viewData['aiData']);
+        $officer = $this->resolveOfficerInfo($schema, $viewData['aiData'], $viewData['practice']);
 
         $ownerPassword = Str::random(32);
         $pdfContent = $pdfGenerator->generate($html, $ownerPassword, [
@@ -309,7 +314,11 @@ class GenerateComplianceDocument implements ShouldQueue
     /** @return array<string, mixed> */
     private function buildViewData(): array
     {
-        $order = $this->order->load(['package', 'user.practice', 'intakeSubmission.intakeUploads']);
+        $order = $this->order->load([
+            'package', 'user.practice',
+            'intakeSubmission.intakeUploads',
+            'intakeSubmission.intakeAnswers.question.policies',
+        ]);
         $practice = $order->user->practice;
         $submission = $order->intakeSubmission;
 
@@ -327,6 +336,7 @@ class GenerateComplianceDocument implements ShouldQueue
             'order' => $order,
             'handbookAnswers' => $submission?->handbook_answers ?? [],
             'aiData' => $aiData,
+            'intakeAnswers' => $submission?->intakeAnswers ?? collect(),
             'oshaLocation' => $this->oshaLocation,
             'documentType' => $this->documentType,
             'generatedAt' => now(),
@@ -351,6 +361,11 @@ class GenerateComplianceDocument implements ShouldQueue
         }
 
         $practice = $viewData['practice'];
+
+        // PhpWord's TemplateProcessor::setValue() does NOT XML-escape replacement text unless
+        // this is explicitly enabled — without it, a practice's own answer containing '&', '<',
+        // or '>' (e.g. "Smith & Jones Family Practice") corrupts the merged document's XML.
+        Settings::setOutputEscapingEnabled(true);
         $processor = new TemplateProcessor($templatePath);
 
         $values = [
@@ -365,15 +380,36 @@ class GenerateComplianceDocument implements ShouldQueue
             'manual_history_description' => $doc->wasRecentlyCreated
                 ? 'Initial policy generated.'
                 : 'Policy regenerated following an update.',
+            // Every questionnaire-linked manual's cover/Section 1 fields — harmless no-ops via
+            // setValues() for whichever ones a given template doesn't actually declare.
+            'compliance_officer_name' => $practice?->compliance_officer_name ?? '',
+            'compliance_officer_email' => $practice?->compliance_officer_email ?? '',
+            'compliance_officer_phone' => $practice?->compliance_officer_phone ?? '',
+            'privacy_officer_name' => $practice?->hipaa_privacy_officer_name ?? '',
+            'privacy_officer_email' => $practice?->hipaa_privacy_officer_email ?? '',
+            'privacy_officer_phone' => $practice?->hipaa_privacy_officer_phone ?? '',
+            'security_officer_name' => $practice?->hipaa_security_officer_name ?? '',
+            'security_officer_email' => $practice?->hipaa_security_officer_email ?? '',
+            'security_officer_phone' => $practice?->hipaa_security_officer_phone ?? '',
+            'compliance_committee_members' => $this->formatMembers($practice?->compliance_committee_members),
+            'governing_body' => $this->formatMembers($practice?->compliance_governing_board_members),
         ];
 
-        $schema = ManualQuestionSets::forDocumentType($this->documentType);
+        $policies = CompliancePolicy::where('manual', $this->documentType->value)->get();
+        $blocksToRemove = [];
 
-        if ($schema !== null) {
-            $aiData = $viewData['aiData'];
+        if ($policies->isNotEmpty()) {
+            [$policyValues, $blocksToRemove] = $this->buildPolicyMergeValues($policies, $viewData['intakeAnswers']);
+            $values = array_merge($values, $policyValues);
+        } else {
+            $schema = ManualQuestionSets::forDocumentType($this->documentType);
 
-            foreach (ManualQuestionSets::mergeFieldNames($schema) as $field) {
-                $values[$field] = (string) ($aiData[$field] ?? '[No response provided]');
+            if ($schema !== null) {
+                $aiData = $viewData['aiData'];
+
+                foreach (ManualQuestionSets::mergeFieldNames($schema) as $field) {
+                    $values[$field] = (string) ($aiData[$field] ?? '[No response provided]');
+                }
             }
         }
 
@@ -381,7 +417,123 @@ class GenerateComplianceDocument implements ShouldQueue
         $this->setPracticeLogo($processor, $practice);
         $processor->saveAs($absoluteOutput);
 
+        if ($blocksToRemove !== []) {
+            $this->removeUnansweredPolicyBlocks($absoluteOutput, $blocksToRemove);
+        }
+
         return $docxPath;
+    }
+
+    /** @param array<int, array{name: string, title: string}>|null $members */
+    private function formatMembers(?array $members): string
+    {
+        if (empty($members)) {
+            return '';
+        }
+
+        return collect($members)
+            ->filter(fn ($m) => trim($m['name'] ?? '') !== '')
+            ->map(fn ($m) => trim($m['title'] ?? '') !== '' ? "{$m['name']} ({$m['title']})" : $m['name'])
+            ->implode('; ');
+    }
+
+    /**
+     * Builds the merge-field values for every policy this manual covers, and names the
+     * cloneBlock-style markers (see InsertPolicyBlockMarkers) of every policy with no real
+     * answer — those whole "Practice Specific Workflow Description" sections get physically
+     * removed from the saved docx by removeUnansweredPolicyBlocks() rather than left showing
+     * placeholder text. A policy fed by more than one wizard question (e.g. PRV-36) gets every
+     * non-empty answer concatenated, each labeled by its source question.
+     *
+     * @param  Collection<int, CompliancePolicy>  $policies
+     * @param  Collection<int, IntakeAnswer>  $answers
+     * @return array{0: array<string, string>, 1: array<int, string>}
+     */
+    private function buildPolicyMergeValues(Collection $policies, Collection $answers): array
+    {
+        $entriesByPolicyId = [];
+
+        foreach ($answers as $answer) {
+            if (! $answer->has_documented_process || trim((string) $answer->response) === '') {
+                continue;
+            }
+
+            foreach ($answer->question->policies as $policy) {
+                $entriesByPolicyId[$policy->id][] = [
+                    'title' => $answer->question->title,
+                    'response' => $answer->response,
+                ];
+            }
+        }
+
+        $values = [];
+        $blocksToRemove = [];
+
+        foreach ($policies as $policy) {
+            [$prefix, $number] = $policy->mergeFieldParts();
+            $entries = $entriesByPolicyId[$policy->id] ?? [];
+
+            if ($entries === []) {
+                $blocksToRemove[] = "{$prefix}_{$number}_block";
+
+                continue;
+            }
+
+            $values["{$prefix}_{$number}_answer"] = count($entries) > 1
+                ? collect($entries)->map(fn ($e) => "{$e['title']}: {$e['response']}")->implode("\n\n")
+                : $entries[0]['response'];
+
+            // The block markers themselves are never removed for an answered policy (its
+            // section is kept), but they still need a value — otherwise setValues() leaves
+            // their literal "${cmp_01_block}" macro text sitting in the output.
+            $values["{$prefix}_{$number}_block"] = '';
+            $values["/{$prefix}_{$number}_block"] = '';
+        }
+
+        return [$values, $blocksToRemove];
+    }
+
+    /**
+     * Physically deletes each unanswered policy's whole "Practice Specific Workflow
+     * Description" section — the paragraphs between (and including) its
+     * ${prefix_nn_block}/${/prefix_nn_block} markers — directly in the saved docx's XML.
+     *
+     * Deliberately not PhpWord's TemplateProcessor::cloneBlock(): its block regex hits PHP's
+     * pcre.backtrack_limit against a document this size (confirmed empirically — see
+     * InsertPolicyBlockMarkers, which inserted these same markers and documents the same
+     * finding). A template that hasn't been migrated with these markers yet (e.g. the
+     * business-associate manual, out of scope for now) simply has no matching markers, so this
+     * is a safe no-op for it.
+     *
+     * @param  array<int, string>  $blockNames
+     */
+    private function removeUnansweredPolicyBlocks(string $absoluteDocxPath, array $blockNames): void
+    {
+        $zip = new ZipArchive;
+        $zip->open($absoluteDocxPath);
+        $xml = $zip->getFromName('word/document.xml');
+        $zip->close();
+
+        foreach ($blockNames as $blockName) {
+            $startMarker = '<w:p><w:r><w:t>${'.$blockName.'}</w:t></w:r></w:p>';
+            $endMarker = '<w:p><w:r><w:t>${/'.$blockName.'}</w:t></w:r></w:p>';
+
+            $startPos = strpos($xml, $startMarker);
+            $endPos = strpos($xml, $endMarker);
+
+            if ($startPos === false || $endPos === false) {
+                continue;
+            }
+
+            $removeLength = ($endPos + strlen($endMarker)) - $startPos;
+            $xml = substr_replace($xml, '', $startPos, $removeLength);
+        }
+
+        $zip = new ZipArchive;
+        $zip->open($absoluteDocxPath);
+        $zip->deleteName('word/document.xml');
+        $zip->addFromString('word/document.xml', $xml);
+        $zip->close();
     }
 
     /**
@@ -450,16 +602,43 @@ class GenerateComplianceDocument implements ShouldQueue
     }
 
     /**
-     * Every schema names its officer fields with a "..._officer_name/email/phone"
-     * suffix (e.g. compliance_officer_name, ba_officer_email) — found by suffix
-     * rather than hardcoded per type since the prefix itself varies (cmp/ba/sec/prv).
+     * Prefers the practice's own officer contact fields (captured on the Practice Intake
+     * wizard's Team screen) — falls back to the AI-extracted questionnaire schema only for
+     * manuals not yet on that flow (the business-associate manual).
      *
      * @param  array{prefix: string, count: int, extra_fields: array<string, string>}|null  $schema
      * @param  array<string, mixed>  $aiData
      * @return array{name: string, email: string, phone: string}
      */
-    private function resolveOfficerInfo(?array $schema, array $aiData): array
+    private function resolveOfficerInfo(?array $schema, array $aiData, ?Practice $practice): array
     {
+        $fromPractice = match ($this->documentType) {
+            DocumentType::ComplianceEthicsManual => [
+                'name' => $practice?->compliance_officer_name,
+                'email' => $practice?->compliance_officer_email,
+                'phone' => $practice?->compliance_officer_phone,
+            ],
+            DocumentType::HipaaPrivacyPolicy => [
+                'name' => $practice?->hipaa_privacy_officer_name,
+                'email' => $practice?->hipaa_privacy_officer_email,
+                'phone' => $practice?->hipaa_privacy_officer_phone,
+            ],
+            DocumentType::HipaaSecurityManual => [
+                'name' => $practice?->hipaa_security_officer_name,
+                'email' => $practice?->hipaa_security_officer_email,
+                'phone' => $practice?->hipaa_security_officer_phone,
+            ],
+            default => null,
+        };
+
+        if ($fromPractice !== null && filled($fromPractice['name'])) {
+            return [
+                'name' => (string) $fromPractice['name'],
+                'email' => (string) $fromPractice['email'],
+                'phone' => (string) $fromPractice['phone'],
+            ];
+        }
+
         if ($schema === null) {
             return ['name' => '', 'email' => '', 'phone' => ''];
         }

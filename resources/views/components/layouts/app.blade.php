@@ -14,31 +14,69 @@
     @livewireStyles
 </head>
 @php
-$containerClass = request()->routeIs('admin.*') ? 'max-w-[96rem]' : 'max-w-7xl';
+$isAdmin = request()->routeIs('admin.*');
+$containerClass = $isAdmin ? 'max-w-[96rem]' : 'max-w-7xl';
 @endphp
 
-<body class="min-h-screen flex flex-col bg-page font-sans antialiased">
+<body class="min-h-screen flex flex-col bg-page font-sans antialiased @unless($isAdmin) client-portal @endunless" @if($isAdmin) x-data="{ adminSidebarOpen: false }" @endif>
 
     <nav class="sticky top-0 z-50 bg-white/96 backdrop-blur border-b border-empower-border shadow-sm">
         <div class="mx-auto {{ $containerClass }} px-4 sm:px-6 lg:px-8">
             <div class="flex h-16 items-center justify-between">
-                <a href="{{ route('home') }}" class="flex items-center gap-2.5">
-                    <span class="inline-flex items-center rounded-lg bg-white px-2.5 py-1.5">
-                        <img src="{{ asset('images/logo.webp') }}" alt="Empower" class="h-[28px] sm:h-[45px] w-auto"
-                            onerror="this.parentElement.innerHTML='<span class=\'font-bold text-navy text-sm\'>EMPOWER</span>'">
-                    </span>
-                    <span
-                        class="hidden sm:block text-[0.6rem] font-extrabold tracking-widest uppercase text-empower-muted">Marketplace</span>
-                </a>
+                <div class="flex items-center gap-3">
+                    @if($isAdmin)
+                        <button type="button" x-on:click="adminSidebarOpen = true" aria-label="Open menu"
+                            class="lg:hidden inline-flex items-center justify-center rounded-lg border border-empower-border p-2 text-empower-muted hover:bg-page transition-colors">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                    @endif
+                    <a href="{{ route('home') }}" class="flex items-center gap-2.5">
+                        <span class="inline-flex items-center rounded-lg bg-white px-2.5 py-1.5">
+                            <img src="{{ asset('images/logo.webp') }}" alt="Empower" class="h-[28px] sm:h-[45px] w-auto"
+                                onerror="this.parentElement.innerHTML='<span class=\'font-bold text-navy text-sm\'>EMPOWER</span>'">
+                        </span>
+                        <span
+                            class="hidden sm:block text-[0.6rem] font-extrabold tracking-widest uppercase text-empower-muted">Marketplace</span>
+                    </a>
+                </div>
 
                 <livewire:header-account-menu />
             </div>
         </div>
     </nav>
 
-    <main class="mx-auto w-full {{ $containerClass }} flex-1 px-4 sm:px-6 lg:px-8 py-6">
-        {{ $slot }}
-    </main>
+    @if($isAdmin)
+        {{-- Mobile nav drawer --}}
+        <div x-show="adminSidebarOpen" x-cloak class="lg:hidden fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
+            <div class="fixed inset-0 bg-black/40" x-on:click="adminSidebarOpen = false"></div>
+            <div class="relative w-64 max-w-[80vw] bg-white h-full overflow-y-auto p-4 shadow-xl" x-on:click.outside="adminSidebarOpen = false">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="text-xs font-extrabold uppercase tracking-widest text-empower-muted">Admin Menu</span>
+                    <button type="button" x-on:click="adminSidebarOpen = false" aria-label="Close menu" class="text-empower-muted hover:text-navy transition-colors">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                @include('admin._nav', ['mobile' => true])
+            </div>
+        </div>
+
+        <div class="flex-1 flex mx-auto w-full {{ $containerClass }}">
+            <aside class="hidden lg:block w-56 shrink-0 border-r border-empower-border px-3 py-6">
+                @include('admin._nav')
+            </aside>
+            <main class="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
+                {{ $slot }}
+            </main>
+        </div>
+    @else
+        <main class="mx-auto w-full {{ $containerClass }} flex-1 px-4 sm:px-6 lg:px-8 py-6">
+            {{ $slot }}
+        </main>
+    @endif
 
     <x-site-footer footer-class="py-4" />
 

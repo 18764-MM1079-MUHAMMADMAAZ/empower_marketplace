@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ActivityLog;
+use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
 use App\Models\IntakeUpload;
 use App\Models\Questionnaire;
@@ -15,6 +16,16 @@ new class extends Component
     public function questionnaires(): Collection
     {
         return Questionnaire::all();
+    }
+
+    /** Whether this questionnaire's document type has moved to the Practice Intake wizard's
+     *  policy-driven merge (see GenerateComplianceDocument) — if so, this row's schema is no
+     *  longer consulted for any real client submission. */
+    public function isMigratedToWizard(Questionnaire $questionnaire): bool
+    {
+        $documentType = $questionnaire->documentType();
+
+        return $documentType && CompliancePolicy::where('manual', $documentType->value)->exists();
     }
 
     public function toggleVisibility(int $questionnaireId): void
@@ -67,12 +78,18 @@ new class extends Component
 ?>
 
 <div class="space-y-4" x-data="{ confirmId: null, confirmLabel: '' }">
+    <div class="rounded-xl border border-[#bfdcf3] bg-[#edf6ff] px-4 py-3 text-sm text-[#12304f]">
+        Clients no longer download or upload these questionnaires — the Practice Intake wizard now
+        captures workflow answers directly. Rows marked <strong>"Wizard-driven"</strong> below are
+        fully inactive: their schema and any re-uploaded template have no effect on real client
+        documents. This screen still matters for the HIPAA Business Associate manual (not yet
+        migrated) and for testing in the Document Generator tool.
+    </div>
     <p class="text-sm text-empower-muted">
-        Manage the questionnaires clients download and fill out at Step 2 of the portal, and the
-        compliance manual template each one feeds. Hiding one removes it from Step 2/3 for new and
-        resubmitting clients — existing uploads and generated documents are untouched. If the
-        questionnaire currently marked Required is hidden, another visible one is automatically
-        promoted so clients are never left with nothing mandatory to submit back.
+        The compliance manual template each questionnaire feeds. Hiding one removes it from the
+        Document Generator's test flow — existing uploads and generated documents are untouched. If
+        the questionnaire currently marked Required is hidden, another visible one is automatically
+        promoted.
     </p>
 
     @error('delete')
@@ -104,7 +121,12 @@ new class extends Component
                 @forelse($this->questionnaires as $questionnaire)
                     <tr class="hover:bg-page/60 transition-colors">
                         <td class="px-5 py-3.5">
-                            <div class="font-semibold text-navy">{{ $questionnaire->title }}</div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-semibold text-navy">{{ $questionnaire->title }}</span>
+                                @if($this->isMigratedToWizard($questionnaire))
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.62rem] font-extrabold uppercase tracking-wider bg-[#fde2e2] text-[#a53b3b]">Wizard-driven</span>
+                                @endif
+                            </div>
                             <div class="text-xs text-empower-muted">{{ $questionnaire->description }}</div>
                         </td>
                         <td class="px-5 py-3.5 text-empower-text">

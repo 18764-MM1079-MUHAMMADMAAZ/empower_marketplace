@@ -1,11 +1,15 @@
-@php $active ??= null; @endphp
-<div class="flex flex-wrap items-center gap-2 mb-2">
+@php
+    $active ??= \Illuminate\Support\Str::before(\Illuminate\Support\Str::after(request()->route()?->getName() ?? '', 'admin.'), '.');
+    $mobile ??= false;
+@endphp
+<nav class="flex flex-col gap-1">
     @foreach([
     'dashboard' => ['admin.dashboard', 'Dashboard'],
     'submissions' => ['admin.submissions', 'Submissions'],
     'documents' => ['admin.documents', 'Documents'],
     'packages' => ['admin.packages', 'Packages'],
     'discount-codes' => ['admin.discount-codes', 'Discount Codes'],
+    'intake-questions' => ['admin.intake-questions', 'Intake Questions'],
     'questionnaires' => ['admin.questionnaires', 'Questionnaires'],
     'leads' => ['admin.leads', 'Leads'],
     'users' => ['admin.users', 'Users'],
@@ -14,9 +18,9 @@
     'activity-log' => ['admin.activity-log', 'Activity Log'],
     'document-generator' => ['admin.document-generator', 'Document Generator'],
     ] as $key => [$route, $label])
-    <a href="{{ route($route) }}" wire:navigate
-        class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors {{ $active === $key ? 'bg-navy text-white' : 'text-empower-muted hover:bg-page' }}">
+    <a href="{{ route($route) }}" wire:navigate @if($mobile) x-on:click="adminSidebarOpen = false" @endif
+        class="rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors {{ $active === $key ? 'bg-navy text-white' : 'text-empower-muted hover:bg-page' }}">
         {{ $label }}
     </a>
     @endforeach
-</div>
+</nav>

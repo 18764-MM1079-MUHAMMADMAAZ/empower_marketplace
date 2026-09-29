@@ -5,7 +5,6 @@ use App\Enums\BillingCycle;
 use App\Enums\DiscountType;
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
-use App\Enums\IntakeMethod;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
@@ -22,6 +21,9 @@ use App\Mail\WelcomeCredentialsMail;
 use App\Models\ActivityLog;
 use App\Models\DiscountCode;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeAnswer;
+use App\Models\IntakeQuestion;
+use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -32,7 +34,6 @@ use App\Models\User;
 use App\Services\CloverChargeService;
 use App\Services\EmpowerPaymentApiClient;
 use App\Services\TrialBillingService;
-use App\Support\Questionnaires;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -72,6 +73,11 @@ new class extends Component
 
     public string $accountEmail = '';
 
+    // Set only when pay()/payFreeTrial() creates a guest account in the current request, so the
+    // Step 1 success banner can announce it once. Deliberately not restored by mount(), so it
+    // clears itself on the next page load instead of persisting for the life of the account.
+    public ?string $newAccountEmail = null;
+
     // Billing address for the charge — not cardholder data, safe to bind/validate normally.
     // Card number/expiry/CVC/name are deliberately NOT properties here: Livewire serializes
     // every public property into the page's wire:snapshot and replays it on every subsequent
@@ -94,7 +100,9 @@ new class extends Component
     // normally and boot() replays it into the error bag every request.
     public array $cardErrors = [];
 
-    // Step 2
+    // Step 2 — only used by the "edit an already-locked profile" quick-edit path now; the
+    // fresh intake wizard lives in <livewire:portal.practice-intake-wizard> and manages its own
+    // copies of these fields.
     public $logoFile = null;
 
     public string $practiceName = '';
@@ -107,23 +115,26 @@ new class extends Component
 
     public bool $editingProfile = false;
 
-    // '' | 'download' | 'upload_for_review' — which Step 2 continuation the client picked.
-    public string $intakeMethod = '';
+    // Step 5 Dashboard — lets the client send one more document for AI review after their
+    // submission is already approved, without reopening the intake wizard or touching anything
+    // they already answered.
+    public $additionalDocumentFile = null;
 
-    // Flat multi-file array for the "upload for review" path — no per-slot keying needed
-    // since, unlike questionnaireFiles, several files can share the same upload type.
-    public array $reviewDocumentFiles = [];
+    public string $additionalDocumentCategory = '';
+
+    public ?string $additionalDocumentNotice = null;
+
+    // Step 3 — certification fields for the "Upload & Confirm" step.
+    public string $certifiedByName = '';
+
+    public string $certifiedByTitle = '';
+
+    public string $certifiedSignature = '';
+
+    public bool $certifyChecked = false;
 
     // Step 5
     public string $dashboardTab = 'documents';
-
-    // Step 3 — one slot per questionnaire shown in Step 2, keyed by IntakeUploadType::value.
-    public array $questionnaireFiles = [];
-
-    // Synced from client-side (localStorage) download tracking — every questionnaire the
-    // user has downloaded becomes mandatory to upload back, in addition to any statically
-    // required ones. Keyed by IntakeUploadType::value.
-    public array $downloadedQuestionnaireKeys = [];
 
     #[Computed]
     public function packages(): Collection
@@ -196,22 +207,6 @@ new class extends Component
             ->get();
     }
 
-    /** The questionnaires the client needs to fill out, based on every package tier they've purchased (or are checking out). */
-    #[Computed]
-    public function applicableQuestionnaires(): Collection
-    {
-        $orders = $this->batchOrders->isNotEmpty() ? $this->batchOrders : $this->userOrders;
-
-        $tierValues = $orders
-            ->map(fn (Order $order) => $order->package?->tier()?->value)
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-
-        return Questionnaires::forTiers($tierValues);
-    }
-
     #[Computed]
     public function rejectedSubmission(): ?IntakeSubmission
     {
@@ -220,36 +215,177 @@ new class extends Component
             ->first(fn ($s) => $s?->status === IntakeSubmissionStatus::Rejected);
     }
 
-    /** Questionnaires already uploaded for the current submission, keyed by upload type value. */
+    /** The order whose submission actually holds the practice intake wizard's live answers/
+     *  uploads — the lowest-id order in the checkout batch, matching
+     *  <livewire:portal.practice-intake-wizard>'s own primaryOrderId() selection. */
     #[Computed]
-    public function existingUploadsByType(): Collection
+    public function primarySubmission(): ?IntakeSubmission
     {
-        $orders = $this->batchOrders->isNotEmpty() ? $this->batchOrders : $this->userOrders;
-
-        $submission = $orders->first()?->intakeSubmission;
-
-        if (! $submission) {
-            return collect();
+        if (empty($this->orderIds)) {
+            return null;
         }
 
-        return $submission->intakeUploads->keyBy(fn ($upload) => $upload->upload_type->value);
+        return $this->batchOrders->firstWhere('id', min($this->orderIds))?->intakeSubmission;
     }
 
-    /** Every "upload for review" document already on file for the current submission — unlike
-     *  existingUploadsByType() this isn't collapsed to one per type, since several files of
-     *  this one type are expected. */
+    // Step 3 "Upload & Confirm" review — matches the client prototype's BASE_DOCS list (same as
+    // <livewire:portal.practice-intake-wizard>'s DOCUMENT_CATEGORIES; kept read-only here since
+    // Step 3 only reviews what was captured on Step 2, edited via the "Edit" links back to it).
+    private const REVIEW_DOCUMENT_CATEGORIES = [
+        'compliance_ethics' => 'Compliance & Ethics Program',
+        'hipaa_privacy' => 'HIPAA Privacy policies',
+        'hipaa_security' => 'HIPAA Security policies',
+        'training_materials' => 'Training materials',
+    ];
+
+    private const BASICS_SUB_SCREENS = ['b_profile', 'b_providers', 'b_address', 'b_logo'];
+
     #[Computed]
-    public function existingReviewUploads(): Collection
+    public function basicsCompletedCount(): int
     {
-        $orders = $this->batchOrders->isNotEmpty() ? $this->batchOrders : $this->userOrders;
+        $reached = $this->primarySubmission?->wizard_reached_screens ?? [];
 
-        $submission = $orders->first()?->intakeSubmission;
+        return count(array_intersect(self::BASICS_SUB_SCREENS, $reached));
+    }
 
-        if (! $submission) {
-            return collect();
+    /** @return array<string, string> category key => label */
+    #[Computed]
+    public function reviewDocumentCategories(): array
+    {
+        return self::REVIEW_DOCUMENT_CATEGORIES;
+    }
+
+    public function reviewDocumentCategoryStatus(string $key): string
+    {
+        $uploads = $this->primarySubmission?->intakeUploads ?? collect();
+
+        if ($uploads->contains(fn ($u) => $u->document_category === $key)) {
+            return 'uploaded';
         }
 
-        return $submission->intakeUploads->where('upload_type', IntakeUploadType::ClientDocumentForReview)->values();
+        $missing = $this->primarySubmission?->wizard_missing_document_categories ?? [];
+
+        return in_array($key, $missing, true) ? 'declined' : 'needed';
+    }
+
+    /** One row per chapter of the practice intake — "Practice basics" always, plus "Your team"
+     *  and each workflow section for Professional/Advanced. Mirrors the wizard's own chapter
+     *  breakdown so the counts agree with what the client saw while filling it in. */
+    /** @return array<int, array{label: string, value: string, done: bool}> */
+    private function basicsDetailRows(): array
+    {
+        $practice = $this->practice;
+        $reached = $this->primarySubmission?->wizard_reached_screens ?? [];
+        $providers = $practice?->billable_providers_count ?? 1;
+
+        return [
+            [
+                'label' => "Let's start with your practice",
+                'value' => collect([$practice?->name, $practice?->specialty])->filter()->implode(' · ') ?: '—',
+                'done' => in_array('b_profile', $reached, true),
+            ],
+            [
+                'label' => 'How many billable providers do you have?',
+                'value' => $providers.' billable provider'.($providers === 1 ? '' : 's'),
+                'done' => in_array('b_providers', $reached, true),
+            ],
+            [
+                'label' => 'Where is your practice located?',
+                'value' => $practice?->address ?: '—',
+                'done' => in_array('b_address', $reached, true),
+            ],
+            [
+                'label' => 'Add your practice logo',
+                'value' => $practice?->logo_path ? 'Logo uploaded' : 'No logo added',
+                'done' => in_array('b_logo', $reached, true),
+            ],
+        ];
+    }
+
+    /** @return array<int, array{label: string, value: string, done: bool}> */
+    private function teamDetailRows(): array
+    {
+        $practice = $this->practice;
+
+        $officers = [
+            ['Compliance Officer', $practice?->compliance_officer_name],
+            ['HIPAA Privacy Officer', $practice?->hipaa_privacy_officer_name],
+            ['HIPAA Security Officer', $practice?->hipaa_security_officer_name],
+            ['Release of Information Officer', $practice?->release_of_info_officer_name],
+            ['IT Vendor', $practice?->it_vendor_name],
+        ];
+
+        return collect($officers)
+            ->map(fn ($o) => ['label' => $o[0], 'value' => $o[1] ?: '—', 'done' => filled($o[1])])
+            ->all();
+    }
+
+    /** @return array<int, array{label: string, value: string, done: bool}> */
+    private function sectionDetailRows(IntakeSection $section, array $answersByQuestionId): array
+    {
+        return $section->questions->map(function (IntakeQuestion $question) use ($answersByQuestionId) {
+            $answer = $answersByQuestionId[$question->id] ?? null;
+            $value = match (true) {
+                $answer === null => 'Not yet answered',
+                (bool) $answer->has_documented_process => Str::limit((string) $answer->response, 80),
+                default => 'No documented process — best-practice language used.',
+            };
+
+            return ['label' => $question->title, 'value' => $value, 'done' => $answer !== null];
+        })->all();
+    }
+
+    #[Computed]
+    public function answerSummaryRows(): array
+    {
+        $rows = [
+            [
+                'label' => 'Practice basics',
+                'done' => $this->basicsCompletedCount,
+                'total' => count(self::BASICS_SUB_SCREENS),
+                'details' => $this->basicsDetailRows(),
+            ],
+        ];
+
+        $includesWorkflowQuestionnaire = $this->batchOrders->contains(fn (Order $o) => $o->package?->includesWorkflowQuestionnaire());
+
+        if (! $includesWorkflowQuestionnaire) {
+            return $rows;
+        }
+
+        $reached = $this->primarySubmission?->wizard_reached_screens ?? [];
+        $rows[] = [
+            'label' => 'Your team',
+            'done' => in_array('team', $reached, true) ? 1 : 0,
+            'total' => 1,
+            'details' => $this->teamDetailRows(),
+        ];
+
+        $answersByQuestionId = $this->primarySubmission?->intakeAnswers()->get()->keyBy('intake_question_id')->all() ?? [];
+
+        foreach (IntakeSection::with('questions')->orderBy('sort_order')->get() as $section) {
+            $questionIds = $section->questions->pluck('id')->all();
+            $rows[] = [
+                'label' => $section->label,
+                'done' => count(array_intersect($questionIds, array_keys($answersByQuestionId))),
+                'total' => count($questionIds),
+                'details' => $this->sectionDetailRows($section, $answersByQuestionId),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function intakeSubmissionStatusLabel(?IntakeSubmissionStatus $status): string
+    {
+        return match ($status) {
+            IntakeSubmissionStatus::Submitted => 'Submitted',
+            IntakeSubmissionStatus::UnderReview => 'Under Review',
+            IntakeSubmissionStatus::Approved => 'Approved',
+            IntakeSubmissionStatus::Rejected => 'Rejected',
+            IntakeSubmissionStatus::Pending => 'Pending',
+            default => 'Ready',
+        };
     }
 
     /** The order whose documents are currently displayed on the Step 5 dashboard. */
@@ -324,8 +460,15 @@ new class extends Component
             }
 
             if ($docType->isPerUpload()) {
+                // finalizeIntake() flips a wizard document upload from NotApplicable to Pending
+                // (and dispatches its AI review) only once the intake is actually submitted — an
+                // upload still sitting at NotApplicable belongs to an in-progress draft, so there's
+                // no "Reviewed & Polished Document" to expect for it yet. Without this filter,
+                // that row would show as stuck "Waiting on AI generation" forever, since nothing
+                // has dispatched its generation.
                 $order->intakeSubmission->intakeUploads
                     ->where('upload_type', $uploadType)
+                    ->reject(fn ($upload) => $upload->ai_extraction_status === AiExtractionStatus::NotApplicable)
                     ->each(function ($upload) use (&$rows, $docType, $docs) {
                         $rows->push([
                             'type' => $docType,
@@ -344,6 +487,23 @@ new class extends Component
             } else {
                 $rows->push(['type' => $docType, 'location' => null, 'document' => $docs->first(fn ($d) => $d->document_type === $docType)]);
             }
+        }
+
+        // Tier-driven manuals (Professional/Advanced's compliance_ethics_manual/hipaa_privacy_policy/
+        // hipaa_security_manual) are generated from the practice intake wizard's answers directly —
+        // there's no "questionnaire upload" backing them the way the legacy loop above expects, so
+        // list them here from the package's included_document_types instead. Skips any type already
+        // covered above so a package that also matches a legacy upload type isn't listed twice.
+        $coveredTypes = $rows->pluck('type')->unique();
+
+        foreach (($order->package?->included_document_types ?? []) as $typeValue) {
+            $docType = DocumentType::from($typeValue);
+
+            if ($coveredTypes->contains($docType)) {
+                continue;
+            }
+
+            $rows->push(['type' => $docType, 'location' => null, 'document' => $docs->first(fn ($d) => $d->document_type === $docType)]);
         }
 
         return $rows;
@@ -368,6 +528,13 @@ new class extends Component
     }
 
     #[Computed]
+    /**
+     * 0 = unpaid. 1 = paid, Practice Intake wizard not yet finished (or not yet started —
+     * no submission row exists at all until the wizard's documents/basics screen creates one).
+     * 2 = wizard finished (wizard_screen === 'done') but not yet certified in Step 3 — still
+     * Draft. 3 = certified and submitted, awaiting admin review (or a past rejection pending
+     * re-certification). 4 = every order in the batch is Approved.
+     */
     public function completedMilestone(): int
     {
         $orders = $this->batchOrders;
@@ -375,15 +542,17 @@ new class extends Component
         if ($orders->isEmpty() || $orders->contains(fn ($o) => ! $o->isPaid())) {
             return 0;
         }
-        if (! $this->practice?->is_profile_locked) {
-            return 1;
-        }
 
         $submissions = $orders->map(fn ($o) => $o->intakeSubmission);
 
-        if ($submissions->contains(null)) {
+        if ($submissions->contains(fn ($s) => $s === null || ($s->status === IntakeSubmissionStatus::Draft && $s->wizard_screen !== 'done'))) {
+            return 1;
+        }
+
+        if ($submissions->contains(fn ($s) => $s->status === IntakeSubmissionStatus::Draft)) {
             return 2;
         }
+
         if ($submissions->contains(fn ($s) => $s->status !== IntakeSubmissionStatus::Approved)) {
             return 3;
         }
@@ -393,13 +562,6 @@ new class extends Component
 
     public function canReach(int $step): bool
     {
-        // Step 3 (questionnaire upload) doesn't exist for the "upload for review" path —
-        // that flow's file upload lives in Step 2 and skips straight to Step 4. Block it from
-        // being navigated to directly, whether via the stepper icon or a "Back" action.
-        if ($step === 3 && $this->submissionIntakeMethod() === IntakeMethod::UploadForReview) {
-            return false;
-        }
-
         return match ($step) {
             1 => true,
             2 => $this->completedMilestone >= 1,
@@ -408,11 +570,6 @@ new class extends Component
             5 => $this->completedMilestone >= 4,
             default => false,
         };
-    }
-
-    private function submissionIntakeMethod(): ?IntakeMethod
-    {
-        return $this->batchOrders->first()?->intakeSubmission?->intake_method;
     }
 
     /**
@@ -522,29 +679,25 @@ new class extends Component
         $this->dashboardOrderId = $user->orders()->whereIn('payment_status', Order::PAID_STATUSES)->latest()->value('id');
         $this->selectedPackageId = $latestOrder->package_id;
 
-        if (! $practice?->is_profile_locked) {
+        $submissions = $this->batchOrders->map(fn ($o) => $o->intakeSubmission);
+
+        // Nobody has ever started the Practice Intake wizard yet — land back on Step 1's payment
+        // summary (with its own "Continue to Intake Form" button) rather than auto-advancing,
+        // matching the pre-wizard behavior of landing on Step 1 until the profile was locked.
+        if ($submissions->contains(fn ($s) => $s === null)) {
             $this->step = 1;
 
             return;
         }
 
-        $submissions = $this->batchOrders->map(fn ($o) => $o->intakeSubmission);
-
-        if ($submissions->contains(fn ($s) => $s === null)) {
-            $this->step = 3;
+        if ($submissions->contains(fn ($s) => $s->status === IntakeSubmissionStatus::Draft && $s->wizard_screen !== 'done')) {
+            $this->step = 2;
 
             return;
         }
 
-        $rejected = $submissions->first(fn ($s) => $s->status === IntakeSubmissionStatus::Rejected);
-
-        if ($rejected) {
-            if ($rejected->intake_method === IntakeMethod::UploadForReview) {
-                $this->intakeMethod = IntakeMethod::UploadForReview->value;
-                $this->step = 2;
-            } else {
-                $this->step = 3;
-            }
+        if ($submissions->contains(fn ($s) => $s->status === IntakeSubmissionStatus::Draft)) {
+            $this->step = 3;
 
             return;
         }
@@ -553,6 +706,7 @@ new class extends Component
             IntakeSubmissionStatus::Pending,
             IntakeSubmissionStatus::Submitted,
             IntakeSubmissionStatus::UnderReview,
+            IntakeSubmissionStatus::Rejected,
         ]))) {
             $this->step = 4;
 
@@ -568,46 +722,24 @@ new class extends Component
             return;
         }
 
-        // Landing back on Step 2 (e.g. via the stepper icon, not just the rejected-submission
-        // routing in mount()) should reflect which intake method the client already chose —
-        // otherwise neither radio appears selected even though a submission already exists.
-        if ($step === 2) {
-            $method = $this->submissionIntakeMethod();
-
-            if ($method) {
-                $this->intakeMethod = $method->value;
-            } elseif (! ($this->selectedPackage?->allowsQuestionnaireDownload() ?? true)) {
-                // Essential Compliance only ever offers the upload-for-review path — nothing to
-                // choose, so pre-select it instead of showing an empty, unusable choice.
-                $this->intakeMethod = IntakeMethod::UploadForReview->value;
-            }
-        }
-
         $this->step = $step;
     }
 
-    /** Handles the intake-method radio picks in Step 2. A plain wire:model wouldn't let the
-     *  "download" option be gated behind a confirm dialog first, since wire:confirm only
-     *  intercepts action calls (wire:click), not property-binding updates. */
-    public function setIntakeMethod(string $method): void
+    /** The child wizard component finished the documents/basics/team/questions flow — advance
+     *  to Step 3's certification screen. */
+    #[On('intake-wizard-complete')]
+    public function onIntakeWizardComplete(): void
     {
-        // Never trust a client-supplied method alone — a forged request could call this directly
-        // for a package whose Step 2 UI never even shows the download option.
-        if ($method === IntakeMethod::Download->value && ! ($this->selectedPackage?->allowsQuestionnaireDownload() ?? true)) {
-            return;
-        }
-
-        $this->intakeMethod = $method;
+        unset($this->completedMilestone, $this->batchOrders);
+        $this->step = 3;
     }
 
-    /** The authoritative guard on `saveProfile()`/`submitForReview()` — never trust
-     *  `$this->intakeMethod` alone, since a public Livewire property can be set directly by a
-     *  forged request regardless of what setIntakeMethod() would have allowed. */
-    private function clampIntakeMethodToPackage(): void
+    /** The child wizard's "Back" button on its very first screen — it can't call goToStep()
+     *  directly since it isn't the parent component. */
+    #[On('go-to-payment-step')]
+    public function onGoToPaymentStep(): void
     {
-        if (! ($this->selectedPackage?->allowsQuestionnaireDownload() ?? true)) {
-            $this->intakeMethod = IntakeMethod::UploadForReview->value;
-        }
+        $this->goToStep(1);
     }
 
     public function editProfile(): void
@@ -659,6 +791,72 @@ new class extends Component
         );
 
         unset($this->generatedDocuments, $this->expectedDocuments);
+    }
+
+    /**
+     * Lets the client send one more document for AI review from the Dashboard once their
+     * submission is already approved — their practice basics/team/answers don't need to change,
+     * so this skips reopening the whole intake wizard. Mirrors the wizard's own upload handling:
+     * dispatches ProcessIntakeUpload immediately (no "still drafting" period to wait out here,
+     * unlike the wizard's own document screen). The resulting "Reviewed & Polished Document"
+     * needs an admin's explicit approval before it appears as downloadable, same as every other
+     * generated document.
+     */
+    public function uploadAdditionalDocument(): void
+    {
+        abort_unless(auth()->check(), 403);
+
+        $order = Order::where('id', $this->dashboardOrderId)->where('user_id', auth()->id())->first();
+
+        if (! $order) {
+            return;
+        }
+
+        if ($order->blockedFromAiGeneration()) {
+            $this->addError('additionalDocumentFile', 'Your trial has ended. Please subscribe to continue using AI document generation.');
+
+            return;
+        }
+
+        $submission = $order->intakeSubmission;
+
+        if (! $submission) {
+            $this->addError('additionalDocumentFile', 'No intake submission found for this order.');
+
+            return;
+        }
+
+        $this->validate([
+            'additionalDocumentFile' => 'required|file|mimes:pdf,jpg,jpeg,png,docx|max:20480',
+        ]);
+
+        $file = $this->additionalDocumentFile;
+
+        $upload = IntakeUpload::create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => $this->additionalDocumentCategory ?: null,
+            'original_filename' => $file->getClientOriginalName(),
+            'storage_path' => $file->store('uploads/batch/'.(string) Str::ulid()),
+            'mime_type' => $file->getMimeType(),
+            'file_size' => $file->getSize(),
+            'ai_extraction_status' => AiExtractionStatus::Pending,
+        ]);
+
+        ProcessIntakeUpload::dispatch($upload);
+
+        ActivityLog::record(
+            'upload.additional_document_submitted',
+            "{$upload->original_filename} uploaded for AI review on order #{$order->id}.",
+            user: auth()->user(),
+            order: $order,
+            subject: $submission,
+        );
+
+        $this->reset('additionalDocumentFile', 'additionalDocumentCategory');
+        $this->additionalDocumentNotice = 'Uploaded — this will appear below once our team has reviewed it.';
+
+        unset($this->expectedDocuments, $this->generatedDocuments);
     }
 
     public function applyDiscountCode(): void
@@ -1048,6 +1246,7 @@ new class extends Component
             }
 
             Auth::login($user);
+            $this->newAccountEmail = $user->email;
 
             // The layout's account menu (<livewire:header-account-menu />) lives outside this
             // component and was rendered while the visitor was still a guest — nothing else
@@ -1244,6 +1443,7 @@ new class extends Component
             }
 
             Auth::login($user);
+            $this->newAccountEmail = $user->email;
             $this->dispatch('user-logged-in');
         }
 
@@ -1444,47 +1644,35 @@ new class extends Component
         return $practice;
     }
 
+    /** Only reachable via editProfile() — the fresh intake wizard's own basics screen has its
+     *  own save method and never sets $editingProfile. */
     public function saveProfile(): void
     {
         abort_unless(auth()->check(), 403);
+        abort_unless($this->editingProfile, 403);
 
-        $this->clampIntakeMethodToPackage();
-
-        $rules = $this->profileRules();
-
-        if (! $this->editingProfile) {
-            $rules['intakeMethod'] = 'required|in:download,upload_for_review';
-        }
-
-        $this->validate($rules);
+        $this->validate($this->profileRules());
 
         $practice = $this->persistProfile();
 
-        if ($this->editingProfile) {
-            $this->editingProfile = false;
-            ActivityLog::record(
-                'practice.updated',
-                'Practice details updated from the dashboard.',
-                user: auth()->user(),
-                order: $this->currentOrder,
-                subject: $practice,
-            );
-            $this->step = 5;
-
-            return;
-        }
-
-        $this->step = 3;
+        $this->editingProfile = false;
+        ActivityLog::record(
+            'practice.updated',
+            'Practice details updated from the dashboard.',
+            user: auth()->user(),
+            order: $this->currentOrder,
+            subject: $practice,
+        );
+        $this->step = 5;
     }
 
-    /** Clears a just-picked (not yet submitted) file so the client can choose a different one. */
-    public function removeQuestionnaireFile(string $uploadKey): void
-    {
-        unset($this->questionnaireFiles[$uploadKey]);
-        $this->resetErrorBag("questionnaireFiles.{$uploadKey}");
-    }
-
-    public function submitIntake(): void
+    /**
+     * Step 3's "Submit for Review" — certifies and finalizes the practice intake wizard's
+     * already-persisted documents/basics/team/answers (all saved as-you-go by
+     * <livewire:portal.practice-intake-wizard>). Mirrors every order in the batch off the
+     * primary submission, same propagation pattern the old flat-questionnaire flow used.
+     */
+    public function finalizeIntake(): void
     {
         abort_unless(auth()->check(), 403);
 
@@ -1496,86 +1684,107 @@ new class extends Component
             return;
         }
 
-        $missingRequiredFile = false;
-
-        // Every questionnaire the client downloaded (in addition to any statically required
-        // one) becomes mandatory to upload back — Step 3 only shows a box for downloaded ones.
-        foreach ($this->applicableQuestionnaires as $questionnaire) {
-            $key = $questionnaire['uploadType']->value;
-            $isRequired = $questionnaire['required'] || in_array($key, $this->downloadedQuestionnaireKeys, true);
-
-            if ($isRequired && empty($this->questionnaireFiles[$key]) && ! $this->existingUploadsByType->has($key)) {
-                $this->addError("questionnaireFiles.{$key}", "Please upload your {$questionnaire['title']}.");
-                $missingRequiredFile = true;
-            }
-        }
-
-        if ($missingRequiredFile) {
-            return;
-        }
-
         $this->validate([
-            'questionnaireFiles.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,docx|max:20480',
+            'certifiedByName' => 'required|string|max:150',
+            'certifiedByTitle' => 'required|string|max:150',
+            'certifiedSignature' => 'required|string|max:150',
+            'certifyChecked' => 'accepted',
         ]);
 
         $orders = $this->batchOrders;
 
         if ($orders->isEmpty()) {
-            $this->addError('questionnaireFiles', 'No active order found for this submission.');
+            $this->addError('certifiedSignature', 'No active order found for this submission.');
 
             return;
         }
 
-        $batchToken = (string) Str::ulid();
+        $primaryOrder = $orders->firstWhere('id', min($this->orderIds)) ?? $orders->first();
+        $primarySubmission = $primaryOrder->intakeSubmission;
 
-        // Store every present file once — reused across every order in the batch.
-        $storedFiles = [];
-        foreach ($this->questionnaireFiles as $key => $file) {
-            if ($file) {
-                $storedFiles[$key] = [
-                    'path' => $file->store("uploads/batch/{$batchToken}"),
-                    'original_filename' => $file->getClientOriginalName(),
-                    'mime_type' => $file->getMimeType(),
-                    'file_size' => $file->getSize(),
-                ];
-            }
+        if (! $primarySubmission) {
+            $this->addError('certifiedSignature', 'No intake found for this submission.');
+
+            return;
         }
 
-        $primaryUploadsByType = [];
+        $certifiedAt = now();
 
-        // Create every order's submission/upload rows first — the sibling-propagation
-        // logic in ProcessIntakeUpload needs all of them to already exist in the database
-        // before the primary upload's job runs, which can happen immediately if the queue
-        // connection is synchronous.
+        $primarySubmission->update([
+            'status' => IntakeSubmissionStatus::Submitted,
+            'reviewer_notes' => null,
+            'submitted_at' => $certifiedAt,
+            'certified_by_name' => $this->certifiedByName,
+            'certified_by_title' => $this->certifiedByTitle,
+            'certified_signature' => $this->certifiedSignature,
+            'certified_at' => $certifiedAt,
+        ]);
+
+        Order::where('id', $primaryOrder->id)->update(['status' => OrderStatus::IntakeSubmitted]);
+
+        ActivityLog::record(
+            'submission.submitted',
+            "Intake form submitted for order #{$primaryOrder->id}.",
+            user: auth()->user(),
+            order: $primaryOrder,
+            subject: $primarySubmission,
+        );
+
+        // The wizard's document uploads sit as reference-only (NotApplicable) while the client
+        // is still filling out the intake, so re-uploading or removing one mid-draft never burns
+        // an OpenAI call. Now that the intake is actually being submitted, flip only the ones
+        // still at that default to Pending (an upload some other tool already ran through AI —
+        // e.g. admin test data — is left alone rather than re-queued) — the sibling-copy loop
+        // below carries this status into each other order's own upload row — and dispatch the AI
+        // compliance review once, after every submission/upload row exists.
+        $reviewableUploadIds = $primarySubmission->intakeUploads()
+            ->where('upload_type', IntakeUploadType::ClientDocumentForReview)
+            ->where('ai_extraction_status', AiExtractionStatus::NotApplicable)
+            ->pluck('id');
+
+        IntakeUpload::whereIn('id', $reviewableUploadIds)->update(['ai_extraction_status' => AiExtractionStatus::Pending]);
+        $primarySubmission->unsetRelation('intakeUploads');
+
         foreach ($orders as $order) {
-            $submission = IntakeSubmission::updateOrCreate(
+            if ($order->id === $primaryOrder->id) {
+                continue;
+            }
+
+            $siblingSubmission = IntakeSubmission::updateOrCreate(
                 ['order_id' => $order->id],
                 [
                     'status' => IntakeSubmissionStatus::Submitted,
                     'reviewer_notes' => null,
-                    'submitted_at' => now(),
+                    'submitted_at' => $certifiedAt,
+                    'certified_by_name' => $this->certifiedByName,
+                    'certified_by_title' => $this->certifiedByTitle,
+                    'certified_signature' => $this->certifiedSignature,
+                    'certified_at' => $certifiedAt,
                 ]
             );
 
-            foreach ($storedFiles as $key => $meta) {
-                $upload = IntakeUpload::updateOrCreate(
+            foreach ($primarySubmission->intakeUploads as $upload) {
+                IntakeUpload::updateOrCreate(
+                    ['intake_submission_id' => $siblingSubmission->id, 'upload_type' => $upload->upload_type],
                     [
-                        'intake_submission_id' => $submission->id,
-                        'upload_type' => IntakeUploadType::from($key),
-                    ],
-                    [
-                        'original_filename' => $meta['original_filename'],
-                        'storage_path' => $meta['path'],
-                        'mime_type' => $meta['mime_type'],
-                        'file_size' => $meta['file_size'],
-                        'ai_extraction_status' => AiExtractionStatus::Pending,
-                        'ai_extracted_data' => null,
-                        'ai_error_message' => null,
-                        'processed_at' => null,
+                        'original_filename' => $upload->original_filename,
+                        'storage_path' => $upload->storage_path,
+                        'mime_type' => $upload->mime_type,
+                        'file_size' => $upload->file_size,
+                        'ai_extraction_status' => $upload->ai_extraction_status,
                     ]
                 );
+            }
 
-                $primaryUploadsByType[$key] ??= $upload;
+            foreach ($primarySubmission->intakeAnswers as $answer) {
+                IntakeAnswer::updateOrCreate(
+                    ['intake_submission_id' => $siblingSubmission->id, 'intake_question_id' => $answer->intake_question_id],
+                    [
+                        'response' => $answer->response,
+                        'has_documented_process' => $answer->has_documented_process,
+                        'answered_at' => $answer->answered_at,
+                    ]
+                );
             }
 
             Order::where('id', $order->id)->update(['status' => OrderStatus::IntakeSubmitted]);
@@ -1585,194 +1794,43 @@ new class extends Component
                 "Intake form submitted for order #{$order->id}.",
                 user: auth()->user(),
                 order: $order,
-                subject: $submission,
+                subject: $siblingSubmission,
             );
+        }
 
-            $submission->setRelation('order', $order);
+        // Dispatched once per upload, after every sibling order's own copy exists — the job
+        // itself finds and completes those sibling rows too (matched by storage_path), so this
+        // never triggers more than one AI review call per distinct uploaded file.
+        IntakeUpload::whereIn('id', $reviewableUploadIds)->get()
+            ->each(fn (IntakeUpload $upload) => ProcessIntakeUpload::dispatch($upload));
 
-            User::where('role', UserRole::Admin)->pluck('email')->each(
-                function (string $adminEmail) use ($submission) {
-                    try {
-                        Mail::to($adminEmail)->send(new AdminIntakeSubmittedMail($submission));
-                    } catch (\Throwable $e) {
-                        report($e);
-                    }
+        $primarySubmission->setRelation('order', $primaryOrder);
+
+        User::where('role', UserRole::Admin)->pluck('email')->each(
+            function (string $adminEmail) use ($primarySubmission) {
+                try {
+                    Mail::to($adminEmail)->send(new AdminIntakeSubmittedMail($primarySubmission));
+                } catch (\Throwable $e) {
+                    report($e);
                 }
-            );
-        }
+            }
+        );
 
-        // Only the primary upload of each type runs the actual AI extraction — its sibling
-        // rows (created above) get their result copied over once it completes.
-        foreach ($primaryUploadsByType as $upload) {
-            ProcessIntakeUpload::dispatch($upload);
-        }
-
-        $this->questionnaireFiles = [];
-        unset($this->intakeSubmission, $this->currentOrder, $this->completedMilestone, $this->batchOrders, $this->rejectedSubmission);
+        unset($this->intakeSubmission, $this->currentOrder, $this->completedMilestone, $this->batchOrders, $this->rejectedSubmission, $this->primarySubmission);
         $this->step = 4;
     }
 
-    /** Clears a just-picked (not yet submitted) file from the "upload for review" dropzone. */
-    public function removeReviewDocumentFile(int $index): void
-    {
-        unset($this->reviewDocumentFiles[$index]);
-        $this->reviewDocumentFiles = array_values($this->reviewDocumentFiles);
-        $this->resetErrorBag('reviewDocumentFiles');
-    }
-
-    /**
-     * The alternate Step 2 continuation: instead of downloading and filling out our
-     * questionnaires, the client uploads their own already-drafted documents directly for
-     * AI polishing and admin review. Skips Step 3 entirely — goes straight to Step 4.
-     */
-    public function submitForReview(): void
-    {
-        abort_unless(auth()->check(), 403);
-
-        $this->clampIntakeMethodToPackage();
-
-        $this->resetErrorBag();
-
-        if ($this->batchOrders->contains(fn ($o) => $o->blockedFromAiGeneration())) {
-            $this->addError('payment', 'Your trial has ended. Please subscribe to continue using AI document generation.');
-
-            return;
-        }
-
-        $rules = $this->profileRules();
-        $rules['intakeMethod'] = 'required|in:download,upload_for_review';
-        // Mirrors submitIntake()'s questionnaire-box behavior: a file already on record (e.g.
-        // from before a rejection) satisfies the requirement — the client isn't forced to
-        // re-pick every file just to resubmit one that was fine.
-        $rules['reviewDocumentFiles'] = $this->existingReviewUploads->isEmpty() ? 'required|array|min:1' : 'nullable|array';
-        $rules['reviewDocumentFiles.*'] = 'file|mimes:pdf,jpg,jpeg,png,docx|max:20480';
-
-        $this->validate($rules);
-
-        $this->persistProfile();
-
-        $orders = $this->batchOrders;
-
-        if ($orders->isEmpty()) {
-            $this->addError('reviewDocumentFiles', 'No active order found for this submission.');
-
-            return;
-        }
-
-        // Resubmitting after a rejection with new files — replace the prior batch of review
-        // documents rather than accumulating alongside them, matching submitIntake()'s
-        // replace-in-place behavior for questionnaire uploads. If no new files were chosen,
-        // the existing uploads are left exactly as they are.
-        if (! empty($this->reviewDocumentFiles)) {
-            foreach ($orders as $order) {
-                $previousSubmission = $order->intakeSubmission;
-
-                if (! $previousSubmission || $previousSubmission->intake_method !== IntakeMethod::UploadForReview) {
-                    continue;
-                }
-
-                $previousSubmission->intakeUploads()
-                    ->where('upload_type', IntakeUploadType::ClientDocumentForReview)
-                    ->get()
-                    ->each(function (IntakeUpload $upload) {
-                        if ($upload->storage_path) {
-                            Storage::disk('local')->delete($upload->storage_path);
-                        }
-
-                        GeneratedDocument::where('intake_upload_id', $upload->id)->get()->each(function (GeneratedDocument $doc) {
-                            foreach ([$doc->pdf_storage_path, $doc->docx_storage_path, $doc->custom_storage_path] as $path) {
-                                if ($path) {
-                                    Storage::disk('local')->delete($path);
-                                }
-                            }
-                            $doc->delete();
-                        });
-
-                        $upload->delete();
-                    });
-            }
-        }
-
-        $batchToken = (string) Str::ulid();
-
-        $storedFiles = collect($this->reviewDocumentFiles)->map(fn ($file) => [
-            'path' => $file->store("uploads/batch/{$batchToken}"),
-            'original_filename' => $file->getClientOriginalName(),
-            'mime_type' => $file->getMimeType(),
-            'file_size' => $file->getSize(),
-        ])->values()->all();
-
-        $primaryUploadsByPath = [];
-
-        foreach ($orders as $order) {
-            $submission = IntakeSubmission::updateOrCreate(
-                ['order_id' => $order->id],
-                [
-                    'status' => IntakeSubmissionStatus::Submitted,
-                    'intake_method' => IntakeMethod::UploadForReview,
-                    'reviewer_notes' => null,
-                    'submitted_at' => now(),
-                ]
-            );
-
-            foreach ($storedFiles as $meta) {
-                $upload = IntakeUpload::create([
-                    'intake_submission_id' => $submission->id,
-                    'upload_type' => IntakeUploadType::ClientDocumentForReview,
-                    'original_filename' => $meta['original_filename'],
-                    'storage_path' => $meta['path'],
-                    'mime_type' => $meta['mime_type'],
-                    'file_size' => $meta['file_size'],
-                    'ai_extraction_status' => AiExtractionStatus::Pending,
-                ]);
-
-                $primaryUploadsByPath[$meta['path']] ??= $upload;
-            }
-
-            Order::where('id', $order->id)->update(['status' => OrderStatus::IntakeSubmitted]);
-
-            ActivityLog::record(
-                'submission.submitted',
-                "Documents submitted for review for order #{$order->id}.",
-                user: auth()->user(),
-                order: $order,
-                subject: $submission,
-            );
-
-            $submission->setRelation('order', $order);
-
-            User::where('role', UserRole::Admin)->pluck('email')->each(
-                function (string $adminEmail) use ($submission) {
-                    try {
-                        Mail::to($adminEmail)->send(new AdminIntakeSubmittedMail($submission));
-                    } catch (\Throwable $e) {
-                        report($e);
-                    }
-                }
-            );
-        }
-
-        foreach ($primaryUploadsByPath as $upload) {
-            ProcessIntakeUpload::dispatch($upload);
-        }
-
-        $this->reviewDocumentFiles = [];
-        unset($this->intakeSubmission, $this->currentOrder, $this->completedMilestone, $this->batchOrders, $this->rejectedSubmission);
-        $this->step = 4;
-    }
-
-    /** Routes a rejected order's "Re-upload" action to whichever step matches how it was
-     *  originally submitted — Step 2's upload-for-review dropzone, or Step 3's questionnaires. */
+    /** A rejected order's "Re-upload" action — reopen its submission as a Draft so the client
+     *  re-enters the Practice Intake wizard (Step 2) exactly where they left off, fixes
+     *  whatever the reviewer flagged, then re-certifies through Step 3 again. */
     public function reuploadForOrder(int $orderId): void
     {
         $submission = $this->batchOrders->firstWhere('id', $orderId)?->intakeSubmission;
 
-        if ($submission?->intake_method === IntakeMethod::UploadForReview) {
-            $this->intakeMethod = IntakeMethod::UploadForReview->value;
-            $this->goToStep(2);
-        } else {
-            $this->goToStep(3);
-        }
+        $submission?->update(['status' => IntakeSubmissionStatus::Draft]);
+
+        unset($this->completedMilestone, $this->batchOrders, $this->primarySubmission);
+        $this->goToStep(2);
     }
 
     public function checkApproval(): void
@@ -1875,7 +1933,7 @@ $progressPct = ($milestone / 4) * 100;
                     wire:loading.class="opacity-50" wire:target="goToStep({{ $n }})" @endif>
                     <div
                         class="w-9 h-9 rounded-full inline-flex items-center justify-center text-sm font-extrabold flex-shrink-0
-                        {{ $isActive ? 'bg-[#12304f] text-white' : ($isDone ? 'bg-[#d7f3ea] text-[#117a51]' : 'bg-[#edf2f7] text-[#5d6e7f]') }}">
+                        {{ $isActive ? 'bg-[#12304f] text-white' : ($isDone ? 'bg-[#0b9ed0] text-white' : 'bg-[#edf2f7] text-[#5d6e7f]') }}">
                         @if($reachable && !$isActive)
                         <span wire:loading.remove wire:target="goToStep({{ $n }})">@if($isDone && !$isActive) ✓ @else {{
                             $n }} @endif</span>
@@ -1892,7 +1950,7 @@ $progressPct = ($milestone / 4) * 100;
                     </div>
                 </div>
                 @if(!$loop->last)
-                <div class="flex-1 h-0.5 mt-[1.125rem] min-w-4 {{ $n < $milestone ? 'bg-[#b8e8d7]' : 'bg-[#dfe7ef]' }}">
+                <div class="flex-1 h-0.5 mt-[1.125rem] min-w-4 {{ $n < $milestone ? 'bg-[#0b9ed0]' : 'bg-[#dfe7ef]' }}">
                 </div>
                 @endif
                 @endforeach
@@ -1910,21 +1968,77 @@ $progressPct = ($milestone / 4) * 100;
         @if($milestone >= 1)
         <div
             class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-            <div class="flex items-center gap-3 rounded-xl bg-[#eef8f3] border border-[#bfe3d2] px-3.5 py-2.5 mb-3">
-                <span class="text-[#117a51]">&#10003;</span>
-                <p class="text-sm font-semibold text-[#0f7a4f]">Payment received. Continue to download your practice
-                    intake form.</p>
-            </div>
-            <div class="divide-y divide-[#eef2f6]">
-                @foreach($this->batchOrders as $order)
-                <div class="flex items-center justify-between gap-3 px-2 py-2.5">
-                    <span class="text-sm font-semibold text-[#173045]">{{ $order->package?->name }}</span>
-                    <a href="{{ route('orders.receipt', $order) }}" target="_blank"
-                        class="inline-flex items-center gap-1.5 rounded border border-empower-border px-3 py-1.5 text-xs font-semibold text-navy hover:bg-page transition-colors">
-                        &#8681; View Receipt
-                    </a>
+            <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1</p>
+            <h2 class="text-lg font-semibold text-navy mb-1">Selected Package</h2>
+            <p class="text-sm text-empower-muted">
+                Complete payment first to unlock your practice intake form. Your documents are generated automatically
+                once intake is submitted and reviewed.
+            </p>
+            <p class="text-sm text-empower-muted mt-1 mb-2">Your final invoice reflects the provider count you confirm
+                during intake in the next step.</p>
+
+            @foreach($this->batchOrders as $order)
+            @php
+                $orderIsTrial = $order->payment_status === PaymentStatus::Trialing;
+                $orderPrice = (float) $order->original_price;
+                $orderPaid = (float) $order->amount_paid;
+            @endphp
+            <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] mb-2">
+                <div>
+                    <p class="text-sm font-semibold text-[#173045]">{{ $order->package?->name }}</p>
+                    <p class="text-xs text-empower-muted">${{ number_format($orderPrice, $orderPrice ==
+                        floor($orderPrice) ? 0 : 2) }} /
+                        {{ $order->billing_cycle?->period() }}</p>
                 </div>
-                @endforeach
+                <div class="flex flex-col items-end gap-1">
+                    <span
+                        class="inline-flex items-center px-2.5 py-1 rounded-full bg-[#d7f3ea] text-[#117a51] text-[0.68rem] font-extrabold tracking-wide uppercase">
+                        {{ $orderIsTrial ? 'Trial' : 'Paid' }}
+                    </span>
+                    <a href="{{ route('orders.receipt', $order) }}" target="_blank"
+                        class="text-xs font-semibold text-[#1a7aad] hover:underline">View Receipt</a>
+                </div>
+            </div>
+
+            <div class="py-2.5 border-b border-[#eef2f6] mb-2">
+                @if($order->discount_code)
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-semibold text-[#0f7a4f]">Discount ({{ $order->discount_code }})</span>
+                    <span class="text-sm font-semibold text-[#0f7a4f]">-${{ number_format((float) $order->discount_amount, 2) }}</span>
+                </div>
+                @else
+                <p class="text-sm text-empower-muted">No discount applied</p>
+                @endif
+            </div>
+
+            <div class="flex items-center justify-between pt-2 {{ !$loop->last ? 'border-b border-[#eef2f6] mb-2 pb-2.5' : '' }}">
+                <span class="text-sm font-semibold text-[#173045]">{{ $orderIsTrial ? 'Due Today' : 'Paid' }}</span>
+                <span class="text-lg font-extrabold text-navy">${{ number_format($orderPaid, $orderPaid ==
+                    floor($orderPaid) ? 0 : 2) }}</span>
+            </div>
+            @endforeach
+        </div>
+
+        @php
+            $firstBatchOrder = $this->batchOrders->first();
+            $isTrialBatch = $firstBatchOrder?->payment_status === PaymentStatus::Trialing;
+            $totalPaidAmount = (float) $this->batchOrders->sum('amount_paid');
+            $cardEnding = $firstBatchOrder?->card_last_four;
+        @endphp
+        <div
+            class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
+            <div class="flex items-center gap-3 rounded-xl bg-[#eef8f3] border border-[#bfe3d2] px-3.5 py-2.5">
+                <span class="text-[#117a51]">&#10003;</span>
+                <p class="text-sm font-semibold text-[#0f7a4f]">
+                    @if($isTrialBatch)
+                        Your free trial has started{{ $firstBatchOrder?->paid_at ? ' on '.$firstBatchOrder->paid_at->format('M j, Y') : '' }}{{ $cardEnding ? " (card ending {$cardEnding})" : '' }}.
+                    @else
+                        Payment of ${{ number_format($totalPaidAmount, $totalPaidAmount == floor($totalPaidAmount) ? 0 : 2) }} received{{ $firstBatchOrder?->paid_at ? ' on '.$firstBatchOrder->paid_at->format('M j, Y') : '' }}{{ $cardEnding ? " (card ending {$cardEnding})" : '' }}.
+                    @endif
+                    @if($newAccountEmail)
+                        Account created for {{ $newAccountEmail }}; a login password would be emailed there.
+                    @endif
+                </p>
             </div>
         </div>
         @else
@@ -2229,18 +2343,14 @@ $progressPct = ($milestone / 4) * 100;
 
     {{-- ── Step 2: Practice Intake ── --}}
     @if($step === 2)
+    @if($editingProfile)
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        @if($editingProfile)
         <div
             class="flex items-center gap-2 rounded-xl bg-[#edf6ff] border border-[#bfdcf3] px-4 py-3 mb-4 text-sm text-[#12304f]">
             You're updating practice details for an already-paid plan. Documents you've already generated will be marked
             outdated until you regenerate them.
         </div>
         <h2 class="text-lg font-semibold text-[#12304f] mb-1">Update Your Practice Details</h2>
-        @else
-        <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 2</p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Confirm Key Details</h2>
-        @endif
         <p class="text-sm text-[#5d6e7f] mb-5">This information is inserted directly into your compliance documents —
             please check accuracy. Practice Name and Logo lock permanently after your first submission.</p>
 
@@ -2295,9 +2405,7 @@ $progressPct = ($milestone / 4) * 100;
 
             <div class="sm:col-span-2">
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Practice Address <span
-                        class="text-red-500">*</span> <span class="text-xs font-normal text-[#6b7f93]">(Prefilled from
-                        your billing address — feel free to update it if your practice address is
-                        different.)</span></label>
+                        class="text-red-500">*</span></label>
                 <input wire:model.live="practiceAddress" type="text" placeholder="123 Main St, Springfield, IL"
                     class="w-full rounded-xl border {{ $errors->has('practiceAddress') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#009bde] focus:border-transparent transition">
                 @error('practiceAddress') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -2324,235 +2432,7 @@ $progressPct = ($milestone / 4) * 100;
             </div>
         </div>
 
-        @unless($editingProfile)
-        <div class="mt-5 pt-5" x-data="{ confirmDownload: false }">
-            @if($this->selectedPackage?->allowsQuestionnaireDownload() ?? true)
-            <label class="block text-sm font-semibold text-[#31465b] mb-2">
-                Do you want to upload your documents for review or do you want to download our questionnaires?
-                <span class="text-red-500">*</span>
-            </label>
-            <div class="flex gap-3">
-                <label
-                    class="flex-1 flex items-start gap-2.5 rounded-xl border {{ $intakeMethod === 'upload_for_review' ? 'border-[#12304f] bg-[#f0f4f8]' : 'border-[#dbe4ee] bg-[#f8fbfd]' }} px-4 py-3 cursor-pointer transition">
-                    <input type="radio" name="intakeMethod" wire:click="setIntakeMethod('upload_for_review')"
-                        @checked($intakeMethod==='upload_for_review' ) class="mt-0.5">
-                    <span>
-                        <span class="block text-sm font-semibold text-[#12304f]">Upload your existing documents for
-                            review</span>
-                        <span class="block text-xs text-[#5d6e7f]">Already have compliance documents? Upload them and
-                            we'll review, refine, and finalize them for you.</span>
-                    </span>
-                </label>
-                <label
-                    class="flex-1 flex items-start gap-2.5 rounded-xl border {{ $intakeMethod === 'download' ? 'border-[#12304f] bg-[#f0f4f8]' : 'border-[#dbe4ee] bg-[#f8fbfd]' }} px-4 py-3 cursor-pointer transition">
-                    <input type="radio" name="intakeMethod" x-ref="downloadRadio"
-                        x-on:click.prevent="confirmDownload = true" @checked($intakeMethod==='download' )
-                        class="mt-0.5">
-                    <span>
-                        <span class="block text-sm font-semibold text-[#12304f]">Download our questionnaires</span>
-                        <span class="block text-xs text-[#5d6e7f]">Fill out our compliance questionnaires and upload
-                            them back for us to build your documents.</span>
-                    </span>
-                </label>
-            </div>
-            @error('intakeMethod') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-
-            <div x-show="confirmDownload" x-cloak
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-                <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6"
-                    x-on:click.outside="confirmDownload = false">
-                    <h3 class="text-base font-semibold text-[#12304f] mb-2">Are you sure you don't have anything ready
-                        to upload?</h3>
-                    <p class="text-sm text-[#5d6e7f] mb-5">If you already have a compliance document, choose "Upload
-                        your existing documents for review" instead — it's usually faster than filling out a blank
-                        questionnaire.</p>
-                    <div class="flex justify-end gap-3">
-                        <button type="button" x-on:click="confirmDownload = false"
-                            class="rounded-lg border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                            Cancel
-                        </button>
-                        <button type="button"
-                            x-on:click="$refs.downloadRadio.checked = true; $wire.setIntakeMethod('download'); confirmDownload = false"
-                            class="inline-flex items-center gap-1 rounded bg-[#76c8c0] px-5 py-2 text-sm font-bold text-[#0a2037] hover:bg-[#5bb2aa] transition-colors">
-                            Continue
-                        </button>
-                    </div>
-                </div>
-            </div>
-            @else
-            <p class="text-sm text-[#5d6e7f]">Since Essential Compliance is based on your own documents, we'll review
-                whatever you upload below.</p>
-            @endif
-
-            @if($intakeMethod === 'upload_for_review')
-            <div class="mt-4">
-                @if($this->rejectedSubmission?->reviewer_notes)
-                <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    <p class="font-semibold mb-0.5">Reviewer notes:</p>
-                    <p>{{ $this->rejectedSubmission->reviewer_notes }}</p>
-                </div>
-                @endif
-                <div class="border-2 border-dashed border-[#b9cfe0] rounded-[1rem] bg-[#f7fbfd] p-6">
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">
-                        Upload document(s) for review <span class="text-red-500">*</span>
-                    </label>
-                    <p class="text-xs text-[#5d6e7f] mb-3">Upload one or more of your existing compliance documents.
-                        Our team and AI will review, clean up, and finalize each one for you.</p>
-                    @if($this->existingReviewUploads->isNotEmpty() && empty($reviewDocumentFiles))
-                    <div class="mb-3">
-                        <p class="text-xs text-[#5d6e7f] mb-1.5">Already uploaded:</p>
-                        <ul class="flex flex-wrap gap-2">
-                            @foreach($this->existingReviewUploads as $existingUpload)
-                            <li
-                                class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#edf6ff] text-[#12304f] text-sm font-semibold">
-                                ✓ {{ $existingUpload->original_filename }}
-                            </li>
-                            @endforeach
-                        </ul>
-                        <p class="mt-1.5 text-xs text-[#5d6e7f]">Choose new files below to replace these.</p>
-                    </div>
-                    @endif
-                    <input type="file" wire:model="reviewDocumentFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.docx"
-                        class="block w-full max-w-full truncate text-sm text-[#5d6e7f] file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
-                    @error('reviewDocumentFiles') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
-                    @error('reviewDocumentFiles.*') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
-                    <div wire:loading wire:target="reviewDocumentFiles" class="mt-2 text-xs text-[#5d6e7f]">Uploading…
-                    </div>
-                    @if(!empty($reviewDocumentFiles))
-                    <ul class="mt-3 space-y-1.5" wire:loading.remove wire:target="reviewDocumentFiles">
-                        @foreach($reviewDocumentFiles as $i => $file)
-                        <li class="flex items-center justify-between gap-2 text-sm">
-                            <span
-                                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#edf6ff] text-[#12304f] font-semibold truncate max-w-[80%]">&#10003;
-                                {{ $file->getClientOriginalName() }}</span>
-                            <button type="button" wire:click="removeReviewDocumentFile({{ $i }})"
-                                wire:target="removeReviewDocumentFile({{ $i }})" wire:loading.attr="disabled"
-                                wire:target="removeReviewDocumentFile({{ $i }})"
-                                class="text-xs font-bold text-red-600 hover:underline flex-shrink-0">
-                                <span wire:loading.remove wire:target="removeReviewDocumentFile({{ $i }})">Remove</span>
-                                <span wire:loading wire:target="removeReviewDocumentFile({{ $i }})">
-                                    <x-spinner class="h-3 w-3" />
-                                </span>
-                            </button>
-                        </li>
-                        @endforeach
-                    </ul>
-                    @endif
-                </div>
-            </div>
-            @endif
-        </div>
-        @endunless
-    </div>
-
-    {{--
-    OSHA Locations — commented out for now, re-enable by uncommenting this block.
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <div class="flex items-center justify-between mb-4">
-            <div>
-                <h3 class="text-base font-semibold text-[#12304f]">OSHA Locations</h3>
-                <p class="text-xs text-[#5d6e7f] mt-0.5">Add every practice location that needs an OSHA safety
-                    questionnaire on file.</p>
-            </div>
-            <button type="button" wire:click="$dispatch('open-osha-modal')"
-                class="inline-flex items-center gap-1 rounded bg-[#12304f] px-4 py-2 text-xs font-bold text-white hover:bg-[#0a2037] transition-colors">
-                + Add Location
-            </button>
-        </div>
-
-        @if($this->oshaLocations->isEmpty())
-        <p class="text-sm text-[#5d6e7f] italic">No locations added yet.</p>
-        @else
-        <div class="divide-y divide-[#eef2f6]">
-            @foreach($this->oshaLocations as $loc)
-            <div class="flex items-center justify-between gap-3 py-3">
-                <div>
-                    <p class="text-sm font-semibold text-[#12304f]">{{ $loc->name }}</p>
-                    @if($loc->address)
-                    <p class="text-xs text-[#5d6e7f]">{{ $loc->address }}</p>
-                    @endif
-                </div>
-                <button type="button" wire:click="$dispatch('open-osha-modal', { locationId: {{ $loc->id }} })"
-                    class="text-xs font-semibold text-[#1a7aad] hover:underline flex-shrink-0">
-                    Edit
-                </button>
-            </div>
-            @endforeach
-        </div>
-        @endif
-    </div>
-    --}}
-
-    @php
-    $requiredDownloadKeys = $editingProfile ? [] : $this->applicableQuestionnaires
-    ->where('required', true)
-    ->map(fn ($q) => 'questionnaire-downloaded-'.auth()->id().'-'.$q['uploadType']->value)
-    ->values()
-    ->all();
-    // Superset of requiredDownloadKeys — every questionnaire's badge (required or
-    // optional) needs its localStorage flag rehydrated on init, not just the ones
-    // that gate the "continue" button, or optional downloads look forgotten on return.
-    $allDownloadKeys = $this->applicableQuestionnaires
-    ->map(fn ($q) => 'questionnaire-downloaded-'.auth()->id().'-'.$q['uploadType']->value)
-    ->values()
-    ->all();
-    @endphp
-    <div x-data="{
-                requiredKeys: @js($requiredDownloadKeys),
-                allKeys: @js($allDownloadKeys),
-                downloadedMap: {},
-                init() {
-                    this.allKeys.forEach(k => { this.downloadedMap[k] = localStorage.getItem(k) === '1' });
-                },
-                markDownloaded(key) {
-                    this.downloadedMap[key] = true;
-                    localStorage.setItem(key, '1');
-                },
-                get allRequiredDownloaded() {
-                    return this.requiredKeys.every(k => this.downloadedMap[k]);
-                }
-            }"
-        class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 space-y-4">
-        @if(! $editingProfile && $intakeMethod === 'download')
-        {{-- Questionnaire downloads — one per file the client's purchased package(s) need --}}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            @foreach($this->applicableQuestionnaires as $questionnaire)
-            @php $downloadKey = 'questionnaire-downloaded-'.auth()->id().'-'.$questionnaire['uploadType']->value;
-            @endphp
-            <div
-                class="border-2 border-dashed border-[#b9cfe0] rounded-[1.25rem] bg-[#f7fbfd] p-6 text-center flex flex-col">
-                <div
-                    class="w-14 h-14 rounded-full bg-[#12304f]/[0.08] text-[#12304f] inline-flex items-center justify-center text-2xl mb-3 mx-auto">
-                    📄</div>
-                <p class="font-semibold text-sm text-[#12304f] mb-1">
-                    {{ $questionnaire['title'] }}
-                    @unless($questionnaire['required'])
-                    <span class="text-[#5d6e7f] font-normal">(optional)</span>
-                    @endunless
-                </p>
-                <p class="text-xs text-[#5d6e7f] mb-4 flex-1">{{ $questionnaire['description'] }}</p>
-                <a href="{{ Questionnaires::url($questionnaire['file']) }}"
-                    @click="markDownloaded('{{ $downloadKey }}')"
-                    class="inline-flex items-center justify-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0a2037] transition-colors">
-                    &#8681; Download Form
-                </a>
-                <p x-show="downloadedMap['{{ $downloadKey }}']" x-cloak
-                    class="mt-2 text-xs font-semibold text-[#0f7a4f]">
-                    &#10003; Downloaded
-                </p>
-                <p x-show="!downloadedMap['{{ $downloadKey }}']" x-cloak class="mt-2 text-xs text-[#5d6e7f]">
-                    Not downloaded yet
-                </p>
-            </div>
-            @endforeach
-        </div>
-        <p x-show="!allRequiredDownloaded" x-cloak class="text-xs font-semibold text-[#9a6700]">
-            Please download the required questionnaire(s) above before continuing.
-        </p>
-        @endif
-
-        <div class="flex justify-between">
-            @if($editingProfile)
+        <div class="flex justify-between mt-5">
             <button wire:click="cancelEditProfile" wire:target="cancelEditProfile" wire:loading.attr="disabled"
                 wire:target="cancelEditProfile"
                 class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
@@ -2561,270 +2441,383 @@ $progressPct = ($milestone / 4) * 100;
                     <x-spinner class="h-3.5 w-3.5" />
                 </span>
             </button>
-            @else
-            <button wire:click="goToStep(1)" wire:target="goToStep(1)" wire:loading.attr="disabled"
-                wire:target="goToStep(1)"
-                class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                <span wire:loading.remove wire:target="goToStep(1)">&larr; Back</span>
-                <span wire:loading wire:target="goToStep(1)">
-                    <x-spinner class="h-3.5 w-3.5" />
-                </span>
-            </button>
-            @endif
-            @php $isReviewUpload = ! $editingProfile && $intakeMethod === 'upload_for_review'; @endphp
-            @php $profileSubmitMethod = $isReviewUpload ? 'submitForReview' : 'saveProfile'; @endphp
-            <button wire:click="{{ $profileSubmitMethod }}" wire:target="{{ $profileSubmitMethod }}"
-                @unless($isReviewUpload) :disabled="!allRequiredDownloaded"
-                :class="!allRequiredDownloaded ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[#5bb2aa]'" @endunless
-                class="inline-flex items-center gap-1 rounded bg-[#009bde] px-5 py-2 text-sm font-bold text-[#0a2037] transition-colors"
+            <button wire:click="saveProfile" wire:target="saveProfile"
+                class="inline-flex items-center gap-1 rounded bg-[#009bde] px-5 py-2 text-sm font-bold text-[#0a2037] hover:bg-[#5bb2aa] transition-colors"
                 wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                wire:target="{{ $profileSubmitMethod }}">
-                <span wire:loading.remove wire:target="{{ $profileSubmitMethod }}">{{ $editingProfile ? 'Save Changes' :
-                    ($isReviewUpload ? 'Submit Documents for
-                    Review' : 'Submit Profile & Continue') }}
-                    &rarr;</span>
-                <span wire:loading.inline-flex wire:target="{{ $profileSubmitMethod }}"
-                    class="inline-flex items-center gap-1.5">
+                wire:target="saveProfile">
+                <span wire:loading.remove wire:target="saveProfile">Save Changes &rarr;</span>
+                <span wire:loading.inline-flex wire:target="saveProfile" class="inline-flex items-center gap-1.5">
                     <x-spinner class="h-3.5 w-3.5" /> Saving…
                 </span>
             </button>
         </div>
     </div>
+    @else
+    <livewire:portal.practice-intake-wizard :orderIds="$orderIds" :key="'intake-wizard-'.implode('-', $orderIds)" />
+    @endif
 
     <livewire:portal.osha-location-modal :practiceId="$this->practice?->id ?? 0" />
     @endif
 
-    {{-- ── Step 3: Intake Upload ── --}}
+    {{-- ── Step 3: Upload & Confirm ── --}}
     @if($step === 3)
-    @php $rejected = (bool) $this->rejectedSubmission; @endphp
+    @php
+    $primarySub = $this->primarySubmission;
+    $primaryOrder = $this->batchOrders->firstWhere('id', min($this->orderIds ?: [0]));
+    $includesWorkflowQuestionnaire = $this->batchOrders->contains(fn ($o) => $o->package?->includesWorkflowQuestionnaire());
+    $isSubmitted = $primarySub && $primarySub->status !== IntakeSubmissionStatus::Draft;
+    $practiceLabel = $this->practice?->name ?: 'this organization';
+    @endphp
 
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 3</p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Intake Upload</h2>
+        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Upload &amp; Confirm</h2>
         <p class="text-sm text-[#5d6e7f] mb-5">
-            @if($rejected)
-            Your previous submission was rejected. Please address the reviewer's notes and re-upload.
+            @if($this->rejectedSubmission)
+            Your previous submission was rejected. Please review the reviewer's notes below, make any needed changes,
+            and re-certify.
+            @elseif($isSubmitted)
+            Submitted for review. Here's what you sent.
             @else
-            Upload your completed intake documents. Our team will review them before generating your compliance
-            documents.
+            Check your documents and answers, then certify and submit for review.
             @endif
         </p>
 
-        @if($rejected && $this->rejectedSubmission?->reviewer_notes)
+        @if($this->rejectedSubmission?->reviewer_notes)
         <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             <p class="font-semibold mb-0.5">Reviewer notes:</p>
             <p>{{ $this->rejectedSubmission->reviewer_notes }}</p>
         </div>
         @endif
 
-        {{-- Only show an upload box for questionnaires the user actually downloaded in Step 2 —
-        and every one shown here becomes mandatory to upload back. --}}
-        @php
-        $downloadTrackingKeyMap = $this->applicableQuestionnaires
-        ->mapWithKeys(fn ($q) => ['questionnaire-downloaded-'.auth()->id().'-'.$q['uploadType']->value =>
-        $q['uploadType']->value])
-        ->all();
-        @endphp
-        <div x-data="{
-                    downloadedMap: {},
-                    init() {
-                        const keyMap = @js($downloadTrackingKeyMap);
-                        Object.keys(keyMap).forEach(k => { this.downloadedMap[k] = localStorage.getItem(k) === '1' });
-                        $wire.set('downloadedQuestionnaireKeys', Object.entries(keyMap).filter(([lsKey]) => this.downloadedMap[lsKey]).map(([, uploadKey]) => uploadKey));
-                    },
-                    get anyDownloaded() {
-                        return Object.values(this.downloadedMap).some(v => v)
-                    }
-                }">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                @foreach($this->applicableQuestionnaires as $questionnaire)
+        {{-- Summary cards --}}
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Files</p>
+                <p class="text-base font-bold text-[#173045]">{{ $primarySub?->intakeUploads->count() ?? 0 }}</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Basics</p>
+                <p class="text-base font-bold text-[#173045]">{{ $this->basicsCompletedCount }} / 4</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Package</p>
+                <p class="text-base font-bold text-[#173045]">{{ $primaryOrder?->package ? ucfirst($primaryOrder->package->tier()->value) : '—' }}</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Status</p>
+                <p class="text-base font-bold text-[#173045]">{{ $this->intakeSubmissionStatusLabel($primarySub?->status) }}</p>
+            </div>
+        </div>
+
+        {{-- Documents --}}
+        <div class="border-t border-[#eef2f6] pt-5 mb-5">
+            <h3 class="text-base font-semibold text-[#12304f] mb-1">Documents</h3>
+            <p class="text-sm text-[#5d6e7f] mb-3">Your existing documents for review and update.</p>
+
+            <ul class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl mb-3">
+                @foreach($this->reviewDocumentCategories as $key => $label)
                 @php
-                $uploadKey = $questionnaire['uploadType']->value;
-                $downloadKey = 'questionnaire-downloaded-'.auth()->id().'-'.$uploadKey;
-                $uploadedFile = $this->questionnaireFiles[$uploadKey] ?? null;
-                $existingUpload = $this->existingUploadsByType->get($uploadKey);
+                    $status = $this->reviewDocumentCategoryStatus($key);
                 @endphp
-                <div wire:key="questionnaire-upload-{{ $uploadKey }}" x-show="downloadedMap['{{ $downloadKey }}']"
-                    x-cloak class="border-2 border-dashed border-[#b9cfe0] rounded-[1rem] bg-[#f7fbfd] p-6 text-center">
-                    <div
-                        class="w-14 h-14 rounded-full bg-[#12304f]/[0.08] text-[#12304f] inline-flex items-center justify-center text-2xl mb-3">
-                        📄</div>
-                    <p class="font-semibold text-sm text-[#12304f] mb-1">
-                        {{ $questionnaire['title'] }}
-                    </p>
-                    <p class="text-xs text-[#5d6e7f] mb-3">{{ $questionnaire['description'] }}</p>
-                    @if($existingUpload && ! $uploadedFile)
-                    <p class="mt-1 mb-3 text-xs text-[#5d6e7f]">
-                        <span
-                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#edf6ff] text-[#12304f] text-sm font-semibold">
-                            ✓ Already uploaded: {{ $existingUpload->original_filename }}
+                <li class="flex items-center justify-between gap-3 px-4 py-3">
+                    <span class="text-sm font-semibold text-[#173045]">{{ $label }}</span>
+                    <span
+                        class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
+                        {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
+                        {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" : 'Needed') }}
+                    </span>
+                </li>
+                @endforeach
+            </ul>
+
+            @if(! $includesWorkflowQuestionnaire && collect($this->reviewDocumentCategories)->keys()->contains(fn ($key) => $this->reviewDocumentCategoryStatus($key) === 'declined'))
+            <div class="rounded-xl bg-[#fdf3e0] px-3.5 py-2.5 mb-3 text-xs text-[#8a5a0f] leading-relaxed">
+                Missing a document? Essential updates what you have. <strong class="font-bold">Professional</strong>
+                creates missing documents for you.
+                <a href="{{ route('home') }}#pricing" class="font-bold underline hover:no-underline">Compare
+                    packages</a>
+            </div>
+            @endif
+
+            @if($primarySub?->intakeUploads->isNotEmpty())
+            <ul class="space-y-2">
+                @foreach($primarySub->intakeUploads as $upload)
+                <li class="flex items-center gap-2 text-sm border border-[#eef2f6] rounded-lg px-3 py-2">
+                    <span class="flex-1 truncate text-[#173045] font-medium">{{ $upload->original_filename }}</span>
+                    <span class="text-xs text-[#8592a1] flex-shrink-0">{{ $upload->fileSizeForHumans() }}</span>
+                    <span
+                        class="flex-shrink-0 rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
+                        {{ $this->reviewDocumentCategories[$upload->document_category] ?? 'Other' }}
+                    </span>
+                </li>
+                @endforeach
+            </ul>
+            @endif
+        </div>
+
+        {{-- Your answers --}}
+        <div class="border-t border-[#eef2f6] pt-5 mb-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-base font-semibold text-[#12304f]">Your answers</h3>
+                @if($primarySub)
+                <a href="{{ route('intake-submissions.answers', $primarySub) }}"
+                    class="text-xs font-bold text-[#1a7aad] hover:underline rounded border border-[#dbe4ee] px-3 py-1.5">Download
+                    my answers</a>
+                @endif
+            </div>
+            <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+                @foreach($this->answerSummaryRows as $row)
+                <div @if(! empty($row['details'])) x-data="{ open: false }" @endif>
+                    <button type="button" @if(! empty($row['details'])) x-on:click="open = !open" @endif
+                        @if(empty($row['details'])) disabled @endif
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors {{ ! empty($row['details']) ? 'cursor-pointer hover:bg-[#f8fbfd]' : 'cursor-default' }}">
+                        <span class="text-sm font-semibold text-[#173045] flex items-center gap-1.5">
+                            {{ $row['label'] }}
+                            @if(! empty($row['details']))
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" x-bind:class="open ? 'rotate-180' : ''"
+                                class="text-[#8592a1] transition-transform">
+                                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            @endif
                         </span>
-                        <br>Choose a new file below to replace it.
-                    </p>
-                    @endif
-                    <input type="file" wire:model="questionnaireFiles.{{ $uploadKey }}"
-                        accept=".pdf,.jpg,.jpeg,.png,.docx"
-                        class="block w-full max-w-full truncate text-sm text-[#5d6e7f] file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
-                    @error("questionnaireFiles.{$uploadKey}") <p class="mt-2 text-xs text-red-600">{{ $message }}</p>
-                    @enderror
-                    @if($uploadedFile)
-                    <div wire:loading.remove wire:target="questionnaireFiles.{{ $uploadKey }}"
-                        class="mt-3 flex items-center justify-center gap-2 flex-wrap">
-                        <span
-                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#edf6ff] text-[#12304f] text-sm font-semibold">
-                            ✓ {{ $uploadedFile->getClientOriginalName() }}
-                        </span>
-                        <button type="button" wire:click="removeQuestionnaireFile('{{ $uploadKey }}')"
-                            wire:target="removeQuestionnaireFile('{{ $uploadKey }}')" wire:loading.attr="disabled"
-                            wire:target="removeQuestionnaireFile('{{ $uploadKey }}')"
-                            class="text-xs font-bold text-red-600 hover:underline">
-                            <span wire:loading.remove
-                                wire:target="removeQuestionnaireFile('{{ $uploadKey }}')">Remove</span>
-                            <span wire:loading wire:target="removeQuestionnaireFile('{{ $uploadKey }}')">
-                                <x-spinner class="h-3 w-3" />
+                        <span class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $row['done'] }}/{{ $row['total'] }} {{ $row['done'] === $row['total'] ? '✓' : '' }}</span>
+                    </button>
+                    @if(! empty($row['details']))
+                    <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-2.5">
+                        @foreach($row['details'] as $detail)
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-xs font-semibold text-[#173045]">{{ $detail['label'] }}</p>
+                                <p class="text-xs text-[#5d6e7f]">{{ $detail['value'] }}</p>
+                            </div>
+                            <span
+                                class="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $detail['done'] ? 'bg-[#d7f3ea] text-[#117a51]' : 'bg-[#eef1f5] text-[#5d6e7f]' }}">
+                                {{ $detail['done'] ? 'Done' : 'Pending' }}
                             </span>
-                        </button>
+                        </div>
+                        @endforeach
                     </div>
-                    <div wire:loading wire:target="questionnaireFiles.{{ $uploadKey }}"
-                        class="mt-2 text-xs text-[#5d6e7f]">Uploading…</div>
                     @endif
                 </div>
                 @endforeach
             </div>
-            <p x-show="!anyDownloaded" x-cloak class="text-sm text-[#5d6e7f] italic mb-4">
-                You haven't downloaded any questionnaires yet. Go back to Step 2 to download the ones you need to fill
-                out.
-            </p>
         </div>
 
-        <div class="flex justify-end">
-            <button wire:click="submitIntake" wire:target="submitIntake"
-                class="inline-flex items-center gap-1 rounded bg-[#009bde] px-5 py-2 text-sm font-bold text-[#0a2037] hover:bg-[#5bb2aa] transition-colors"
-                wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                wire:target="submitIntake">
-                <span wire:loading.remove wire:target="submitIntake">Submit for Review &rarr;</span>
-                <span wire:loading.inline-flex wire:target="submitIntake" class="inline-flex items-center gap-1.5">
-                    <x-spinner class="h-3.5 w-3.5" /> Submitting…
-                </span>
-            </button>
+        <div class="border-t border-[#eef2f6] pt-5">
+            <h3 class="text-base font-semibold text-[#12304f] mb-1">Certification</h3>
+            <p class="text-sm text-[#5d6e7f] mb-4">The responses above accurately describe the current operations of
+                this organization.</p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Completed by (print name) <span
+                            class="text-red-500">*</span></label>
+                    <input wire:model="certifiedByName" type="text" {{ $isSubmitted ? 'disabled' : '' }}
+                        class="w-full rounded-xl border {{ $errors->has('certifiedByName') ? 'border-red-400' : 'border-[#dbe4ee]' }} {{ $isSubmitted ? 'bg-[#f0f4f8] cursor-not-allowed' : 'bg-[#f8fbfd]' }} px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error('certifiedByName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Title <span
+                            class="text-red-500">*</span></label>
+                    <input wire:model="certifiedByTitle" type="text" {{ $isSubmitted ? 'disabled' : '' }}
+                        class="w-full rounded-xl border {{ $errors->has('certifiedByTitle') ? 'border-red-400' : 'border-[#dbe4ee]' }} {{ $isSubmitted ? 'bg-[#f0f4f8] cursor-not-allowed' : 'bg-[#f8fbfd]' }} px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error('certifiedByTitle') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Signature (type your full name)
+                        <span class="text-red-500">*</span></label>
+                    <input wire:model="certifiedSignature" type="text" placeholder="Type your full name to sign"
+                        {{ $isSubmitted ? 'disabled' : '' }}
+                        class="w-full rounded-xl border {{ $errors->has('certifiedSignature') ? 'border-red-400' : 'border-[#dbe4ee]' }} {{ $isSubmitted ? 'bg-[#f0f4f8] cursor-not-allowed' : 'bg-[#f8fbfd]' }} px-4 py-2.5 text-sm italic text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error('certifiedSignature') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Date</label>
+                    <input type="text" disabled value="{{ ($primarySub?->certified_at ?? now())->format('M j, Y') }}"
+                        class="w-full rounded-xl border border-[#dbe4ee] bg-[#f0f4f8] px-4 py-2.5 text-sm text-[#5d6e7f] cursor-not-allowed">
+                </div>
+            </div>
+
+            <label class="flex items-start gap-2.5 mb-2 {{ $isSubmitted ? '' : 'cursor-pointer' }}">
+                <input type="checkbox" wire:model="certifyChecked" {{ $isSubmitted ? 'disabled' : '' }}
+                    class="mt-0.5 rounded text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                <span class="text-sm text-[#173045]">I certify these responses are accurate for {{ $practiceLabel }}.</span>
+            </label>
+            @error('certifyChecked') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
+            @error('payment') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
+
+            <div class="flex justify-between mt-3">
+                <button wire:click="goToStep(2)" wire:target="goToStep(2)" wire:loading.attr="disabled"
+                    class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+                    <span wire:loading.remove wire:target="goToStep(2)">&larr; Back to intake</span>
+                    <span wire:loading wire:target="goToStep(2)"><x-spinner class="h-3.5 w-3.5" /></span>
+                </button>
+                @if($isSubmitted)
+                <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="goToStep(4)">Continue &rarr;</span>
+                    <span wire:loading wire:target="goToStep(4)"><x-spinner class="h-3.5 w-3.5" /></span>
+                </button>
+                @else
+                <button wire:click="finalizeIntake" wire:target="finalizeIntake" wire:loading.attr="disabled"
+                    wire:loading.class="opacity-70 cursor-not-allowed"
+                    class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="finalizeIntake">Submit for Review &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="finalizeIntake"
+                        class="inline-flex items-center gap-1.5">
+                        <x-spinner class="h-3.5 w-3.5" /> Submitting…
+                    </span>
+                </button>
+                @endif
+            </div>
         </div>
     </div>
     @endif
 
-    {{-- ── Step 4: Review Status ── --}}
+    {{-- ── Step 4: Review ── --}}
     @if($step === 4)
     <div wire:poll.5s="checkApproval"
         class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 4</p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Review Status</h2>
-        <p class="text-sm text-[#5d6e7f] mb-5">Our team is reviewing your submission. This page refreshes automatically.
-        </p>
+        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Review</h2>
+        <p class="text-sm text-[#5d6e7f] mb-5">Your submission moves through these states until admin approval or
+            requested changes.</p>
 
-        <div class="space-y-3">
+        <div class="space-y-6">
             @forelse($this->batchOrders as $order)
             @php
-            $status = $order->intakeSubmission?->status;
-            [$cardClasses, $iconClasses, $icon, $label] = match(true) {
-            $status === IntakeSubmissionStatus::Approved => ['bg-[#f0fdf4] border-[#86efac]', 'bg-[#dcfce7]
-            text-[#166534]', '✅', 'Approved — documents are being generated'],
-            $status === IntakeSubmissionStatus::UnderReview => ['bg-[#fffbf0] border-[#fde68a]', 'bg-[#fef3c7]
-            text-[#92400e]', '🔍', 'Under review'],
-            $status === IntakeSubmissionStatus::Rejected => ['bg-[#fff1f2] border-[#fecdd3]', 'bg-[#fee2e2]
-            text-[#9f1239]', '❌', 'Submission rejected'],
-            default => ['bg-[#f4f7fb] border-[#dbe4ee]', 'bg-[#12304f]/[0.08] text-[#12304f]', '⏳', 'Submission
-            received'],
-            };
-            $textClass = match(true) {
-            $status === IntakeSubmissionStatus::Approved => 'text-[#166534]',
-            $status === IntakeSubmissionStatus::UnderReview => 'text-[#92400e]',
-            $status === IntakeSubmissionStatus::Rejected => 'text-[#9f1239]',
-            default => 'text-[#12304f]',
-            };
+                $status = $order->intakeSubmission?->status;
+                $isRejected = $status === IntakeSubmissionStatus::Rejected;
+                $doneCount = match (true) {
+                    $status === IntakeSubmissionStatus::Approved => 4,
+                    $isRejected, $status === IntakeSubmissionStatus::UnderReview => 3,
+                    $status === IntakeSubmissionStatus::Submitted => 2,
+                    default => 0,
+                };
+                $milestones = [
+                    ['label' => 'Submitted', 'desc' => 'Intake received and queued.'],
+                    ['label' => 'AI extraction', 'desc' => 'Structured data pulled from your files and answers.'],
+                    ['label' => 'Under review', 'desc' => 'An Empower admin is reviewing your submission.'],
+                    $isRejected
+                        ? ['label' => 'Changes requested', 'desc' => $order->intakeSubmission?->reviewer_notes ?: 'Please review and resubmit.']
+                        : ['label' => 'Approved', 'desc' => 'Documents generated and delivered to your dashboard.'],
+                ];
             @endphp
-            <div class="flex items-start gap-4 rounded-xl border p-4 {{ $cardClasses }}">
-                <div
-                    class="w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 {{ $iconClasses }}">
-                    {{ $icon }}</div>
-                <div class="flex-1">
-                    <p class="font-semibold {{ $textClass }}">{{ $order->package?->name }} &middot; {{ $label }}</p>
-                    @if($status === IntakeSubmissionStatus::Rejected && $order->intakeSubmission?->reviewer_notes)
-                    <p class="text-sm text-[#881337] mt-1">{{ $order->intakeSubmission->reviewer_notes }}</p>
-                    <button wire:click="reuploadForOrder({{ $order->id }})"
-                        wire:target="reuploadForOrder({{ $order->id }})" wire:loading.attr="disabled"
-                        wire:target="reuploadForOrder({{ $order->id }})"
-                        class="mt-2 inline-flex items-center gap-1 rounded bg-[#9f1239] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#881337] transition-colors">
-                        <span wire:loading.remove wire:target="reuploadForOrder({{ $order->id }})">Re-upload
-                            &rarr;</span>
-                        <span wire:loading.inline-flex wire:target="reuploadForOrder({{ $order->id }})"
-                            class="inline-flex items-center gap-1.5">
-                            <x-spinner class="h-3.5 w-3.5" /> Loading…
-                        </span>
-                    </button>
-                    @elseif(! $status)
-                    <p class="text-sm text-[#5d6e7f]">No submission found.</p>
-                    @else
-                    <p class="text-sm text-[#5d6e7f]">
-                        {{ $status === IntakeSubmissionStatus::UnderReview ? "An Empower compliance specialist is
-                        reviewing your submission." : 'Your intake documents are in the queue for review.' }}
-                    </p>
-                    @endif
+            <div>
+                <p class="text-sm font-semibold text-[#12304f] mb-3">{{ $order->package?->name }}</p>
+
+                @foreach($milestones as $mi => $m)
+                @php
+                    $isDone = $mi < $doneCount;
+                    $isLast = $mi === count($milestones) - 1;
+                    $isRejectedStep = $isRejected && $mi === 3;
+                @endphp
+                <div class="flex gap-3">
+                    <div class="flex flex-col items-center flex-shrink-0">
+                        <div
+                            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
+                            {{ $isRejectedStep ? 'bg-[#fee2e2] text-[#9f1239]' : ($isDone ? 'bg-[#0b9ed0] text-white' : 'bg-[#edf2f7] text-[#5d6e7f]') }}">
+                            @if($isRejectedStep)
+                                &times;
+                            @elseif($isDone)
+                                &#10003;
+                            @else
+                                {{ $mi + 1 }}
+                            @endif
+                        </div>
+                        @if(! $isLast)
+                        <div class="w-0.5 flex-1 my-0.5 {{ $mi < $doneCount - 1 ? 'bg-[#0b9ed0]' : 'bg-[#edf2f7]' }}"
+                            style="min-height: 1.5rem"></div>
+                        @endif
+                    </div>
+                    <div class="pb-4">
+                        <p class="text-sm font-semibold {{ $isRejectedStep ? 'text-[#9f1239]' : 'text-[#173045]' }}">
+                            {{ $m['label'] }}</p>
+                        <p class="text-xs {{ $isRejectedStep ? 'text-[#9f1239]' : 'text-[#5d6e7f]' }}">{{ $m['desc'] }}</p>
+                    </div>
                 </div>
+                @endforeach
+
+                @if($status === IntakeSubmissionStatus::Approved)
+                <div class="flex items-center gap-2.5 rounded-xl bg-[#eef8f3] border border-[#bfe3d2] px-3.5 py-2.5">
+                    <span class="text-[#117a51]">&#10003;</span>
+                    <p class="text-sm font-semibold text-[#0f7a4f]">Approved. Your documents are ready on the
+                        dashboard.</p>
+                </div>
+                @elseif($isRejected)
+                <button wire:click="reuploadForOrder({{ $order->id }})" wire:target="reuploadForOrder({{ $order->id }})"
+                    wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1 rounded bg-[#9f1239] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#881337] transition-colors">
+                    <span wire:loading.remove wire:target="reuploadForOrder({{ $order->id }})">Update &amp; Resubmit
+                        &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="reuploadForOrder({{ $order->id }})"
+                        class="inline-flex items-center gap-1.5">
+                        <x-spinner class="h-3.5 w-3.5" /> Loading…
+                    </span>
+                </button>
+                @elseif(! $status)
+                <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
+                @endif
             </div>
             @empty
             <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
             @endforelse
         </div>
 
-        @if($milestone >= 4)
-        <button wire:click="goToStep(5)" wire:target="goToStep(5)" wire:loading.attr="disabled"
-            wire:target="goToStep(5)"
-            class="mt-4 inline-flex items-center gap-1 rounded bg-[#009bde] px-4 py-1.5 text-xs font-bold text-[#0a2037] hover:bg-[#5bb2aa] transition-colors">
-            <span wire:loading.remove wire:target="goToStep(5)">Go to Dashboard &rarr;</span>
-            <span wire:loading.inline-flex wire:target="goToStep(5)" class="inline-flex items-center gap-1.5">
-                <x-spinner class="h-3.5 w-3.5" /> Loading…
-            </span>
-        </button>
-        @endif
+        <div class="flex justify-between items-center mt-5">
+            <button wire:click="goToStep(3)" wire:target="goToStep(3)" wire:loading.attr="disabled"
+                class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+                <span wire:loading.remove wire:target="goToStep(3)">&larr; Back</span>
+                <span wire:loading wire:target="goToStep(3)"><x-spinner class="h-3.5 w-3.5" /></span>
+            </button>
+            @if($milestone >= 4)
+            <button wire:click="goToStep(5)" wire:target="goToStep(5)" wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                <span wire:loading.remove wire:target="goToStep(5)">Go to Dashboard &rarr;</span>
+                <span wire:loading.inline-flex wire:target="goToStep(5)" class="inline-flex items-center gap-1.5">
+                    <x-spinner class="h-3.5 w-3.5" /> Loading…
+                </span>
+            </button>
+            @endif
+        </div>
     </div>
     @endif
 
     {{-- ── Step 5: Dashboard ── --}}
     @if($step === 5)
-    <p class="text-[0.65rem] font-extrabold uppercase tracking-widest text-[#5d6e7f]">Your Dashboard</p>
+    <div x-data="{
+            confirmCancelOrderId: null,
+            confirmCancelMessage: '',
+            confirmCancel(orderId, message) { this.confirmCancelOrderId = orderId; this.confirmCancelMessage = message; },
+        }">
+    <div class="space-y-4">
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+        <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 5</p>
+        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Dashboard</h2>
+        <p class="text-sm text-[#5d6e7f] mb-5">Your history, payments and generated documents for
+            {{ $this->practice?->name ?: 'your practice' }}.</p>
 
-    {{-- Practice info bar --}}
-    <div
-        class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4 flex flex-wrap items-center gap-3">
-        <div
-            class="w-11 h-11 rounded-xl border-2 border-dashed border-[#b9cfe0] bg-[#f7fbfd] flex items-center justify-center overflow-hidden flex-shrink-0">
-            @if($this->practice?->logo_path)
-            <img src="{{ Storage::disk('public')->url($this->practice->logo_path) }}" alt="Practice logo"
-                class="w-full h-full object-contain">
-            @endif
-        </div>
-        <div class="flex-1 min-w-[200px]">
-            <div class="font-bold text-[#12304f] text-sm">
-                {{ $this->practice?->name ?: 'Practice name not set' }}
-                @if($this->practice?->is_profile_locked)
-                <span
-                    class="ml-1 inline-flex items-center gap-0.5 text-[0.62rem] font-extrabold text-[#9a6700] bg-[#fff3cd] rounded px-1.5 py-0.5 uppercase tracking-wider">🔒
-                    Locked</span>
-                @endif
+        @php
+            $dashOrderForCards = $this->currentOrder;
+            $invoiceLabel = $dashOrderForCards?->billing_cycle === \App\Enums\BillingCycle::Annual ? 'Invoice / Year' : 'Invoice / Month';
+            $invoiceAmount = (float) ($dashOrderForCards?->original_price ?? 0);
+        @endphp
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Package</p>
+                <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->package?->name ?? '—' }}</p>
             </div>
-            <div class="text-xs text-[#5d6e7f]">
-                {{ auth()->user()->email }}
-                &middot; Effective {{ $this->practiceEffectiveDate?->format('M j, Y') }}
-                &middot; Renews {{ $this->practiceEffectiveDate?->copy()->addYear()->format('M j, Y') }}
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">{{ $invoiceLabel }}</p>
+                <p class="text-base font-bold text-[#173045]">${{ number_format($invoiceAmount, $invoiceAmount == floor($invoiceAmount) ? 0 : 2) }}</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Renews</p>
+                <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->next_bill_date?->format('M j, Y') ?? '—' }}</p>
             </div>
         </div>
-        <button wire:click="editProfile" wire:target="editProfile" wire:loading.attr="disabled"
-            wire:target="editProfile"
-            class="rounded border border-[#dbe4ee] px-3.5 py-1.5 text-xs font-semibold text-[#12304f] hover:bg-[#f4f7fb] transition-colors">
-            <span wire:loading.remove wire:target="editProfile">&#9998; Update Practice Info</span>
-            <span wire:loading.inline-flex wire:target="editProfile" class="inline-flex items-center gap-1.5">
-                <x-spinner class="h-3.5 w-3.5" /> Loading…
-            </span>
-        </button>
     </div>
 
     @php $dashOrder = $this->currentOrder; @endphp
@@ -2845,8 +2838,8 @@ $progressPct = ($milestone / 4) * 100;
                     <x-spinner class="h-3.5 w-3.5" /> Processing…
                 </span>
             </button>
-            <button type="button" wire:click="cancelSubscription({{ $dashOrder->id }})"
-                wire:target="cancelSubscription({{ $dashOrder->id }})" wire:loading.attr="disabled"
+            <button type="button"
+                x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your free trial? You'll lose access to AI document generation once it ends.`)"
                 class="rounded-lg border border-blue-300 px-3.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition-colors">
                 Cancel
             </button>
@@ -2880,8 +2873,8 @@ $progressPct = ($milestone / 4) * 100;
             We couldn't process your last renewal payment{{ $dashOrder->last_renewal_error ? ": {$dashOrder->last_renewal_error}" : '.' }}
             We'll retry automatically — please update your card to avoid cancellation.
         </span>
-        <button type="button" wire:click="cancelSubscription({{ $dashOrder->id }})"
-            wire:target="cancelSubscription({{ $dashOrder->id }})" wire:loading.attr="disabled"
+        <button type="button"
+            x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel this subscription? This can't be undone.`)"
             class="rounded-lg border border-amber-300 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors">
             Cancel Subscription
         </button>
@@ -2921,26 +2914,28 @@ $progressPct = ($milestone / 4) * 100;
     @elseif($dashOrder && $dashOrder->payment_status === PaymentStatus::Paid && $dashOrder->next_bill_date)
     <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3 text-xs text-empower-muted flex items-center justify-between gap-3">
         <span>Renews {{ $dashOrder->next_bill_date->format('M j, Y') }}</span>
-        <button type="button" wire:click="cancelSubscription({{ $dashOrder->id }})"
-            wire:target="cancelSubscription({{ $dashOrder->id }})"
+        <button type="button"
+            x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your subscription? You'll lose access to AI document generation once your current plan year ends.`)"
             class="text-xs font-semibold text-empower-muted hover:underline">Cancel subscription</button>
     </div>
     @endif
 
     {{-- Tabs --}}
-    <div class="flex gap-1 border-b border-[#dbe4ee]">
-        @foreach(['history' => 'History', 'payments' => 'Payments', 'documents' => 'Documents'] as $tabKey => $tabLabel)
-        <button wire:click="$set('dashboardTab', '{{ $tabKey }}')" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
-            wire:loading.attr="disabled" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
-            class="px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors {{ $dashboardTab === $tabKey ? 'border-[#12304f] text-[#12304f]' : 'border-transparent text-[#5d6e7f] hover:text-[#12304f]' }}">
-            <span wire:loading.remove wire:target="$set('dashboardTab', '{{ $tabKey }}')">{{ $tabLabel }}</span>
-            <span wire:loading wire:target="$set('dashboardTab', '{{ $tabKey }}')">
-                <x-spinner class="h-3.5 w-3.5" />
-            </span>
-        </button>
-        @endforeach
-    </div>
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
+        <div class="flex gap-1 border-b border-[#eef2f6] px-2">
+            @foreach(['documents' => 'Documents', 'payments' => 'Payments', 'profile' => 'Practice Profile', 'history' => 'History'] as $tabKey => $tabLabel)
+            <button wire:click="$set('dashboardTab', '{{ $tabKey }}')" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
+                wire:loading.attr="disabled" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
+                class="px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-colors {{ $dashboardTab === $tabKey ? 'border-[#12304f] text-[#12304f]' : 'border-transparent text-[#5d6e7f] hover:text-[#12304f]' }}">
+                <span wire:loading.remove wire:target="$set('dashboardTab', '{{ $tabKey }}')">{{ $tabLabel }}</span>
+                <span wire:loading wire:target="$set('dashboardTab', '{{ $tabKey }}')">
+                    <x-spinner class="h-3.5 w-3.5" />
+                </span>
+            </button>
+            @endforeach
+        </div>
 
+        <div class="p-5 space-y-5">
     @if($dashboardTab === 'documents')
     @if($this->userOrders->count() > 1)
     <div class="flex flex-wrap gap-2">
@@ -2957,14 +2952,8 @@ $progressPct = ($milestone / 4) * 100;
     </div>
     @endif
 
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <h3 class="text-sm font-semibold text-[#12304f]">
-            {{ $this->currentOrder?->package?->name }}
-            <span class="text-xs font-normal text-[#5d6e7f]">&middot; {{ $this->expectedDocuments->count() }} doc(s)
-                &middot; purchased {{ $this->currentOrder?->paid_at?->format('M j, Y') }}</span>
-        </h3>
-
-        <div class="divide-y divide-[#eef2f6] mt-3">
+    <div>
+        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
             @foreach($this->expectedDocuments as $row)
             @php
             $type = $row['type'];
@@ -2973,34 +2962,26 @@ $progressPct = ($milestone / 4) * 100;
             $sourceUpload = $row['sourceUpload'] ?? null;
             $title = $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' —
             '.$sourceUpload->original_filename : '');
+            [$badgeClass, $badgeLabel] = match(true) {
+                ! $doc => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
+                (bool) $doc->is_stale => ['bg-[#fde2e2] text-[#a53b3b]', 'Outdated'],
+                $doc->isReady() => ['bg-[#d7f3ea] text-[#117a51]', 'Current'],
+                $doc->wasRevoked() => ['bg-[#fde8cc] text-[#9a5b0f]', 'Updated'],
+                $doc->status === DocumentStatus::Failed => ['bg-[#fde2e2] text-[#a53b3b]', 'Failed'],
+                $doc->status === DocumentStatus::Completed => ['bg-[#edf2f7] text-[#5d6e7f]', 'Pending Review'],
+                default => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
+            };
             @endphp
-            <div class="flex items-center justify-between gap-3 py-3">
+            <div class="flex items-center gap-3 px-4 py-3">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-[#1a7aad] flex-shrink-0">
+                    <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                </svg>
                 <div class="flex-1 min-w-0">
-                    <div class="flex flex-wrap items-center gap-2 mb-0.5">
-                        <p class="text-sm font-bold text-[#12304f]">{{ $title }}</p>
-                        @if(! $doc)
+                    <div class="flex flex-wrap items-center gap-2">
+                        <p class="text-sm font-semibold text-[#173045] truncate">{{ $title }}</p>
                         <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#fff3cd] text-[#9a6700]">Generating</span>
-                        @elseif($doc->is_stale)
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#fde2e2] text-[#a53b3b]">Outdated</span>
-                        @elseif($doc->isReady())
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#dff7f0] text-[#0f7a4f]">Ready</span>
-                        @elseif($doc->wasRevoked())
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#fde8cc] text-[#9a5b0f]">Updated</span>
-                        @elseif($doc->status === DocumentStatus::Failed)
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#fde2e2] text-[#a53b3b]">Failed</span>
-                        @elseif($doc->status === DocumentStatus::Completed)
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#edf2f7] text-[#5d6e7f]">Pending
-                            Review</span>
-                        @else
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#fff3cd] text-[#9a6700]">Generating</span>
-                        @endif
+                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider {{ $badgeClass }}">{{ $badgeLabel }}</span>
                     </div>
                     @if($doc?->generated_at)
                     <p class="text-xs text-[#5d6e7f]">
@@ -3027,92 +3008,160 @@ $progressPct = ($milestone / 4) * 100;
                     </button>
                     @elseif($doc?->isReady() && $doc->delivery_source === \App\Enums\DocumentDeliverySource::Custom)
                     <a href="{{ route('documents.download', $doc) }}"
-                        class="text-xs font-bold rounded bg-[#12304f] text-white px-3 py-1.5 hover:bg-[#0a2037] transition-colors">
+                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
                         Download
                     </a>
                     @elseif($doc?->isReady() && $doc->pdf_storage_path)
                     <a href="{{ route('documents.download', $doc) }}"
-                        class="text-xs font-bold rounded bg-[#12304f] text-white px-3 py-1.5 hover:bg-[#0a2037] transition-colors">
-                        Download PDF
+                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
+                        Download
                     </a>
                     @elseif($doc?->isReady() && $doc->docx_storage_path)
                     <a href="{{ route('documents.download', $doc) }}?format=docx"
-                        class="text-xs font-bold rounded bg-[#12304f] text-white px-3 py-1.5 hover:bg-[#0a2037] transition-colors">
-                        Download DOCX
+                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
+                        Download
                     </a>
                     @endif
                 </div>
             </div>
             @endforeach
+
+            @if($this->primarySubmission)
+            <div class="flex items-center gap-3 px-4 py-3">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-[#8592a1] flex-shrink-0">
+                    <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                </svg>
+                <p class="flex-1 text-sm font-semibold text-[#173045]">Your intake answers</p>
+                <a href="{{ route('intake-submissions.answers', $this->primarySubmission) }}"
+                    class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors flex-shrink-0">Download</a>
+            </div>
+            @endif
         </div>
 
-        @if(! empty($this->currentOrder?->package?->features))
-        <p class="text-xs text-[#5d6e7f] mt-3"><strong>Services included:</strong> {{ implode(' - ',
-            $this->currentOrder->package->features) }}</p>
-        @endif
+        <div class="mt-4 rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
+            <p class="text-sm font-semibold text-[#173045] mb-1">Have another document you'd like reviewed?</p>
+            <p class="text-xs text-[#5d6e7f] mb-3">Upload it and our team will review and polish it, same as your other
+                documents — no need to redo your intake.</p>
+
+            @if($additionalDocumentNotice)
+            <p class="text-xs font-semibold text-[#117a51] mb-3">✓ {{ $additionalDocumentNotice }}</p>
+            @endif
+
+            <div class="flex flex-wrap items-start gap-2">
+                <div class="flex-1 min-w-[10rem]">
+                    <input wire:model="additionalDocumentFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.docx"
+                        wire:loading.attr="disabled" wire:target="additionalDocumentFile,uploadAdditionalDocument"
+                        class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
+                    @error('additionalDocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <select wire:model="additionalDocumentCategory"
+                    class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
+                    <option value="">Document type…</option>
+                    @foreach($this->reviewDocumentCategories as $key => $label)
+                    <option value="{{ $key }}">{{ $label }}</option>
+                    @endforeach
+                    <option value="other">Other</option>
+                </select>
+                <button type="button" wire:click="uploadAdditionalDocument" wire:target="uploadAdditionalDocument"
+                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                    class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
+                    <span wire:loading.remove wire:target="uploadAdditionalDocument">Upload for Review</span>
+                    <span wire:loading.inline-flex wire:target="uploadAdditionalDocument" class="inline-flex items-center gap-1.5">
+                        <x-spinner class="h-3.5 w-3.5" /> Uploading…
+                    </span>
+                </button>
+            </div>
+        </div>
+
         <p class="text-xs text-[#5d6e7f] mt-2">For any queries, <a href="{{ route('contact', ['package' => $this->currentOrder->package?->slug]) }}" wire:navigate
                 class="font-semibold text-[#1a7aad] hover:underline">contact us</a>.</p>
     </div>
-
-    {{-- Add-on promo --}}
-    <div class="rounded-2xl bg-gradient-to-r from-[#009bde]/12 to-white border border-[#dbe4ee] p-5">
-        <div class="flex items-start gap-3">
-            <span
-                class="flex-shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#12304f] text-white text-sm">🛡</span>
-            <div class="flex-1">
-                <span class="text-[0.62rem] font-extrabold tracking-widest uppercase text-[#5bb2aa]">Add-on &middot;
-                    Available for Any Package</span>
-                <h3 class="text-sm font-semibold text-[#12304f] mt-1">Legal Review &amp; Risk Assessment, by Frier
-                    Levitt</h3>
-                <p class="text-xs text-[#5d6e7f] mt-1">Kovel-protected coding &amp; documentation review with a
-                    privileged legal analysis letter.</p>
-            </div>
-            <div class="text-right flex-shrink-0">
-                <a href="{{ route('contact') }}?addon=legal-review"
-                    class="inline-block rounded-lg bg-[#12304f] px-4 py-2 text-xs font-bold text-white hover:bg-[#0a2037] transition-colors">Contact us about this add-on</a>
-            </div>
-        </div>
-    </div>
-
-    <p class="text-xs text-[#5d6e7f]">🔒 Documents are delivered as protected, locked PDFs. Need a change? Use
-        <strong>Update Practice Info</strong> above and regenerate — included at no extra charge during your active plan
-        year.
-    </p>
     @elseif($dashboardTab === 'payments')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <h3 class="text-sm font-semibold text-[#12304f] mb-3">Purchase History</h3>
-        @forelse($this->userOrders as $order)
-        <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] last:border-b-0">
-            <span class="text-sm font-semibold text-[#173045]">{{ $order->package?->name }}</span>
+    <div>
+        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+            @forelse($this->userOrders as $order)
             @php $amountPaid = (float) $order->amount_paid; @endphp
-            <span class="text-sm text-[#5d6e7f]">${{ number_format($amountPaid, $amountPaid == floor($amountPaid) ? 0 :
-                2) }}</span>
-            <span class="text-xs text-[#5d6e7f]">{{ $order->paid_at?->format('M j, Y') }}</span>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <p class="text-sm font-semibold text-[#173045]">
+                    {{ $order->paid_at?->format('M j, Y') }} &middot; Initial payment{{ $order->card_last_four ? " (card ending {$order->card_last_four})" : '' }}
+                </p>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-sm font-semibold text-[#173045]">${{ number_format($amountPaid, $amountPaid == floor($amountPaid) ? 0 : 2) }}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#d7f3ea] text-[#117a51]">Paid</span>
+                    <a href="{{ route('orders.receipt', $order) }}" target="_blank"
+                        class="text-xs font-bold text-[#1a7aad] hover:underline">View Receipt</a>
+                </div>
+            </div>
+            @if($order->next_bill_date && $order->payment_status === PaymentStatus::Paid)
+            @php $nextAmount = (float) ($order->original_price ?? $order->amount_paid); @endphp
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <p class="text-sm font-semibold text-[#173045]">
+                    {{ $order->next_bill_date->format('M j, Y') }} &middot; Next {{ $order->billing_cycle?->period() ?? 'monthly' }} charge
+                </p>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-sm font-semibold text-[#173045]">${{ number_format($nextAmount, $nextAmount == floor($nextAmount) ? 0 : 2) }}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#edf2f7] text-[#5d6e7f]">Scheduled</span>
+                </div>
+            </div>
+            @endif
+            @empty
+            <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No purchases yet.</p>
+            @endforelse
         </div>
-        @empty
-        <p class="text-sm text-[#5d6e7f] italic">No purchases yet.</p>
-        @endforelse
-    </div>
 
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <h3 class="text-sm font-semibold text-[#12304f] mb-1">Add a Package</h3>
-        <p class="text-xs text-[#5d6e7f] mb-3">Explore other compliance tiers for this practice.</p>
-        <a href="{{ route('home') }}#pricing" class="text-xs font-bold text-[#1a7aad] hover:underline">View all packages
-            &rarr;</a>
+        <p class="text-xs text-[#5d6e7f] mt-3">Want another compliance package for this practice? <a href="{{ route('home') }}#pricing" class="font-semibold text-[#1a7aad] hover:underline">View all packages &rarr;</a></p>
+    </div>
+    @elseif($dashboardTab === 'profile')
+    <div>
+        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <span class="text-sm text-[#5d6e7f]">Practice</span>
+                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->name ?: '—' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <span class="text-sm text-[#5d6e7f]">Specialty</span>
+                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->specialty ?: '—' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <span class="text-sm text-[#5d6e7f]">Billable providers</span>
+                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->billable_providers_count ?? '—' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <span class="text-sm text-[#5d6e7f]">Address</span>
+                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->address ?: '—' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <span class="text-sm text-[#5d6e7f]">Account</span>
+                <span class="text-sm font-semibold text-[#173045] text-right">{{ auth()->user()->name }} &middot; {{ auth()->user()->email }}</span>
+            </div>
+        </div>
+        <div class="flex justify-end mt-4">
+            <button wire:click="editProfile" wire:target="editProfile" wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                <span wire:loading.remove wire:target="editProfile">Edit intake answers</span>
+                <span wire:loading.inline-flex wire:target="editProfile" class="inline-flex items-center gap-1.5">
+                    <x-spinner class="h-3.5 w-3.5" /> Loading…
+                </span>
+            </button>
+        </div>
     </div>
     @else
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <h3 class="text-sm font-semibold text-[#12304f] mb-3">Account Activity</h3>
-        @forelse($this->activityLog as $log)
-        <div class="py-2.5 border-b border-[#eef2f6] last:border-b-0">
-            <p class="text-sm font-semibold text-[#173045]">{{ $log->description }}</p>
-            <p class="text-xs text-[#5d6e7f]">{{ $log->created_at->format('M j, Y g:ia') }}</p>
+    <div>
+        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+            @forelse($this->activityLog as $log)
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <p class="text-sm font-semibold text-[#173045]">{{ $log->description }}</p>
+                <p class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $log->created_at->format('M j, g:ia') }}</p>
+            </div>
+            @empty
+            <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No activity yet.</p>
+            @endforelse
         </div>
-        @empty
-        <p class="text-sm text-[#5d6e7f] italic">No activity yet.</p>
-        @endforelse
     </div>
     @endif
+        </div>
+    </div>
 
     <div class="flex justify-start">
         <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
@@ -3123,6 +3172,33 @@ $progressPct = ($milestone / 4) * 100;
                 <x-spinner class="h-3.5 w-3.5" /> Loading…
             </span>
         </button>
+    </div>
+    </div>
+
+    {{-- Shared "Cancel subscription" confirmation modal — one Alpine scope wraps the whole
+         dashboard step since the trigger buttons live in three different conditional banners
+         (trial/past-due/active) that are siblings of each other, not nested. Kept outside the
+         space-y-4 div above so it doesn't pick up sibling spacing while position:fixed. --}}
+    <div x-show="confirmCancelOrderId !== null" x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmCancelOrderId = null">
+            <h3 class="text-base font-semibold text-[#12304f] mb-2">Cancel your subscription?</h3>
+            <p class="text-sm text-[#5d6e7f] mb-5" x-text="confirmCancelMessage"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" x-on:click="confirmCancelOrderId = null"
+                    class="rounded-lg border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+                    Keep Subscription
+                </button>
+                <button type="button"
+                    x-on:click="$wire.cancelSubscription(confirmCancelOrderId).then(() => confirmCancelOrderId = null).catch(() => {})"
+                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed" wire:target="cancelSubscription"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors">
+                    <span wire:loading.remove wire:target="cancelSubscription">Cancel Subscription</span>
+                    <span wire:loading.inline-flex wire:target="cancelSubscription" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Cancelling…</span>
+                </button>
+            </div>
+        </div>
+    </div>
     </div>
     @endif
 

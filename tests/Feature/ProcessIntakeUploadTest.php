@@ -10,6 +10,7 @@ use App\Enums\PaymentStatus;
 use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Models\AiUsageLog;
+use App\Models\GeneratedDocument;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -593,7 +594,32 @@ class ProcessIntakeUploadTest extends TestCase
         ]);
 
         Http::fake([
-            'https://api.openai.com/*' => Http::response($this->openaiResponse('{"html":"<p>Polished content.</p>"}')),
+            'https://api.openai.com/*' => Http::response($this->openaiResponse(json_encode([
+                'document_name' => 'Employee Handbook',
+                'document_type' => 'Employee Handbook',
+                'compliance_framework' => 'HIPAA',
+                'compliance_status' => 'PARTIALLY COMPLIANT',
+                'overall_summary' => 'Mostly complete, missing a retention policy.',
+                'key_findings' => [[
+                    'finding' => 'No data retention period specified.',
+                    'severity' => 'Medium',
+                    'section' => 'Records',
+                    'explanation' => 'The handbook does not state how long records are kept.',
+                    'recommended_action' => 'Confirm the retention period with the client.',
+                ]],
+                'revised_document_html' => '<p>Polished content.</p>',
+                'change_summary' => [[
+                    'section' => 'Records',
+                    'change' => 'Added a placeholder for the retention period.',
+                    'reason' => 'Missing from the original document.',
+                    'compliance_requirement' => 'HIPAA retention requirements.',
+                    'client_input_required' => 'Yes',
+                ]],
+                'outstanding_client_input' => ['Confirm the data retention period.'],
+                'final_status' => 'PARTIALLY COMPLIANT',
+                'final_status_reason' => 'Awaiting client confirmation on retention period.',
+                'final_status_outstanding_items' => ['Confirm the data retention period.'],
+            ]))),
         ]);
 
         ProcessIntakeUpload::dispatchSync($upload);
@@ -605,12 +631,22 @@ class ProcessIntakeUploadTest extends TestCase
             $content = $request['messages'][0]['content'];
             $text = is_array($content) ? ($content[1]['text'] ?? '') : $content;
 
-            return str_contains($text, 'Rephrase and correct grammar');
+            return str_contains($text, 'Compliance Document Reviewer');
         });
 
         $upload->refresh();
         $this->assertEquals(AiExtractionStatus::Completed, $upload->ai_extraction_status);
-        $this->assertSame('<p>Polished content.</p>', $upload->ai_extracted_data['html']);
+        $html = $upload->ai_extracted_data['html'];
+        $this->assertStringContainsString('A. Document Review Summary', $html);
+        $this->assertStringContainsString('PARTIALLY COMPLIANT', $html);
+        $this->assertStringContainsString('B. Key Findings', $html);
+        $this->assertStringContainsString('No data retention period specified.', $html);
+        $this->assertStringContainsString('C. Revised Document', $html);
+        $this->assertStringContainsString('<p>Polished content.</p>', $html);
+        $this->assertStringContainsString('D. Change Summary', $html);
+        $this->assertStringContainsString('E. Outstanding Client Input', $html);
+        $this->assertStringContainsString('Confirm the data retention period.', $html);
+        $this->assertStringContainsString('F. Final Compliance Status', $html);
     }
 
     public function test_client_document_for_review_dispatches_one_generation_job_per_upload_not_per_order(): void
@@ -629,7 +665,7 @@ class ProcessIntakeUploadTest extends TestCase
             'payment_status' => PaymentStatus::SimulatedPaid,
             'status' => OrderStatus::Paid,
         ]);
-        $submission = IntakeSubmission::factory()->submitted()->uploadForReview()->create(['order_id' => $order->id]);
+        $submission = IntakeSubmission::factory()->submitted()->create(['order_id' => $order->id]);
 
         $upload1 = IntakeUpload::factory()->create([
             'intake_submission_id' => $submission->id,
@@ -658,6 +694,60 @@ class ProcessIntakeUploadTest extends TestCase
             && $job->intakeUpload?->id === $upload1->id);
         Queue::assertPushed(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::PolishedClientDocument
             && $job->intakeUpload?->id === $upload2->id);
+    }
+
+    public function test_processing_a_new_upload_does_not_regenerate_an_already_completed_sibling_document(): void
+    {
+        // Regression: a client sending one MORE document for review, long after their first
+        // batch was already generated and approved, must not silently regenerate (and thereby
+        // revoke the approval of) that earlier, unrelated document.
+        Queue::fake([GenerateComplianceDocument::class]);
+        Storage::fake('local');
+        Storage::disk('local')->put('uploads/12/handbook.pdf', 'fake');
+        Storage::disk('local')->put('uploads/12/extra.pdf', 'fake');
+
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Approved,
+        ]);
+        $submission = IntakeSubmission::factory()->approved()->create(['order_id' => $order->id]);
+
+        $earlierUpload = IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'storage_path' => 'uploads/12/handbook.pdf',
+            'mime_type' => 'application/pdf',
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'ai_extraction_status' => AiExtractionStatus::Completed,
+            'ai_extracted_data' => ['html' => '<p>Already polished.</p>'],
+        ]);
+        GeneratedDocument::factory()->completed()->approved()->create([
+            'order_id' => $order->id,
+            'document_type' => DocumentType::PolishedClientDocument,
+            'intake_upload_id' => $earlierUpload->id,
+        ]);
+
+        $newUpload = IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'storage_path' => 'uploads/12/extra.pdf',
+            'mime_type' => 'application/pdf',
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'ai_extraction_status' => AiExtractionStatus::Pending,
+        ]);
+
+        Http::fake([
+            'https://api.openai.com/*' => Http::response($this->openaiResponse('{"revised_document_html":"<p>Polished.</p>"}')),
+        ]);
+
+        ProcessIntakeUpload::dispatchSync($newUpload);
+
+        Queue::assertPushed(GenerateComplianceDocument::class, 1);
+        Queue::assertPushed(GenerateComplianceDocument::class, fn ($job) => $job->intakeUpload?->id === $newUpload->id);
+        Queue::assertNotPushed(GenerateComplianceDocument::class, fn ($job) => $job->intakeUpload?->id === $earlierUpload->id);
     }
 
     // ── Image preservation (upload for review) ──────────────────────────────
@@ -693,7 +783,7 @@ class ProcessIntakeUploadTest extends TestCase
 
         Http::fake([
             'https://api.openai.com/*' => Http::response(
-                $this->openaiResponse('{"html":"<p>Before the image.</p>[[IMAGE_1]]<p>After the image.</p>"}')
+                $this->openaiResponse('{"revised_document_html":"<p>Before the image.</p>[[IMAGE_1]]<p>After the image.</p>"}')
             ),
         ]);
 
@@ -746,7 +836,7 @@ class ProcessIntakeUploadTest extends TestCase
 
         // The AI ignores the placeholder-preservation instruction entirely.
         Http::fake([
-            'https://api.openai.com/*' => Http::response($this->openaiResponse('{"html":"<p>Some polished text.</p>"}')),
+            'https://api.openai.com/*' => Http::response($this->openaiResponse('{"revised_document_html":"<p>Some polished text.</p>"}')),
         ]);
 
         ProcessIntakeUpload::dispatchSync($upload);
@@ -772,7 +862,7 @@ class ProcessIntakeUploadTest extends TestCase
 
         Http::fake([
             'https://api.openai.com/*' => Http::response(
-                $this->openaiResponse('{"html":"<p>Transcribed text from the scan.</p>"}')
+                $this->openaiResponse('{"revised_document_html":"<p>Transcribed text from the scan.</p>"}')
             ),
         ]);
 

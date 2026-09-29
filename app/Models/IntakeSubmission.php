@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\IntakeMethod;
 use App\Enums\IntakeSubmissionStatus;
 use Database\Factories\IntakeSubmissionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -12,8 +11,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'order_id', 'status', 'intake_method', 'handbook_answers',
+    'order_id', 'status', 'handbook_answers',
     'reviewer_notes', 'reviewed_by', 'reviewed_at', 'submitted_at',
+    'certified_by_name', 'certified_by_title', 'certified_signature', 'certified_at',
+    'wizard_screen', 'wizard_reached_screens', 'wizard_skipped_question_ids', 'wizard_missing_document_categories',
 ])]
 class IntakeSubmission extends Model
 {
@@ -27,10 +28,13 @@ class IntakeSubmission extends Model
     {
         return [
             'status' => IntakeSubmissionStatus::class,
-            'intake_method' => IntakeMethod::class,
             'handbook_answers' => 'array',
             'reviewed_at' => 'datetime',
             'submitted_at' => 'datetime',
+            'certified_at' => 'datetime',
+            'wizard_reached_screens' => 'array',
+            'wizard_skipped_question_ids' => 'array',
+            'wizard_missing_document_categories' => 'array',
         ];
     }
 
@@ -47,6 +51,11 @@ class IntakeSubmission extends Model
     public function intakeUploads(): HasMany
     {
         return $this->hasMany(IntakeUpload::class);
+    }
+
+    public function intakeAnswers(): HasMany
+    {
+        return $this->hasMany(IntakeAnswer::class);
     }
 
     public function allUploadsProcessed(): bool

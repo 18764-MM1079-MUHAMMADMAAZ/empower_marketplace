@@ -36,11 +36,16 @@ class QuestionnaireSchemaGenerator
         $variables = array_unique((new TemplateProcessor($absoluteManualTemplatePath))->getVariables());
 
         $numberedPattern = '/^'.preg_quote($prefix, '/').'_(\d+)_answer$/';
+        // ${prefix_nn_block}/${/prefix_nn_block} — the cloneBlock-style markers
+        // InsertPolicyBlockMarkers wraps each policy's workflow-description section in, so a
+        // policy's section can be deleted outright when unanswered. Structural, not a real
+        // field — never treat these as extraction schema "extra fields".
+        $blockMarkerPattern = '/^\/?'.preg_quote($prefix, '/').'_(\d+)_block$/';
         $count = 0;
         $extraFieldKeys = [];
 
         foreach ($variables as $variable) {
-            if (in_array($variable, self::ALWAYS_FILLED_FIELDS, true)) {
+            if (in_array($variable, self::ALWAYS_FILLED_FIELDS, true) || preg_match($blockMarkerPattern, $variable)) {
                 continue;
             }
 

@@ -18,8 +18,11 @@ use App\Mail\ClientSubmissionStatusMail;
 use App\Mail\DiscountCodeSharedMail;
 use App\Models\ActivityLog;
 use App\Models\AiUsageLog;
+use App\Models\CompliancePolicy;
 use App\Models\DiscountCode;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeQuestion;
+use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Lead;
@@ -125,6 +128,31 @@ class AdminPanelTest extends TestCase
         $this->withoutVite()->actingAs($admin)->get(route('admin.submissions'))->assertOk();
     }
 
+    public function test_submissions_list_flags_an_approved_submission_with_a_document_awaiting_review(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        // A document can land ready-for-review without the submission's own status changing —
+        // e.g. the client sent one more document for AI review well after approval — so the list
+        // needs its own signal for this, independent of the status badge.
+        GeneratedDocument::factory()->completed()->create(['order_id' => $submission->order_id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-list')
+            ->assertSee('1 to review');
+    }
+
+    public function test_submissions_list_does_not_flag_a_submission_with_no_pending_documents(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        GeneratedDocument::factory()->completed()->approved()->create(['order_id' => $submission->order_id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-list')
+            ->assertDontSee('to review');
+    }
+
     public function test_admin_can_view_submission_detail(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -164,7 +192,7 @@ class AdminPanelTest extends TestCase
         $this->withoutVite()->actingAs($admin)->get(route('admin.submissions.show', $submission))
             ->assertOk()
             ->assertSee('Document Review')
-            ->assertSee('No documents are expected yet');
+            ->assertSee("this package doesn't include any auto-generated manuals", false);
     }
 
     public function test_admin_can_upload_a_custom_file_for_a_document_that_has_not_generated_yet(): void
@@ -252,6 +280,69 @@ class AdminPanelTest extends TestCase
             ->assertSee('AI Extraction Complete');
     }
 
+    public function test_submission_detail_does_not_show_an_ai_extraction_banner_for_reference_only_uploads(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'ai_extraction_status' => AiExtractionStatus::NotApplicable,
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertDontSee('AI Extraction Complete')
+            ->assertDontSee('AI Extraction Failed')
+            ->assertDontSee('AI Extraction In Progress')
+            ->assertSee('Reference document (not AI-processed)');
+    }
+
+    public function test_submission_detail_shows_the_practices_intake_wizard_answers(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $answeredQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $unansweredQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 2, 'title' => "Management's role"]);
+        $noProcessQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 3, 'title' => 'Compliance Committee']);
+
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $answeredQuestion->id,
+            'response' => 'The board reviews the program every quarter.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $noProcessQuestion->id,
+            'response' => null,
+            'has_documented_process' => false,
+            'answered_at' => now(),
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertSee('Practice Intake Answers')
+            ->assertSee('Compliance program')
+            ->assertSee('Owner & board oversight')
+            ->assertSee('The board reviews the program every quarter.')
+            ->assertSee('Compliance Committee')
+            ->assertSee('No documented process.')
+            ->assertSee("Management's role")
+            ->assertSee('Not yet answered.');
+    }
+
+    public function test_submission_detail_hides_the_answers_section_when_there_are_no_answers(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertDontSee('Practice Intake Answers');
+    }
+
     public function test_admin_can_approve_a_submission(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -270,6 +361,65 @@ class AdminPanelTest extends TestCase
             'event_type' => 'submission.approved',
             'order_id' => $submission->order_id,
         ]);
+    }
+
+    public function test_approving_a_professional_submission_dispatches_generation_for_its_included_manuals(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'included_document_types' => ['compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual'],
+        ]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('approve');
+
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ComplianceEthicsManual);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaPrivacyPolicy);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaSecurityManual);
+    }
+
+    public function test_approving_an_essential_submission_dispatches_no_manual_generation(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        // makeSubmission()'s bare Package::factory() defaults to the Essential tier's shape —
+        // included_document_types: [].
+        $submission = $this->makeSubmission();
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('approve');
+
+        Bus::assertNotDispatched(GenerateComplianceDocument::class);
+    }
+
+    public function test_approving_again_does_not_redispatch_generation_for_an_already_generated_manual(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'included_document_types' => ['compliance_ethics_manual'],
+        ]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+        GeneratedDocument::factory()->completed()->create(['order_id' => $order->id, 'document_type' => DocumentType::ComplianceEthicsManual]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('approve');
+
+        Bus::assertNotDispatched(GenerateComplianceDocument::class);
     }
 
     public function test_approving_a_submission_also_approves_its_ready_documents(): void
@@ -501,10 +651,6 @@ class AdminPanelTest extends TestCase
 
     public function test_client_can_resubmit_after_rejection_without_duplicate_key_error(): void
     {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
         $user = User::factory()->create();
         Practice::factory()->locked()->create(['user_id' => $user->id]);
         $package = Package::factory()->create();
@@ -516,13 +662,15 @@ class AdminPanelTest extends TestCase
             'submitted_at' => now()->subDay(),
         ]);
 
-        $file = UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf');
-
         Livewire::actingAs($user)
             ->test('portal')
             ->set('orderIds', [$order->id])
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $file)
-            ->call('submitIntake')
+            ->call('reuploadForOrder', $order->id)
+            ->set('certifiedByName', 'Jane Provider')
+            ->set('certifiedByTitle', 'Owner')
+            ->set('certifiedSignature', 'Jane Provider')
+            ->set('certifyChecked', true)
+            ->call('finalizeIntake')
             ->assertHasNoErrors();
 
         $this->assertDatabaseCount('intake_submissions', 1);
@@ -933,6 +1081,43 @@ class AdminPanelTest extends TestCase
         $this->assertNotNull($document->revoked_at);
         $this->assertTrue($document->wasRevoked());
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'document.approval_revoked']);
+    }
+
+    public function test_admin_can_approve_a_single_document_without_touching_submission_status(): void
+    {
+        Mail::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        $document = GeneratedDocument::factory()->completed()->create(['order_id' => $submission->order_id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('approveDocument', $document->id);
+
+        $document->refresh();
+        $this->assertNotNull($document->reviewed_at);
+        $this->assertSame($admin->id, $document->reviewed_by);
+        $this->assertSame(IntakeSubmissionStatus::Approved, $submission->fresh()->status);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'document.approved']);
+
+        Mail::assertSent(ClientDocumentsApprovedMail::class);
+    }
+
+    public function test_approving_a_document_that_is_not_ready_does_nothing(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        $document = GeneratedDocument::factory()->create([
+            'order_id' => $submission->order_id,
+            'status' => DocumentStatus::Pending,
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('approveDocument', $document->id);
+
+        $this->assertNull($document->fresh()->reviewed_at);
     }
 
     public function test_reapproving_a_revoked_document_clears_the_revoked_flag(): void
@@ -1449,6 +1634,78 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'package.created']);
     }
 
+    public function test_admin_can_set_a_packages_auto_generated_manuals(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Package::factory()->create(['slug' => 'essential']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form')
+            ->set('slug', 'professional')
+            ->set('name', 'Professional Compliance')
+            ->set('billingType', 'annual')
+            ->set('annualPrice', '2490')
+            ->set('sortOrder', 2)
+            ->set('includedDocumentTypes', ['compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual'])
+            ->call('save')
+            ->assertRedirect(route('admin.packages'));
+
+        $package = Package::where('slug', 'professional')->first();
+        $this->assertSame(
+            ['compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual'],
+            $package->included_document_types,
+        );
+    }
+
+    public function test_a_new_package_defaults_to_no_auto_generated_manuals(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Package::factory()->create(['slug' => 'essential']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form')
+            ->set('slug', 'professional')
+            ->set('name', 'Professional Compliance')
+            ->set('billingType', 'annual')
+            ->set('annualPrice', '2490')
+            ->set('sortOrder', 2)
+            ->call('save')
+            ->assertRedirect(route('admin.packages'));
+
+        $package = Package::where('slug', 'professional')->first();
+        $this->assertSame([], $package->included_document_types);
+    }
+
+    public function test_a_forged_document_type_is_rejected_when_saving_a_package(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $package = Package::factory()->create(['slug' => 'essential']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form', ['package' => $package])
+            ->set('includedDocumentTypes', ['employee_handbook_basic'])
+            ->call('save')
+            ->assertHasErrors('includedDocumentTypes.0');
+    }
+
+    public function test_editing_a_package_updates_its_auto_generated_manuals(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $package = Package::factory()->create(['slug' => 'essential', 'included_document_types' => ['compliance_ethics_manual']]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form', ['package' => $package])
+            ->assertSet('includedDocumentTypes', ['compliance_ethics_manual'])
+            ->set('includedDocumentTypes', ['compliance_ethics_manual', 'hipaa_security_manual'])
+            ->call('save')
+            ->assertRedirect(route('admin.packages'));
+
+        $this->assertSame(
+            ['compliance_ethics_manual', 'hipaa_security_manual'],
+            $package->fresh()->included_document_types,
+        );
+    }
+
     public function test_creating_a_package_requires_a_tier_not_already_in_use(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -1525,6 +1782,68 @@ class AdminPanelTest extends TestCase
             ->assertHasErrors('delete');
 
         $this->assertDatabaseHas('packages', ['id' => $package->id]);
+    }
+
+    // ── Intake Questions ──────────────────────────────────────────────────────
+
+    private function seedIntakeQuestion(): IntakeQuestion
+    {
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $policy = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $question->policies()->attach($policy->id);
+
+        return $question;
+    }
+
+    public function test_admin_can_view_the_intake_question_list(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $this->seedIntakeQuestion();
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.intake-questions'))
+            ->assertOk()
+            ->assertSee('Compliance program')
+            ->assertSee('Owner & board oversight')
+            ->assertSee('CMP-01')
+            ->assertSee('No prompt summary yet.');
+    }
+
+    public function test_admin_can_edit_an_intake_questions_prompt_copy(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $question = $this->seedIntakeQuestion();
+
+        Livewire::actingAs($admin)
+            ->test('admin.intake-question-list')
+            ->call('edit', $question->id)
+            ->assertSet('editTitle', 'Owner & board oversight')
+            ->set('editPromptSummary', 'How does your board oversee the compliance program?')
+            ->set('editWhyWeAsk', 'OIG guidance expects active oversight.')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('editingQuestionId', null);
+
+        $this->assertDatabaseHas('intake_questions', [
+            'id' => $question->id,
+            'prompt_summary' => 'How does your board oversee the compliance program?',
+            'why_we_ask' => 'OIG guidance expects active oversight.',
+        ]);
+
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'intake_question.updated']);
+    }
+
+    public function test_editing_an_intake_question_requires_a_title(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $question = $this->seedIntakeQuestion();
+
+        Livewire::actingAs($admin)
+            ->test('admin.intake-question-list')
+            ->call('edit', $question->id)
+            ->set('editTitle', '')
+            ->call('save')
+            ->assertHasErrors('editTitle');
     }
 
     // ── Discount codes ──────────────────────────────────────────────────────
@@ -1850,6 +2169,33 @@ class AdminPanelTest extends TestCase
             ->assertSeeInOrder(['Required', 'Visible']);
     }
 
+    public function test_questionnaire_list_flags_manuals_migrated_to_the_intake_wizard(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+
+        $response = $this->withoutVite()->actingAs($admin)->get(route('admin.questionnaires'))
+            ->assertOk()
+            ->assertSee('Wizard-driven');
+
+        // "Wizard-driven" appears twice: once in the page's explanatory banner, once as this
+        // one row's badge — the other 3 rows (not migrated in this test's DB) get no badge,
+        // confirming it's per-row, not a blanket "always show" fallback.
+        $response->assertSee('HIPAA Business Associate Questionnaire');
+        $this->assertSame(2, substr_count($response->getContent(), 'Wizard-driven'));
+    }
+
+    public function test_questionnaire_form_warns_when_editing_a_manual_migrated_to_the_intake_wizard(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $questionnaire = Questionnaire::where('upload_type', IntakeUploadType::ComplianceEthicsQuestionnaire)->first();
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.questionnaires.edit', $questionnaire))
+            ->assertOk()
+            ->assertSee('This manual is now driven by the Practice Intake wizard.', false);
+    }
+
     public function test_admin_can_hide_a_questionnaire_and_it_writes_an_activity_log(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -2172,5 +2518,64 @@ class AdminPanelTest extends TestCase
 
         $this->assertModelMissing($order);
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'order.deleted']);
+    }
+
+    public function test_document_generator_offers_to_auto_fill_wizard_driven_manuals(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create(['role' => UserRole::Client]);
+        Practice::factory()->create(['user_id' => $client->id]);
+        CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $package = Package::factory()->create(['is_active' => true, 'included_document_types' => ['compliance_ethics_manual']]);
+        $order = Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.document-generator', ['orderId' => $order->id]))
+            ->assertOk()
+            ->assertSee('Practice Intake wizard manuals')
+            ->assertSee('Compliance & Ethics Manual');
+    }
+
+    public function test_document_generator_hides_wizard_section_when_package_has_no_wizard_driven_manuals(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create(['role' => UserRole::Client]);
+        Practice::factory()->create(['user_id' => $client->id]);
+        $package = Package::factory()->create(['is_active' => true, 'included_document_types' => []]);
+        $order = Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.document-generator', ['orderId' => $order->id]))
+            ->assertOk()
+            ->assertDontSee('Practice Intake wizard manuals');
+    }
+
+    public function test_admin_can_auto_fill_and_generate_wizard_driven_manuals_for_a_test_order(): void
+    {
+        Bus::fake();
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create(['role' => UserRole::Client]);
+        Practice::factory()->create(['user_id' => $client->id]);
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $policy = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $question->policies()->attach($policy->id);
+
+        $package = Package::factory()->create(['is_active' => true, 'included_document_types' => ['compliance_ethics_manual']]);
+        $order = Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.document-generator', ['orderId' => $order->id])
+            ->call('autoFillWizardAnswers');
+
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Draft, 'wizard_screen' => 'done']);
+        $this->assertDatabaseHas('intake_answers', ['intake_question_id' => $question->id]);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'submission.admin_test_answers_filled']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.document-generator', ['orderId' => $order->id])
+            ->call('generateWizardDrivenManuals');
+
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ComplianceEthicsManual);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'document.test_generation_requested']);
     }
 }

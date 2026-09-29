@@ -1,0 +1,1214 @@
+{
+  "CMP-01": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-01",
+    "title": "Governing Board Responsibilities",
+    "full_question": "Please describe how your practice's governing board, managing partners or owners actually exercise compliance oversight day to day, including how the Compliance Officer and Compliance Committee members were appointed, how requests for compliance funding and staffing are reviewed and approved, how often the board receives and reviews the Compliance Officer's report, and how board direction on a compliance issue is recorded and followed to completion.",
+    "requirements": [
+      "Name the board members, partners or owners holding compliance oversight authority.",
+      "Identify where board minutes and Compliance Officer reports are retained and who may access them.",
+      "State the board's reporting cadence and how board compliance training and attendance are verified."
+    ],
+    "page_reference": "p. 4"
+  },
+  "CMP-02": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-02",
+    "title": "Management Responsibilities",
+    "full_question": "Please identify the management positions at your practice that carry compliance duties, and describe how management supports the program in practice: who wrote and approves the Compliance Officer job description, who supervises the Compliance Officer, how compliance responsibilities are delegated to office and department leads, and how management acts on reports and approves departmental corrective action when a potential violation surfaces.",
+    "requirements": [
+      "Name the manager who supervises the Compliance Officer and sits on the committee.",
+      "Identify how corrective action plans are documented, tracked to closure, and by whom.",
+      "State when outside counsel is engaged for a suspected violation and who decides."
+    ],
+    "page_reference": "p. 6"
+  },
+  "CMP-03": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-03",
+    "title": "Compliance Officer Responsibilities",
+    "full_question": "Please document who serves as your practice's Compliance Officer, that person's other duties and the share of time devoted to compliance, and describe how the role is performed operationally: chairing the Compliance Committee, reviewing contracts, financial arrangements and marketing initiatives, overseeing contractors and agents, maintaining the complaint record, and reporting to management and the governing board.",
+    "requirements": [
+      "Give the Compliance Officer's name, title, designated backup, and direct reporting line.",
+      "Identify where the complaint record and government contact records are maintained and secured.",
+      "State the cadence of management and board reports and how each is documented."
+    ],
+    "page_reference": "pp. 8-10"
+  },
+  "CMP-04": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-04",
+    "title": "Compliance Committee Responsibilities",
+    "full_question": "Please identify the members of your practice's Compliance Committee by name, title and department represented, and describe how the committee actually functions: how meetings are scheduled and chaired, how risk topics and agenda items are selected, how department concerns are escalated into the committee, and how decisions, assignments and follow-up items are captured and closed.",
+    "requirements": [
+      "List which functions hold seats: billing, clinical, human resources, medical records, counsel.",
+      "Identify who prepares agendas and minutes and where committee minutes are stored.",
+      "State meeting frequency, expected attendance, and how missed meetings are made up."
+    ],
+    "page_reference": "p. 13"
+  },
+  "CMP-05": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-05",
+    "title": "Personnel Responsibilities",
+    "full_question": "Please describe how individual staff compliance obligations are communicated, acknowledged and enforced at your practice, including how new hires and existing employees, contracted personnel and shareholders sign off on the standards of conduct, how the duty to report suspected violations and known exclusions is reinforced, and how compliance adherence is factored into each employee's performance evaluation.",
+    "requirements": [
+      "Identify who collects, files and audits signed employee acknowledgment forms.",
+      "Describe where compliance adherence appears on your performance evaluation form.",
+      "State how often staff re-acknowledge and how missed acknowledgments are escalated."
+    ],
+    "page_reference": "p. 14"
+  },
+  "CMP-06": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-06",
+    "title": "Fraud, Waste and Abuse",
+    "full_question": "Please describe how your practice identifies and controls fraud, waste and abuse risk in its business arrangements and patient interactions, including how vendor contracts, leases, medical directorships and referral source relationships are reviewed before signing, how referrals for designated health services such as laboratory, imaging, physical therapy and durable medical equipment are handled where a financial relationship exists, and how requests to waive copayments or deductibles are decided.",
+    "requirements": [
+      "Name who reviews contracts, leases, marketing arrangements and physician compensation before execution.",
+      "Identify the register of physician financial relationships, ownership interests and joint ventures.",
+      "State how copayment waivers, discounts and hardship decisions are approved and documented."
+    ],
+    "page_reference": "pp. 16-18"
+  },
+  "CMP-07": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-07",
+    "title": "Education and Training",
+    "full_question": "Please describe your practice's compliance education program in operational detail: what new employees, contracted personnel and board members receive at orientation, what the periodic refresher covers and how often it runs, what additional specialized training coding, billing and marketing staff receive, and how outside or vendor-sponsored educational sessions are reviewed and approved before staff attend.",
+    "requirements": [
+      "Name the person or vendor that builds, delivers and assigns compliance training.",
+      "Identify the learning system, attendance log and signed verification forms used for records.",
+      "State training frequency by role, retention period, and how overdue completions are pursued."
+    ],
+    "page_reference": "pp. 20-22"
+  },
+  "CMP-08": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-08",
+    "title": "Communication About Compliance Issues",
+    "full_question": "Please describe every channel through which a staff member at your practice can ask a compliance question or report a suspected violation, including supervisor, Compliance Officer, committee member, board member, hotline and anonymous email, and explain what happens from the moment a report is received: who forwards it, who is prohibited from investigating, how anonymity and confidentiality are protected, and how non-retaliation is enforced.",
+    "requirements": [
+      "Identify the hotline number, anonymous email or vendor and who monitors it.",
+      "Name where reports and questions are logged and how long records are retained.",
+      "State the timeframe for acknowledging a report and notifying management or the board."
+    ],
+    "page_reference": "p. 25"
+  },
+  "CMP-09": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-09",
+    "title": "Auditing and Monitoring",
+    "full_question": "Please describe your practice's auditing and monitoring workplan for the current year, naming each audit type performed such as coding and billing accuracy, clinical documentation, medical necessity, claim denials, referral source contracts and annual risk assessment, and identify for each how many claims or charts are pulled per provider per cycle, who performs the review, and how findings are scored, reported and re-audited.",
+    "requirements": [
+      "Name the internal reviewer or external auditing vendor used for each audit type.",
+      "State sample size per provider per cycle and whether audits run monthly, quarterly or annually.",
+      "Describe how error rates trigger re-education, expanded samples and refund of overpayments."
+    ],
+    "page_reference": "pp. 26-28"
+  },
+  "CMP-10": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-10",
+    "title": "Investigation and Response",
+    "full_question": "Please describe how your practice investigates a reported compliance concern from intake through closure, including who is assigned and who is recused, how claims data, records, policies and witness statements are gathered, how the final report and recommended corrective actions are prepared, and how the sixty-day report and repayment deadline is tracked once an overpayment is confirmed.",
+    "requirements": [
+      "Name who leads investigations and who steps in on a conflict of interest.",
+      "Identify the secure investigation file location and the report template used.",
+      "State your target days to closure and how payer refunds are triggered and verified."
+    ],
+    "page_reference": "pp. 29-30"
+  },
+  "CMP-11": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-11",
+    "title": "Medical Necessity",
+    "full_question": "Please describe how your practice confirms medical necessity before laboratory tests and diagnostic procedures are performed, including how orders are received and matched to a narrative diagnosis or diagnosis code, how panels and standing orders are handled, how screening tests are separated from diagnosis-related testing for Medicare patients, and how patients are notified in writing and accept financial responsibility when coverage is unlikely.",
+    "requirements": [
+      "Name who reviews orders lacking a diagnosis and who contacts the ordering physician.",
+      "Identify the form and system used for advance beneficiary notices and where signed copies live.",
+      "State how often physicians receive the medical necessity policy and laboratory profile components."
+    ],
+    "page_reference": "p. 31"
+  },
+  "CMP-12": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-12",
+    "title": "Billing Responsibilities",
+    "full_question": "Please describe your practice's claim production workflow from patient encounter to claim submission, identifying who assigns codes, who verifies them against documentation and the order, who releases claims, how a coding question travels from coder to supervisor to ordering practitioner to Compliance Officer, and how rejections, denials and unbundling issues are worked and trended.",
+    "requirements": [
+      "Name your practice management and billing systems and any outsourced billing company.",
+      "Identify who reviews payer bulletins and the annual CPT and HCPCS update, and how changes reach providers.",
+      "State where coding transmittals and rejection logs are stored and for how long."
+    ],
+    "page_reference": "pp. 32-33"
+  },
+  "CMP-13": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-13",
+    "title": "Out of Network Billing Requirements for Medicare and Medicaid Programs",
+    "full_question": "Please identify which of your practice's providers and locations are out of network with any Medicare Advantage organization or Medicaid managed care plan, and describe how scheduling, front office, billing and compliance staff handle those patients, including how plan type and participation status are verified, how out-of-network status is flagged in the record, when the standard notice and consent documents are issued, and how claims are routed by coverage type.",
+    "requirements": [
+      "List the payers, plan types and states where your providers are non-participating.",
+      "Name who issues and explains the notice and consent forms and where signed copies are filed.",
+      "State how the 72-hour, same-day and three-hour timing rules are tracked and audited."
+    ],
+    "page_reference": "p. 36"
+  },
+  "CMP-14": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-14",
+    "title": "Ineligible Persons",
+    "full_question": "Please describe how your practice screens employees, physicians, contracted and locum providers, temporary staff, vendors and agents for exclusion, debarment and ineligibility, identifying which lists and databases are searched, whether screening happens before hire or contracting and on what recurring schedule thereafter, who runs the search, and what steps follow a potential name match.",
+    "requirements": [
+      "Name every list checked, including federal exclusion, debarment, state Medicaid and practitioner databases.",
+      "Identify the screening vendor or portal and where dated screening evidence is retained.",
+      "State the recurring screening interval and who resolves a match before termination."
+    ],
+    "page_reference": "p. 37"
+  },
+  "CMP-15": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-15",
+    "title": "Disciplinary Action and Prevention",
+    "full_question": "Please describe how compliance-related discipline is decided and delivered at your practice, including who determines the appropriate sanction and who must approve it, how aggravating and mitigating factors are weighed and written down, who attends the meeting at which discipline is announced, and how the disciplinary report is filed and forwarded to the Compliance Committee chairperson.",
+    "requirements": [
+      "Name the roles that review and approve a sanction before it is issued.",
+      "Identify the disciplinary report form and the personnel file where it is retained.",
+      "State how two-person attendance is ensured and how consistency across cases is reviewed."
+    ],
+    "page_reference": "pp. 38-40"
+  },
+  "CMP-16": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-16",
+    "title": "Responding to Government Investigations",
+    "full_question": "Please describe exactly what your practice's staff do when a government investigator, agent or surveyor arrives at a location or contacts an employee by phone or at home, including who must be notified first, who greets and escorts the visitor, who is authorized to speak for the practice, and how credentials, search warrants, subpoenas and document requests are recorded and answered while protecting patient confidentiality.",
+    "requirements": [
+      "Name the primary and backup contacts staff must call, including after-hours numbers.",
+      "Identify where subpoenas, requests and copies of produced documents are logged and retained.",
+      "State how quickly legal counsel is engaged and how affected staff are debriefed."
+    ],
+    "page_reference": "p. 41"
+  },
+  "CMP-17": {
+    "manual": "compliance_ethics_manual",
+    "code": "CMP-17",
+    "title": "Program Effectiveness",
+    "full_question": "Please describe how your practice measures whether its Compliance Program is actually effective, naming the specific indicators tracked such as training completion rates, audit error rates, hotline and report volume, corrective action closure times and exclusion screening timeliness, and explain how often policies are reviewed and revised in response to regulatory change or audit findings, and how outcomes are presented to senior management and the governing board.",
+    "requirements": [
+      "Name who compiles the effectiveness measures and the report or dashboard used.",
+      "Identify what triggers a policy revision and where version history and approvals are kept.",
+      "State the annual review month and how board review and acceptance are documented."
+    ],
+    "page_reference": "p. 42"
+  },
+  "PRV-01": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-01",
+    "title": "Permitted Uses and Disclosures & Required Disclosures",
+    "full_question": "Please describe how your practice distinguishes, day to day, between the uses and disclosures it may make without authorization - treatment, payment, and health care operations - and the disclosures it is required to make to a patient or to federal investigators. Identify who classifies each incoming request, where that determination is recorded, and how staff escalate a request that does not fit a routine category.",
+    "requirements": [
+      "Name the role that classifies each request as treatment, payment, or operations.",
+      "Identify the disclosure log or chart field where the determination is recorded.",
+      "State how quickly a patient or federal investigator request is escalated, and to whom."
+    ],
+    "page_reference": "pp. 7-8"
+  },
+  "PRV-02": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-02",
+    "title": "Prohibited Uses and Disclosures",
+    "full_question": "Please describe the controls your practice uses to prevent the two activities this policy prohibits: disclosing genetic information for underwriting and receiving payment in exchange for patient information. Identify who reviews vendor, registry, research, and data-sharing arrangements for remuneration terms, and how a proposed arrangement is cleared or refused.",
+    "requirements": [
+      "Name the role that reviews agreements for payment in exchange for patient data.",
+      "Identify where genetic and family history results are stored and access-restricted.",
+      "Describe how a refused arrangement is documented and how often agreements are re-reviewed."
+    ],
+    "page_reference": "pp. 10-12"
+  },
+  "PRV-03": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-03",
+    "title": "Minimum Necessary",
+    "full_question": "Please describe how your practice applies the minimum necessary standard at the moment staff use, disclose, or request patient information, and how staff are taught to recognize the situations where the standard does not apply - a treating provider's request, a disclosure to the patient, an authorized disclosure, or a disclosure required by law. Identify who makes the judgment call at the point of the request.",
+    "requirements": [
+      "Name the position staff consult when unsure whether minimum necessary applies.",
+      "Describe the job aid, desk reference, or training that lists the exception categories.",
+      "State how often minimum necessary safeguards are re-evaluated and by whom."
+    ],
+    "page_reference": "pp. 13-14"
+  },
+  "PRV-04": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-04",
+    "title": "Right to an Accounting of Disclosures of Protected Health Information",
+    "full_question": "Please describe how your practice captures disclosures that must appear in an accounting and how it assembles one covering the six years before a patient's request. Identify who receives the request, how the 60-day response deadline and any single 30-day extension are tracked, and how a suspension requested by a health oversight agency or law enforcement official is handled.",
+    "requirements": [
+      "Name the position that receives and processes accounting of disclosures requests.",
+      "Identify the disclosure log or system module where each accountable disclosure is captured.",
+      "Describe how the first free accounting in any 12-month period and later fees are tracked."
+    ],
+    "page_reference": "pp. 16-19"
+  },
+  "PRV-05": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-05",
+    "title": "Uses and Disclosures about Decedents",
+    "full_question": "Please describe your practice's workflow for releasing a deceased patient's information to coroners, medical examiners, and funeral directors, including the situation where a funeral director needs information in reasonable anticipation of a death. Identify who takes the call, what is verified about the requester's official role, and how much of the record is released.",
+    "requirements": [
+      "Name the staff member authorized to release records to a coroner or funeral home.",
+      "Describe how the requester's official capacity is verified and evidenced in the file.",
+      "State where each release is logged and the turnaround time expected."
+    ],
+    "page_reference": "pp. 21-22"
+  },
+  "PRV-06": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-06",
+    "title": "Disclosures to Business Associates",
+    "full_question": "Please describe how your practice identifies which vendors will create, receive, maintain, or transmit patient information and confirms satisfactory assurances are in place before any data is shared. Identify who maintains the vendor inventory, who confirms the vendor's own subcontractors are covered, and what happens when a new vendor is engaged mid-year.",
+    "requirements": [
+      "Name the role that approves a vendor before patient data is shared.",
+      "Identify where the signed agreements and the vendor inventory are stored.",
+      "State how often the vendor list is reviewed and who performs that review."
+    ],
+    "page_reference": "pp. 23-24"
+  },
+  "PRV-07": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-07",
+    "title": "Deceased Individuals",
+    "full_question": "Please describe how your practice handles requests concerning patients who have died, given that the record remains protected for 50 years after death. Identify how a deceased patient's chart is flagged, who confirms that a requester is the executor, administrator, or other personal representative, and how requests from family members who were involved in the patient's care but hold no legal authority are decided.",
+    "requirements": [
+      "Name the role that verifies executor, administrator, or estate authority documents.",
+      "Describe how the record flags date of death and the 50-year protection period.",
+      "State how any prior expressed preference of the patient is checked before release."
+    ],
+    "page_reference": "pp. 25-26"
+  },
+  "PRV-08": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-08",
+    "title": "Personal Representatives",
+    "full_question": "Please describe how your practice decides who may act as a personal representative, covering adults with a power of attorney or guardianship, parents of unemancipated minors, and the situations where a minor consented to their own care and no parental consent was required. Identify who reviews the documentation and who exercises professional judgment to refuse a representative in a suspected abuse, neglect, or endangerment situation.",
+    "requirements": [
+      "Name the role that reviews guardianship, power of attorney, or custody paperwork.",
+      "Describe where representative status is recorded in the chart and how it is updated.",
+      "Identify the licensed professional who decides to deny representative status."
+    ],
+    "page_reference": "pp. 28-30"
+  },
+  "PRV-09": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-09",
+    "title": "Confidential Communications",
+    "full_question": "Please describe how your practice receives and accommodates a patient's request to be contacted by alternative means or at an alternative location - a different phone number, a work or relative's address, or no voicemail. Identify who takes the request at the point of contact, how staff avoid asking the patient why, and how the accommodation reaches clinical, front desk, and billing staff.",
+    "requirements": [
+      "Name the staff role that intakes an alternative contact or location request.",
+      "Describe how the alternative address or phone number is flagged in the record.",
+      "State how appointment reminders and billing statements are adjusted and verified."
+    ],
+    "page_reference": "pp. 32-33"
+  },
+  "PRV-10": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-10",
+    "title": "Uses and Disclosures Consistent with Notice",
+    "full_question": "Please describe how your practice keeps its actual uses and disclosures consistent with what its Notice of Privacy Practices states, including the separate statement needed if the practice contacts patients to raise funds. Identify who reviews new activities - a patient portal, an outreach campaign, a registry submission, a new vendor - against the current Notice before the activity starts.",
+    "requirements": [
+      "Name the role that reviews proposed new activities against the current Notice.",
+      "Identify where the current Notice version and its effective date are maintained.",
+      "State how often actual practice is compared against the Notice, and by whom."
+    ],
+    "page_reference": "pp. 35-36"
+  },
+  "PRV-11": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-11",
+    "title": "Disclosures by Whistleblowers and Workforce Member Crime Victims",
+    "full_question": "Please describe how your practice responds when a workforce member discloses patient information as a whistleblower to a health oversight agency, public health authority, accreditation organization, or their own attorney, or as the victim of a crime reporting a suspected perpetrator to law enforcement. Identify how staff are told these disclosures are protected and whom they may contact internally without fear of reprisal.",
+    "requirements": [
+      "Name the internal contact, officer, or hotline available to a workforce member.",
+      "Describe how such a report is documented without retaliating against the reporter.",
+      "State how this protection is covered in onboarding and annual training."
+    ],
+    "page_reference": "pp. 37-38"
+  },
+  "PRV-12": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-12",
+    "title": "Business Associate Contracts",
+    "full_question": "Please document how your practice negotiates, monitors, and ends business associate contracts, including the steps taken when the practice learns of a pattern of activity that materially breaches a vendor's obligations and must be cured or the contract terminated. Identify who confirms at contract end that patient information was returned or destroyed and no copies remain.",
+    "requirements": [
+      "Name the role that signs business associate agreements and holds the originals.",
+      "Describe the tracking record used for renewal dates and vendor-reported incidents.",
+      "State how return or destruction of data at termination is verified and evidenced."
+    ],
+    "page_reference": "pp. 40-43"
+  },
+  "PRV-13": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-13",
+    "title": "Requirements for a Covered Entity with Multiple Covered Functions",
+    "full_question": "Please identify each covered function your practice performs - health care provider, health plan, or health care clearinghouse - and describe how information collected while performing one function is kept separate from the others. Identify which staff work across functions and how their access is limited to the function actually being performed at the time.",
+    "requirements": [
+      "List each covered function and the site or department that performs it.",
+      "Describe how the practice management system segregates access by function.",
+      "Name the role that reviews cross-function access and how often it is reviewed."
+    ],
+    "page_reference": "pp. 44-45"
+  },
+  "PRV-14": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-14",
+    "title": "Authorizations for Uses and Disclosures",
+    "full_question": "Please describe how your practice obtains, checks, and files a signed authorization, including the separate authorizations required for psychotherapy notes, marketing communications, and any disclosure that results in payment to the practice. Identify who reviews an authorization for the required elements, how an expired, incomplete, or revoked form is rejected, and how a written revocation is processed.",
+    "requirements": [
+      "Name the role that reviews each authorization for completeness and expiration.",
+      "Identify the authorization form used and where signed copies are retained.",
+      "Describe how a revocation is recorded and how quickly further disclosures stop."
+    ],
+    "page_reference": "pp. 48-52"
+  },
+  "PRV-15": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-15",
+    "title": "Uses and Disclosures for Involvement in the Individual's Care and Notification Purposes",
+    "full_question": "Please describe how your practice decides what to share with a family member, relative, close friend, or caregiver involved in a patient's care, both when the patient is present and able to agree or object and when the patient is incapacitated or in an emergency. Identify how the patient's agreement or objection is captured and how notification calls about a patient's location, condition, or death are handled.",
+    "requirements": [
+      "Describe how the patient's agreement or objection is captured in the chart.",
+      "Name the clinical role that exercises professional judgment when the patient cannot respond.",
+      "State how disaster relief contacts and family notification calls are documented."
+    ],
+    "page_reference": "pp. 53-55"
+  },
+  "PRV-16": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-16",
+    "title": "Uses and Disclosures for Public Health Activities",
+    "full_question": "Please describe your practice's public health reporting workflow by report type - reportable disease and vital event reporting to the health department, child abuse or neglect reports, adverse event and product recall reporting for regulated products, communicable disease exposure notifications, workplace surveillance findings sent to an employer, and immunization proof sent to a school. Identify who files each type and by when.",
+    "requirements": [
+      "Name the role responsible for each category of public health report.",
+      "Identify the reporting portal, registry, or form used for each report type.",
+      "Describe how the school immunization agreement and employer written notice are documented."
+    ],
+    "page_reference": "pp. 56-58"
+  },
+  "PRV-17": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-17",
+    "title": "Disclosures about Victims of Abuse, Neglect or Domestic Violence",
+    "full_question": "Please describe how your practice handles a disclosure about an adult patient a clinician reasonably believes is a victim of abuse, neglect, or domestic violence, including whether the patient agreed and how the practice promptly informs the patient a report was made. Identify how the exception is applied when informing the patient would risk serious harm or when the personal representative is the suspected abuser.",
+    "requirements": [
+      "Name the clinician or officer who authorizes the report to the government authority.",
+      "Describe where the report and the decision whether to inform the patient are documented.",
+      "State the timeframe for informing the patient and who confirms it happened."
+    ],
+    "page_reference": "pp. 60-61"
+  },
+  "PRV-18": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-18",
+    "title": "Uses and Disclosures for Reproductive Health Information",
+    "full_question": "Please describe how your practice screens any request touching reproductive health care and obtains a signed, dated written attestation before releasing anything for health oversight activities, a judicial or administrative proceeding, law enforcement, or a coroner or medical examiner. Identify who confirms the care was lawful where and when it was provided, and what happens when an attestation is refused or incomplete.",
+    "requirements": [
+      "Name the officer or counsel who reviews every reproductive health related request.",
+      "Identify the attestation form used and where it is filed with the request.",
+      "Describe how the lawfulness review and minimum necessary limits are documented."
+    ],
+    "page_reference": "pp. 63-66"
+  },
+  "PRV-19": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-19",
+    "title": "Uses and Disclosures for Health Oversight Activities",
+    "full_question": "Please describe how your practice responds to a health oversight agency conducting an audit, licensure inspection, disciplinary action, or civil or criminal investigation, including how staff distinguish genuine oversight from an investigation in which the patient personally is the subject. Identify who receives the agency on site or in writing, who assembles the records, and what is turned over.",
+    "requirements": [
+      "Name the role that meets an inspector and authorizes production of records.",
+      "Describe how records provided to the agency are copied, itemized, and retained.",
+      "State the production timeframe and who confirms the agency's legal authority."
+    ],
+    "page_reference": "pp. 67-68"
+  },
+  "PRV-20": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-20",
+    "title": "Uses and Disclosures for Cadaveric Organ, Eye or Tissue Donation Purposes",
+    "full_question": "Please describe how your practice interacts with organ procurement organizations, eye banks, and tissue banks, including how and when a death or imminent death is referred and what information accompanies the referral. Identify who makes the referral call and who releases the chart information the procurement organization needs to evaluate donation.",
+    "requirements": [
+      "Name the role that makes the referral to the procurement organization.",
+      "Identify the referral log or chart note where the contact is recorded.",
+      "State the timeframe for referral after a death is identified."
+    ],
+    "page_reference": "pp. 70-71"
+  },
+  "PRV-21": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-21",
+    "title": "Uses and Disclosures for Research Purposes",
+    "full_question": "Please describe how your practice handles research requests for patient information, covering studies with a signed authorization, studies operating under an approved waiver from an institutional review board or privacy board, reviews preparatory to research where nothing leaves the practice, and research limited to decedents. Identify who receives the request and who verifies the waiver documentation is complete and signed.",
+    "requirements": [
+      "Name the role that reviews review board or privacy board waiver documentation.",
+      "Describe the researcher representations collected for preparatory and decedent research.",
+      "Identify where approved protocols, waivers, and data releases are filed."
+    ],
+    "page_reference": "pp. 72-75"
+  },
+  "PRV-22": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-22",
+    "title": "Uses and Disclosures to Avert a Serious Threat to Health or Safety",
+    "full_question": "Please describe what your practice does when a clinician forms a good faith belief that a patient presents a serious and imminent threat to another person or to themselves, including who may be warned and how much may be said. Identify the clinician who makes the judgment, who else is notified inside the practice, and how a warning to an identified person or to law enforcement is delivered and recorded.",
+    "requirements": [
+      "Name the licensed clinician authorized to make the good faith threat determination.",
+      "Describe who is notified internally before any outside warning is given.",
+      "State where the warning, its recipient, and the reasoning are documented."
+    ],
+    "page_reference": "pp. 76-79"
+  },
+  "PRV-23": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-23",
+    "title": "Uses and Disclosures for Specialized Government Functions",
+    "full_question": "Please describe how your practice handles the specialized government requests in this policy - records sought by military command authorities or the Department of Veterans Affairs, national security or protective service requests from federal officials, and requests from a correctional institution or a law enforcement officer with lawful custody of a patient. Identify who verifies federal or custodial authority before any release.",
+    "requirements": [
+      "Name the role authorized to release records to a correctional facility or federal official.",
+      "Describe how credentials or the custody representation are verified and copied.",
+      "State how releases stop once an individual is released from lawful custody."
+    ],
+    "page_reference": "pp. 80-83"
+  },
+  "PRV-24": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-24",
+    "title": "Disclosures for Workers’ Compensation",
+    "full_question": "Please describe your practice's workflow for releasing records in a workers' compensation matter, from the initial injury visit through requests by the employer, the compensation carrier, the state board, and claimant or defense counsel. Identify who determines which portions of the record relate to the work injury and what is withheld as unrelated history.",
+    "requirements": [
+      "Name the staff member who fulfills workers' compensation record requests.",
+      "Describe how injury-related records are separated from unrelated medical history.",
+      "State the turnaround time and where each release is logged."
+    ],
+    "page_reference": "pp. 84-85"
+  },
+  "PRV-25": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-25",
+    "title": "De-identification of Protected Health Information",
+    "full_question": "Please describe how your practice strips identifiers before sharing patient data for reporting, quality benchmarking, or vendor analytics, and whether it relies on removing the listed identifiers itself or on a qualified expert's documented determination. Identify who performs the removal, who checks the result, and how any re-identification code is generated and kept separate.",
+    "requirements": [
+      "Name the role that prepares and the role that reviews a de-identified extract.",
+      "Identify the checklist or script used to strip every listed identifier.",
+      "Describe where a re-identification key is stored and who may access it."
+    ],
+    "page_reference": "pp. 86-88"
+  },
+  "PRV-26": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-26",
+    "title": "Minimum Necessary Requirements",
+    "full_question": "Please document the role-based access design your practice uses to meet this policy: each job class that needs patient information, the categories of information each class may reach, and any conditions on that access. Also describe the standard protocols governing routine, recurring disclosures and the criteria used to review a non-routine request individually.",
+    "requirements": [
+      "Provide the list of job classes and the record categories each may access.",
+      "Identify the standard protocols covering routine disclosures such as referrals and claims.",
+      "Describe when an entire medical record is released and who justifies it."
+    ],
+    "page_reference": "pp. 89-91"
+  },
+  "PRV-27": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-27",
+    "title": "Limited Data Set",
+    "full_question": "Please describe how your practice builds and releases a limited data set, including which direct identifiers are stripped, which permitted purpose the release supports - research, public health, or health care operations - and how the data use agreement is executed before any data leaves. Identify who prepares the extract and who signs the agreement.",
+    "requirements": [
+      "Name the role that prepares the extract and the role that signs the agreement.",
+      "Identify where executed data use agreements and extract specifications are retained.",
+      "Describe the steps taken when a recipient is found to have violated the agreement."
+    ],
+    "page_reference": "pp. 92-94"
+  },
+  "PRV-28": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-28",
+    "title": "Fundraising Communications",
+    "full_question": "Please describe how your practice conducts any patient fundraising, including which permitted data elements - demographics, dates and department of service, treating physician, outcome, insurance status - are shared with a foundation or vendor, and how a clear opt-out appears in every communication. Identify who maintains the suppression list and how a patient opts back in.",
+    "requirements": [
+      "Name the role that approves the fundraising list and the data elements shared.",
+      "Identify the system holding the opt-out suppression list and how it is applied.",
+      "Describe how the opt-out method avoids cost or burden to the patient."
+    ],
+    "page_reference": "pp. 96-97"
+  },
+  "PRV-29": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-29",
+    "title": "Uses and Disclosures for Underwriting and Related Purposes",
+    "full_question": "Please identify any circumstance in which your practice or an affiliated health plan receives patient information for underwriting, premium rating, or placing a contract of health insurance or health benefits, and describe how that information is quarantined and used only for that purpose when coverage is ultimately not placed. Identify who holds the information and how genetic information is kept out of it.",
+    "requirements": [
+      "Name the role accountable for information received for underwriting purposes.",
+      "Describe where that information is stored and how access is restricted.",
+      "State the retention and disposal steps taken when coverage is not placed."
+    ],
+    "page_reference": "pp. 99-100"
+  },
+  "PRV-30": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-30",
+    "title": "Verification Requirements",
+    "full_question": "Please describe the identity and authority checks your practice performs before releasing information, broken out by requester - a patient in person, a caller by telephone, a public official appearing on site, a written request on government letterhead, and a subpoena or court order. Identify who performs the check at each point of contact and what proof is captured.",
+    "requirements": [
+      "Name the staff role that verifies identity at the front desk and by telephone.",
+      "Describe what copy of credentials, letterhead, or legal process is retained.",
+      "State how a request lacking adequate proof is refused and escalated."
+    ],
+    "page_reference": "pp. 101-103"
+  },
+  "PRV-31": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-31",
+    "title": "Notice of Privacy Practices",
+    "full_question": "Please describe how your practice delivers the Notice of Privacy Practices and captures acknowledgment - at the first service delivery, after an emergency visit, at each physical location, and for patients whose first contact is electronic. Identify who obtains the signed acknowledgment, what is documented when a patient will not sign, and how a revised Notice is redistributed and posted.",
+    "requirements": [
+      "Name the staff role that presents the Notice and obtains acknowledgment.",
+      "Identify where signed acknowledgments and good faith effort notes are stored.",
+      "Describe where the Notice is posted on site and on your website."
+    ],
+    "page_reference": "pp. 104-109"
+  },
+  "PRV-32": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-32",
+    "title": "Right of an Individual to Request Restriction of Uses and Disclosures",
+    "full_question": "Please describe how your practice handles a patient's request to restrict uses or disclosures, especially the request it must grant - withholding information from a health plan where the patient has paid in full out of pocket for that item or service. Identify who decides discretionary requests, how an agreed restriction is flagged so no claim is submitted, and how a restriction is later terminated.",
+    "requirements": [
+      "Name the role that approves or declines a restriction request.",
+      "Describe how the self-pay restriction is flagged in the record and billing system.",
+      "State how a restriction is lifted for emergency treatment and documented afterward."
+    ],
+    "page_reference": "pp. 110-112"
+  },
+  "PRV-33": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-33",
+    "title": "Confidential Communications Requirements",
+    "full_question": "Please document the written request procedure your practice uses for confidential communications, including the form the patient completes, the alternative address or contact method it must specify, and how payment and statements will be handled under the accommodation. Identify who determines whether a request is reasonable and who communicates that decision back to the patient.",
+    "requirements": [
+      "Identify the written request form used and where completed forms are filed.",
+      "Name the role that determines whether an accommodation is reasonable.",
+      "Describe how the decision and its effective date are communicated and tracked."
+    ],
+    "page_reference": "pp. 113-114"
+  },
+  "PRV-34": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-34",
+    "title": "Access to Protected Health Information",
+    "full_question": "Please describe your practice's workflow for a patient's request to inspect or obtain a copy of their record, including what you treat as the designated record set, how requests are logged, and how the 30-day deadline and single 30-day extension are tracked. Explain how electronic copies and requests to send a copy directly to a third party are handled, and how your cost-based fee is calculated.",
+    "requirements": [
+      "Name the role that receives access requests and the role that fulfills them.",
+      "Identify the request form, portal, and log used, and the fee schedule applied.",
+      "Describe how a denial is issued and who serves as the independent reviewing professional."
+    ],
+    "page_reference": "pp. 116-120"
+  },
+  "PRV-35": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-35",
+    "title": "Right to Amend",
+    "full_question": "Please describe how your practice processes a written request to amend a record, from intake through the 60-day decision and any single 30-day extension. Identify who evaluates whether the practice created the record and whether it is accurate and complete, how an accepted amendment is appended or linked in the chart, and who is notified afterward, including business associates.",
+    "requirements": [
+      "Name the clinician or officer who decides to accept or deny an amendment.",
+      "Describe how the amendment is appended and how prior recipients are informed.",
+      "State how a statement of disagreement and the practice's rebuttal are filed."
+    ],
+    "page_reference": "pp. 122-125"
+  },
+  "PRV-36": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-36",
+    "title": "Administrative Requirements",
+    "full_question": "Please identify by name and title the privacy official and the contact person who receives complaints at your practice, and describe how workforce training is delivered at hire, after a material change to policy, and periodically thereafter. Explain how complaints, applied sanctions, safeguards, and policy changes are documented and how the six-year retention period is maintained.",
+    "requirements": [
+      "Give the name and title of the privacy official and the complaint contact.",
+      "Identify the training system and where completion records and complaint logs are kept.",
+      "Describe the sanction process and where applied sanctions are documented."
+    ],
+    "page_reference": "pp. 127-132"
+  },
+  "PRV-37": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-37",
+    "title": "Breach Notification of Unsecured PHI Policy",
+    "full_question": "Please describe your practice's breach response workflow from discovery through notification, including who convenes the response team, how the four-factor risk assessment is completed and documented, and how the 60-day notification deadline is tracked. Explain how breaches affecting fewer than 500 individuals are logged and reported annually versus breaches of 500 or more requiring media and immediate reporting.",
+    "requirements": [
+      "Name the officer who leads the risk assessment and the breach response team.",
+      "Identify the determination and risk assessment worksheets and where the breach log lives.",
+      "Describe substitute notice steps and the timing of the annual report to the Secretary."
+    ],
+    "page_reference": "pp. 133-145"
+  },
+  "PRV-38": {
+    "manual": "hipaa_privacy_policy",
+    "code": "PRV-38",
+    "title": "Mitigation of Breaches Policy",
+    "full_question": "Please describe how your practice limits the harm from a privacy violation once it is known, separate from any required notification. Explain how a workforce member reports a suspected or known violation to the Privacy Officer, what corrective steps are typically taken - retraining, discipline, fixing a process, or addressing a business associate - and how each mitigation step is documented.",
+    "requirements": [
+      "Describe how staff report a suspected violation and within what timeframe.",
+      "Name the role that decides and carries out corrective and disciplinary action.",
+      "State where mitigation steps and the accounting of disclosures entry are recorded."
+    ],
+    "page_reference": "pp. 147-148"
+  },
+  "SEC-01": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-01",
+    "title": "Assigned Security Responsibility Policy",
+    "full_question": "Please identify the individual your practice has appointed as HIPAA Security Officer and describe how that person actually carries out the role day to day, including how they develop, approve, and update security policies, how they coordinate with your IT vendor or internal IT staff, and how the appointment and any change in appointment is documented.",
+    "requirements": [
+      "Name the Security Officer, their job title, and their backup or designee.",
+      "Identify where the signed appointment letter and job description are filed.",
+      "State how often the Security Officer reports to ownership or leadership."
+    ],
+    "page_reference": "p. 6"
+  },
+  "SEC-02": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-02",
+    "title": "Conduct Risk Analysis",
+    "full_question": "Please describe how your practice actually performs its Security Risk Analysis, including who conducts it, whether it is a self-assessment or an independent third-party assessment, what tool or methodology is used, how the monthly Risk Profile differs from the annual comprehensive analysis, and what events (office relocation, EHR replacement, server migration) trigger an off-cycle analysis.",
+    "requirements": [
+      "Identify who performs the analysis and which outside firm, if any, is engaged.",
+      "Name the risk assessment tool or platform and where reports are stored.",
+      "State the month the annual analysis is completed and when the last one was done."
+    ],
+    "page_reference": "p. 9"
+  },
+  "SEC-03": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-03",
+    "title": "Risk Management",
+    "full_question": "Please describe how your practice turns risk analysis findings into a written Risk Management Plan, including how remediation items are prioritized by risk score, who is assigned each corrective action, how start and completion dates are set, and how you confirm and archive evidence that a remediation was actually completed.",
+    "requirements": [
+      "Identify who owns the Risk Management Plan and who signs off on completed items.",
+      "Name the tracking tool or spreadsheet where open remediation items are logged.",
+      "State how often open items are reviewed and how long evidence is retained."
+    ],
+    "page_reference": "pp. 11-12"
+  },
+  "SEC-04": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-04",
+    "title": "Facility Access Controls",
+    "full_question": "Please describe the physical access controls in place at each of your practice locations that limit entry to areas housing servers, network equipment, and workstations that access ePHI, including how the perimeter, exterior doors, and ground-level windows are secured and who performs the annual inventory of those controls.",
+    "requirements": [
+      "Identify who is responsible for locking up at each location at end of day.",
+      "List each location and the type of lock or entry system used at server areas.",
+      "State when the annual physical access control inventory is performed and recorded."
+    ],
+    "page_reference": "p. 13"
+  },
+  "SEC-05": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-05",
+    "title": "Facility Security Plan",
+    "full_question": "Please document your practice's written Facility Security Plan, describing for each location which methods are used to safeguard equipment from tampering and theft (keyed locks, electronic access control, alarm system, video monitoring), and how you define by name, title, or job role which workforce members may enter each restricted area.",
+    "requirements": [
+      "Identify who maintains the list of workforce members authorized for each restricted area.",
+      "Name the alarm, access control, or camera vendor and where the plan document is kept.",
+      "State how often the plan and the authorized-access list are updated."
+    ],
+    "page_reference": "p. 14"
+  },
+  "SEC-06": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-06",
+    "title": "Access Control and Validation Procedures",
+    "full_question": "Please describe how your practice controls and validates people moving through the office, including how visitors, vendors, and repair technicians are signed in and escorted, how the waiting room and service area doors are secured, how staff are expected to challenge unfamiliar individuals, and who controls access to any CCTV recordings.",
+    "requirements": [
+      "Identify who staffs the front desk sign-in and who escorts vendors beyond the waiting area.",
+      "Describe the visitor log used (paper sheet or electronic) and where completed logs are kept.",
+      "State how long CCTV recordings are retained before reuse or overwrite."
+    ],
+    "page_reference": "p. 15"
+  },
+  "SEC-07": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-07",
+    "title": "Maintenance Records",
+    "full_question": "Please describe how your practice documents repairs and modifications to security-related physical components such as door locks, alarm panels, server room access panels, cameras, and walls, including who records the work, what details are captured, and how staff report a broken lock or failed security device.",
+    "requirements": [
+      "Identify the staff member or vendor who logs completed repair work.",
+      "Name the log, form, or ticketing system and where records are centrally stored.",
+      "State the retention period applied and how records are pulled for security audits."
+    ],
+    "page_reference": "p. 17"
+  },
+  "SEC-08": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-08",
+    "title": "Physical Security Monitoring and Logging Policy",
+    "full_question": "Please describe how your practice monitors and logs physical access to areas holding ePHI systems, including which entry method is used at each door (keycard, electronic lock, issued physical key, camera coverage), how badge or key issuance and return is tracked, and how visitor and employee entry logs are captured and reviewed.",
+    "requirements": [
+      "Identify who performs the quarterly review of access logs and camera footage.",
+      "Name the access control and camera products in use and where footage is stored.",
+      "State the retention period for badge logs and for video recordings."
+    ],
+    "page_reference": "pp. 19-20"
+  },
+  "SEC-09": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-09",
+    "title": "Information System Activity Review",
+    "full_question": "Please describe how your practice regularly reviews information system activity records, including which systems produce reviewable logs (EHR, PACS, Active Directory, lab portals, partner portals), what data those logs capture, how the active user list is reconciled against the HR roster, and how you identify any generic or shared accounts still in use.",
+    "requirements": [
+      "Identify who runs the review and which HR staff member validates the user roster.",
+      "List each system whose access reports are reviewed and where reports are filed.",
+      "State the review frequency and how findings and corrections are documented."
+    ],
+    "page_reference": "p. 22"
+  },
+  "SEC-10": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-10",
+    "title": "Security Incident Response and Reporting",
+    "full_question": "Please describe your practice's security incident workflow from first report to closure, including how a staff member reports a suspected incident such as a phishing click, malware infection, or lost laptop, who performs containment, who decides whether the incident is a reportable breach, and how the post-incident lessons-learned meeting is scheduled.",
+    "requirements": [
+      "Identify who receives incident reports after hours and on weekends.",
+      "Name the reporting mechanism (ticketing system, incident form, or secure email) used.",
+      "State the timeframe for containment, for the lessons-learned meeting, and log retention."
+    ],
+    "page_reference": "pp. 24-25"
+  },
+  "SEC-11": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-11",
+    "title": "Termination Procedures",
+    "full_question": "Please describe the step-by-step termination workflow your practice runs when a workforce member leaves, including how HR notifies IT, how quickly system and building access is cut off, how tokens, keys, badges, and digital certificates are collected, when shared passwords known to the departing person are reset, and who conducts the exit interview.",
+    "requirements": [
+      "Identify the HR contact who initiates termination and the IT contact who disables accounts.",
+      "Name the termination checklist or form used and where completed copies are filed.",
+      "State the target timeframe from separation to full access revocation."
+    ],
+    "page_reference": "p. 26"
+  },
+  "SEC-12": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-12",
+    "title": "Establish Clear Job Description and Responsibilities",
+    "full_question": "Please describe how your practice documents each job role so that ePHI access matches job function, including what each written job description specifies (reporting relationships, required licenses or certifications, facility access level, program and data access level) and how job descriptions are updated when duties or systems change.",
+    "requirements": [
+      "Identify who writes and approves job descriptions and who maps them to system roles.",
+      "State where current job descriptions are maintained and how staff acknowledge them.",
+      "State how often descriptions are reviewed and how role changes trigger an update."
+    ],
+    "page_reference": "p. 28"
+  },
+  "SEC-13": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-13",
+    "title": "Workforce Sanctions Policy",
+    "full_question": "Please describe how your practice investigates and sanctions HIPAA security violations, including who conducts the investigation, how HR is involved, how you decide whether a violation is a Level 1, Level 2, or Level 3 matter, what discipline attaches at each level, and how a workforce member may appeal.",
+    "requirements": [
+      "Identify who leads the investigation and who approves the final sanction.",
+      "State where sanction records are filed and how they are kept confidential.",
+      "State the retention period for sanction records and when staff are notified of this policy."
+    ],
+    "page_reference": "pp. 30-31"
+  },
+  "SEC-14": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-14",
+    "title": "Access Authorization",
+    "full_question": "Please describe how a new workforce member's ePHI access is authorized and provisioned at your practice, including who submits the request, who approves the access level, how HR and IT hand off to each other during onboarding, and where multi-factor authentication is enforced (remote access, EHR, cloud applications, financial systems, vendor access).",
+    "requirements": [
+      "Identify who approves the requested access level before provisioning occurs.",
+      "Name the MFA product used and which systems it currently covers.",
+      "State how the completed access request is documented and how long it is retained."
+    ],
+    "page_reference": "p. 32"
+  },
+  "SEC-15": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-15",
+    "title": "Minimum Necessary Use of ePHI in IT Systems",
+    "full_question": "Please describe how your practice enforces the minimum necessary standard inside its systems, including how role-based permissions restrict which chart sections, data fields, and patient lists each role can see, how sensitive fields are masked, how export and download rights are limited, and how requests for elevated access are justified and approved.",
+    "requirements": [
+      "Identify who approves elevated access requests and who re-certifies access levels.",
+      "Describe the specific field or view restrictions configured in your EHR by role.",
+      "State how often access levels are recertified and how justifications are retained."
+    ],
+    "page_reference": "pp. 34-35"
+  },
+  "SEC-16": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-16",
+    "title": "Evaluate Existing Security Measures Related to Access Controls",
+    "full_question": "Please describe the every-six-months evaluation your practice performs of its existing access control settings, including which systems and security settings are examined, how you test whether stated access policies are actually being followed, how generic or shared accounts are identified, and how identified gaps are corrected.",
+    "requirements": [
+      "Identify who conducts the semiannual evaluation and who reviews the results.",
+      "Name the reports or assessment output examined and where they are filed.",
+      "State the two months of the year the evaluation occurs and how findings are tracked to closure."
+    ],
+    "page_reference": "p. 36"
+  },
+  "SEC-17": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-17",
+    "title": "Password Management",
+    "full_question": "Please describe how password rules are actually enforced across your practice's systems, including which systems enforce the 90-day change interval, minimum length and complexity, password history, and account lockout after failed attempts, and how system-level and administrator passwords are stored in the Security Officer's managed credential repository.",
+    "requirements": [
+      "Identify who administers the password vault or credential database.",
+      "List each system and whether the rules are enforced technically or by staff instruction.",
+      "State the current lockout threshold, rotation interval, and password history depth."
+    ],
+    "page_reference": "pp. 38-39"
+  },
+  "SEC-18": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-18",
+    "title": "Phishing Simulation Program Policy",
+    "full_question": "Please describe how your practice runs its phishing simulation and security awareness program, including who launches the simulated campaigns, how often they run, what types of lures are used, what happens to a staff member who clicks, and how repeat failures escalate to progressive discipline.",
+    "requirements": [
+      "Identify who administers the simulations and reviews the results.",
+      "Name the phishing simulation and training platform used.",
+      "State the campaign frequency, the current click rate, and how records are retained."
+    ],
+    "page_reference": "pp. 40-41"
+  },
+  "SEC-19": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-19",
+    "title": "Administrative Access Control",
+    "full_question": "Please describe how your practice reviews and enforces access rights after they are granted, including how least privilege and separation of duties are applied, how monthly reports are used to detect generic logins and dormant accounts that suggest credential sharing or piggybacking, and what automatic logoff or lockout interval is configured in each type of area.",
+    "requirements": [
+      "Identify who reviews the monthly generic-account and inactive-user reports.",
+      "State the auto-logoff interval set for patient-area devices versus back-office devices.",
+      "State what action is taken when a dormant or shared account is found."
+    ],
+    "page_reference": "p. 42"
+  },
+  "SEC-20": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-20",
+    "title": "Unique User Identification",
+    "full_question": "Please describe your practice's naming convention for assigning unique user IDs, how the master record of issued identifiers is maintained, how you ensure no two people ever share a login, and how vendor and service accounts are created, justified, and reviewed each year.",
+    "requirements": [
+      "Identify who creates user IDs and who maintains the roster of issued identifiers.",
+      "State the ID naming convention and which systems it applies to.",
+      "List current vendor or service accounts and when they were last reviewed."
+    ],
+    "page_reference": "p. 44"
+  },
+  "SEC-21": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-21",
+    "title": "Audit Controls",
+    "full_question": "Please describe which of your practice's systems have event auditing enabled and what specific events are captured (logins, logouts, file access, deletions, modifications), how audit reports are generated and distributed to reviewers, how audit logs are protected from alteration, and how the quarterly Active Directory account review is performed.",
+    "requirements": [
+      "Identify who receives and reviews audit reports and who has audit-tool access.",
+      "List each ePHI system with auditing enabled and the events it records.",
+      "State how the quarterly Active Directory review is documented and dormant accounts remediated."
+    ],
+    "page_reference": "p. 46"
+  },
+  "SEC-22": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-22",
+    "title": "Person or Entity Authentication",
+    "full_question": "Please describe how your practice authenticates users beyond a password, including which authentication factors are in use (token, smart card, biometric, one-time code), which high-risk user groups receive strong authentication first (system administrators, remote users, laptop users), and how a suspected compromised password is reported and handled.",
+    "requirements": [
+      "Identify the high-risk users currently required to use multi-factor authentication.",
+      "Name the authentication method or device issued and who provisions it.",
+      "State how you verify password compliance and how compromise reports reach the Security Officer."
+    ],
+    "page_reference": "pp. 47-48"
+  },
+  "SEC-23": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-23",
+    "title": "Workstation Use",
+    "full_question": "Please describe the rules your practice applies to how workstations are used, including which business functions are permitted at each class of workstation, where workstations displaying ePHI are physically positioned relative to waiting rooms and hallways, what inactivity lock interval is configured, and how software installation and personal USB devices are blocked.",
+    "requirements": [
+      "Identify who is authorized to change workstation configuration or install software.",
+      "List workstation locations that require privacy filters or repositioned monitors.",
+      "State the inactivity lock interval in use and how staff are trained on approved use."
+    ],
+    "page_reference": "pp. 49-50"
+  },
+  "SEC-24": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-24",
+    "title": "Workstation Security",
+    "full_question": "Please describe the physical safeguards your practice applies to workstations that access ePHI, including which devices are cable-locked or in lockable cabinets, which rooms are locked when unattended, how shared or generic workstation accounts are avoided, and whether USB ports are disabled on clinical machines.",
+    "requirements": [
+      "Identify who approves any exception allowing local storage of ePHI or a shared account.",
+      "Name the endpoint protection product installed and how updates are confirmed.",
+      "List each workstation location and the physical protection applied at each."
+    ],
+    "page_reference": "pp. 51-52"
+  },
+  "SEC-25": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-25",
+    "title": "Device and Media Controls",
+    "full_question": "Please describe how your practice tracks and controls devices and electronic media containing ePHI across their full lifecycle, including how the asset inventory records device type, serial number, assigned user and location, how devices are wiped before reuse, what destruction method is used at disposal, and how removal of a device from the office is authorized.",
+    "requirements": [
+      "Identify who maintains the asset inventory and who authorizes removing devices from the facility.",
+      "Name the data destruction vendor or wiping tool and where certificates are filed.",
+      "State how the disposal log is completed and how transfers between sites are confirmed."
+    ],
+    "page_reference": "pp. 53-54"
+  },
+  "SEC-26": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-26",
+    "title": "Acceptable Use of Information Policy",
+    "full_question": "Please describe how your practice puts its Acceptable Use of Information Policy into practice, including which categories of users must sign the Acknowledgment before receiving access (employees, contractors, affiliates, vendors), who collects and files the signed forms, who may suspend or revoke access when misuse is suspected, and how access is restored.",
+    "requirements": [
+      "Identify who collects signed acknowledgments and who may revoke access privileges.",
+      "State where signed acknowledgment forms are stored and how they are tracked to completion.",
+      "State when acknowledgments are re-signed and how retention and destruction schedules are communicated."
+    ],
+    "page_reference": "pp. 55-56"
+  },
+  "SEC-27": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-27",
+    "title": "Protection against Malicious Software",
+    "full_question": "Please describe the anti-malware protection deployed at your practice, including which product runs at the network perimeter and on each endpoint, how definition and agent updates are confirmed as current on every device, how detection alerts generate tickets, and who investigates and remediates a detection.",
+    "requirements": [
+      "Identify who monitors the anti-malware console and responds to alerts.",
+      "Name the endpoint detection and antivirus products and the firewall subscription in use.",
+      "State how often coverage reports are run and how remediation tickets are closed out."
+    ],
+    "page_reference": "p. 61"
+  },
+  "SEC-28": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-28",
+    "title": "Applications and Data Criticality Analysis",
+    "full_question": "Please describe how your practice ranks the criticality of its applications and data, including which systems are considered business critical, what recovery time objective is assigned to each, where your network diagram and system interdependency documentation is maintained, and how you locate ePHI stored outside the EHR on local PCs, servers, and portable devices.",
+    "requirements": [
+      "Identify who maintains the network diagram and the prioritized critical application list.",
+      "List your critical applications with their recovery time objectives and hosting vendors.",
+      "State how often the criticality analysis and ePHI location scan are refreshed."
+    ],
+    "page_reference": "pp. 62-63"
+  },
+  "SEC-29": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-29",
+    "title": "Data Backup Plan",
+    "full_question": "Please describe your practice's actual backup arrangement, including what data and systems are backed up, how often backups run, whether backups go to a local appliance, offsite replication, or cloud, who is authorized to retrieve backup media or initiate a restore, and how successful restores are tested and documented.",
+    "requirements": [
+      "Identify who monitors nightly backup jobs and who is authorized to restore data.",
+      "Name the backup product, appliance, and offsite or cloud destination used.",
+      "State the backup frequency, retention period, and when a restore test was last performed."
+    ],
+    "page_reference": "p. 64"
+  },
+  "SEC-30": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-30",
+    "title": "Business Associate Contracts for Cloud Servers and Data Centers",
+    "full_question": "Please identify every cloud hosting, data center, and online backup provider that stores or processes your practice's ePHI, and describe how each one is put under a signed Business Associate Agreement, who negotiates and executes those agreements, and how you confirm whether any of these vendors store or process ePHI outside the United States.",
+    "requirements": [
+      "Identify who maintains the vendor list and executes Business Associate Agreements.",
+      "List each cloud or data center vendor and confirm where the signed BAA is filed.",
+      "State how often the vendor inventory is refreshed and BAAs are reviewed for current language."
+    ],
+    "page_reference": "p. 66"
+  },
+  "SEC-31": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-31",
+    "title": "Encryption and Decryption (data at rest)",
+    "full_question": "Please describe how data at rest is encrypted across your practice, including which workstations, laptops, servers, portable drives, and backup media are encrypted, at what point in deployment encryption is enabled, what encryption product and algorithm is used, and how encryption keys are escrowed and key length reviewed.",
+    "requirements": [
+      "Identify who enables encryption at deployment and who holds the escrowed keys.",
+      "Name the encryption product used on workstations, servers, and backups.",
+      "State how encryption coverage is verified across all devices and how often key length is reviewed."
+    ],
+    "page_reference": "p. 68"
+  },
+  "SEC-32": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-32",
+    "title": "Business Associate Contracts for Sync folders (DropBox, Box, Google Drive, etc.)",
+    "full_question": "Please describe how your practice controls file sync and sharing services, identifying which services staff are permitted to use for ePHI, which consumer services are blocked or prohibited, how you detect unapproved sync folders connected to practice devices, and how an approved service is placed under a Business Associate Agreement.",
+    "requirements": [
+      "Identify who approves a new file sharing service and who investigates unapproved ones.",
+      "Name the approved sync or file sharing service and confirm the BAA is on file.",
+      "State how often connected cloud services are scanned and reports reviewed."
+    ],
+    "page_reference": "p. 70"
+  },
+  "SEC-33": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-33",
+    "title": "Firewall Access Authorization",
+    "full_question": "Please describe the firewall protecting each of your practice's locations, including make and model, which security services are enabled (intrusion prevention, intrusion detection, content filtering), how inbound and outbound rules are managed, who holds administrative credentials to the firewall, and how subscription renewals are tracked.",
+    "requirements": [
+      "Identify who has firewall administrative access and which support vendor manages it.",
+      "Name the firewall manufacturer and model at each location and the active subscriptions.",
+      "State how often firewall rules and logs are reviewed and when licenses expire."
+    ],
+    "page_reference": "p. 72"
+  },
+  "SEC-34": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-34",
+    "title": "Patch Management & Vulnerability Remediation Policy",
+    "full_question": "Please describe how your practice patches its systems, including which tool scans for missing patches and known vulnerabilities, how often scans run, how critical and high-severity findings are prioritized against the 72-hour and five-business-day targets, how patches are tested before deployment, and how patching is verified afterward.",
+    "requirements": [
+      "Identify who approves and deploys patches and who tracks deferred vulnerabilities.",
+      "Name the patch management and vulnerability scanning tools and where reports are stored.",
+      "State the scan frequency, the deployment deadlines used, and how post-patch rescans confirm closure."
+    ],
+    "page_reference": "pp. 73-74"
+  },
+  "SEC-35": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-35",
+    "title": "Business Associate Contracts for External Email Providers",
+    "full_question": "Please identify the email provider your practice uses and describe how ePHI sent or received by email is protected, including whether a Business Associate Agreement is signed with that provider, how secure or encrypted email is sent to patients and outside providers, and how staff use of free consumer email accounts is detected and stopped.",
+    "requirements": [
+      "Identify who administers the email tenant and who executed the Business Associate Agreement.",
+      "Name the email provider and any secure email or encryption product layered on top.",
+      "State how often connected email services are scanned and how findings are documented."
+    ],
+    "page_reference": "p. 75"
+  },
+  "SEC-36": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-36",
+    "title": "Wireless Network Access Authorization",
+    "full_question": "Please describe your practice's wireless setup, including how many access points exist and where they are physically mounted, whether a firewall separates wireless from the wired network, what encryption strength is configured, whether a separate guest network exists, and how access point inventory, default SSIDs, and admin passwords are managed.",
+    "requirements": [
+      "Identify who manages the wireless network and who holds access point admin credentials.",
+      "List each access point with its location and whether it serves staff or guest traffic.",
+      "State how AP firmware updates and wireless log reviews are scheduled and recorded."
+    ],
+    "page_reference": "p. 77"
+  },
+  "SEC-37": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-37",
+    "title": "Wireless Network Access Establishment",
+    "full_question": "Please describe how your practice changes its wireless network key, including who performs the change, how the annual rotation is scheduled and remembered, what triggers an off-cycle change when a key employee is terminated, and how the new key is distributed to staff devices and printers without being written down insecurely.",
+    "requirements": [
+      "Identify who changes the wireless key and who authorizes an off-cycle change.",
+      "State where the key change date is recorded and how devices are re-enrolled.",
+      "State the date the key was last changed and when the next rotation is due."
+    ],
+    "page_reference": "p. 79"
+  },
+  "SEC-38": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-38",
+    "title": "Bring Your Own Device (BYOD) Security Policy",
+    "full_question": "Please describe how your practice handles personally owned phones, tablets, and laptops used for work, including how a staff member requests approval, who approves it, how the device is registered and enrolled in mobile device management, what configuration is required before access is granted, and how remote wipe is triggered on loss or separation.",
+    "requirements": [
+      "Identify who approves BYOD requests and who can initiate a remote wipe.",
+      "Name the mobile device management or endpoint product and where the device inventory lives.",
+      "State how many personal devices are currently approved and how compliance is re-checked."
+    ],
+    "page_reference": "pp. 80-81"
+  },
+  "SEC-39": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-39",
+    "title": "Workforce Security",
+    "full_question": "Please describe how your practice verifies, after the fact, that departed workforce members no longer appear on any active user list, including which reports are run against each system, how wireless network access is disabled for IT and other high-risk staff, and how the results of that verification are reviewed with HR and documented.",
+    "requirements": [
+      "Identify who runs the active-user verification and which HR staff member confirms the roster.",
+      "List each system checked and name the reporting tool used to generate the review.",
+      "State how often this verification runs and how discovered leftover accounts are closed out."
+    ],
+    "page_reference": "p. 82"
+  },
+  "SEC-40": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-40",
+    "title": "Develop and Implement Transmission Security Policy and Procedures",
+    "full_question": "Please describe how ePHI is protected while in transit at your practice, including what VPN or equivalent secure channel is used to reach internal systems, who sets up and manages the VPN gateway, which VPN clients are approved, how split tunneling is blocked, and what is required of non-practice-owned computers before they may connect.",
+    "requirements": [
+      "Identify who provisions VPN accounts and manages the VPN gateway.",
+      "Name the VPN product and approved client, and the antivirus required on connecting machines.",
+      "State how VPN connections are reviewed and how personally owned computers are verified compliant."
+    ],
+    "page_reference": "p. 84"
+  },
+  "SEC-41": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-41",
+    "title": "Remote Access Policy",
+    "full_question": "Please describe how remote access to your practice's systems is granted and controlled, including who approves each remote user, what secure method they use (VPN with two-factor authentication, secure gateway, or remote desktop), what inactivity timeout applies, and how remote access activity is logged and reviewed.",
+    "requirements": [
+      "Identify who approves remote access and who reviews the remote access logs.",
+      "Name the remote access technology and two-factor product in use.",
+      "State the session timeout setting, the log retention period, and the device-loss reporting deadline."
+    ],
+    "page_reference": "pp. 86-88"
+  },
+  "SEC-42": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-42",
+    "title": "Telehealth Remote Workforce Security Policy",
+    "full_question": "Please describe how your practice delivers telehealth securely, including which telehealth platform is approved and whether a Business Associate Agreement is in place, how providers verify patient identity at the start of a session, what requirements apply to the provider's physical location and home workstation, and how recording is controlled.",
+    "requirements": [
+      "Identify who authorizes telehealth providers and remote workers and collects their attestations.",
+      "Name the telehealth platform and the encryption and authentication settings enabled on it.",
+      "State the remote workstation lock interval, MFA requirement, and telehealth training cadence."
+    ],
+    "page_reference": "pp. 90-91"
+  },
+  "SEC-43": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-43",
+    "title": "Security Awareness & Training Policy",
+    "full_question": "Please describe how your practice delivers HIPAA security training, including how new hires are trained before they are given access to PHI, what topics the annual training covers, whether training is delivered in person or through a third-party vendor, and how signed Training Acknowledgment forms are collected and tracked to completion.",
+    "requirements": [
+      "Identify who schedules training, tracks completion, and follows up on overdue staff.",
+      "Name the training vendor or platform and where acknowledgment forms are filed.",
+      "State the annual training month, the new-hire deadline, and the record retention period."
+    ],
+    "page_reference": "pp. 93-94"
+  },
+  "SEC-44": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-44",
+    "title": "Security Policy Review and Update Policy",
+    "full_question": "Please describe how your practice reviews and updates these HIPAA Security policies, including who coordinates the annual review, which departments participate, what events trigger an off-cycle review (new systems, facility move, incident, vendor change), how version numbers and approval sign-offs are recorded, and how updated policies are redistributed to staff.",
+    "requirements": [
+      "Identify who coordinates the review and who provides final approval sign-off.",
+      "State where the master policy set, version history, and review log are maintained.",
+      "State the month of the annual review, the next scheduled date, and how staff are retrained on changes."
+    ],
+    "page_reference": "pp. 96-97"
+  },
+  "SEC-45": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-45",
+    "title": "Disaster Recovery Plan Policy",
+    "full_question": "Please describe your practice's disaster recovery plan in operational terms, including what conditions trigger activation, who declares a disaster, what each staff member's assigned recovery role is, in what sequence systems are restored and within what target timeframes, and how recovery drills are scheduled and documented.",
+    "requirements": [
+      "Identify who activates the plan and the assigned recovery role of each key staff member.",
+      "State where current copies of the plan are kept onsite and offsite, and who holds them.",
+      "State how often drills are conducted, when the last one occurred, and how results are recorded."
+    ],
+    "page_reference": "pp. 99-100"
+  },
+  "SEC-46": {
+    "manual": "hipaa_security_manual",
+    "code": "SEC-46",
+    "title": "Emergency Mode Operations Policy",
+    "full_question": "Please describe how your practice grants facility access during a disaster or emergency so that authorized staff can restore lost data, including who is on the authorized-entry list, how they get in when normal access systems are down, how their actions inside the facility are tracked and logged, and how unauthorized entry is detected during that period.",
+    "requirements": [
+      "Identify which workforce members are authorized to enter during emergency mode and who grants entry.",
+      "State where emergency keys, access codes, and backup media are kept and who holds them.",
+      "State how emergency access is logged and when the emergency mode plan was last tested."
+    ],
+    "page_reference": "pp. 100-102"
+  }
+}

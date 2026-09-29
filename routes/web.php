@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\GeneratedDocumentDownloadController;
 use App\Http\Controllers\Admin\IntakeUploadDownloadController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Controllers\IntakeAnswersDownloadController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\SsoController;
 use App\Models\DiscountCode;
@@ -55,6 +56,8 @@ Route::middleware('auth')->group(function () {
         ->name('documents.download');
     Route::get('/orders/{order}/receipt', [ReceiptController::class, 'show'])
         ->name('orders.receipt');
+    Route::get('/intake-submissions/{submission}/answers', [IntakeAnswersDownloadController::class, 'show'])
+        ->name('intake-submissions.answers');
     Route::get('/account/change-password', fn () => view('account.change-password'))
         ->name('password.edit');
 });
@@ -85,6 +88,7 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
         ->name('discount-codes.send');
     Route::get('/intake-uploads/{upload}/download', [IntakeUploadDownloadController::class, 'show'])
         ->name('uploads.download');
+    Route::get('/intake-questions', fn () => view('admin.intake-questions'))->name('intake-questions');
     Route::get('/questionnaires', fn () => view('admin.questionnaires'))->name('questionnaires');
     Route::get('/questionnaires/create', fn () => view('admin.questionnaires-form'))->name('questionnaires.create');
     Route::get('/questionnaires/{questionnaire}/edit', fn (Questionnaire $questionnaire) => view('admin.questionnaires-form', compact('questionnaire')))

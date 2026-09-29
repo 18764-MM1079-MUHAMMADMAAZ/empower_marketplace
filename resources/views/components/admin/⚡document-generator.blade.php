@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\AiExtractionStatus;
+use App\Enums\BillingCycle;
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
@@ -8,9 +9,12 @@ use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
+use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Models\ActivityLog;
+use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeQuestion;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -103,6 +107,84 @@ new class extends Component
         return $package ? Questionnaires::forTiers([$package->tier()->value]) : collect();
     }
 
+    /** The package's included document types that are now driven by the Practice Intake wizard
+     *  (i.e. have real CompliancePolicy rows) rather than the old upload+AI-extraction path —
+     *  these need a separate test path since no questionnaire file ever produces them. */
+    #[Computed]
+    public function wizardDrivenIncludedTypes(): Collection
+    {
+        $package = $this->order?->package;
+
+        if (! $package) {
+            return collect();
+        }
+
+        return collect($package->included_document_types ?? [])
+            ->map(fn ($value) => DocumentType::tryFrom($value))
+            ->filter()
+            ->filter(fn (DocumentType $type) => CompliancePolicy::where('manual', $type->value)->exists())
+            ->values();
+    }
+
+    /** Fills every Practice Intake question with a placeholder test answer, so the wizard-driven
+     *  manuals below have something real to merge — same purpose as uploading filled forms does
+     *  for the old questionnaire-driven types, just for the new answer-based ones. */
+    public function autoFillWizardAnswers(): void
+    {
+        $order = $this->order;
+
+        abort_unless($order, 404);
+
+        $submission = IntakeSubmission::firstOrCreate(
+            ['order_id' => $order->id],
+            ['status' => IntakeSubmissionStatus::Draft]
+        );
+
+        $answeredQuestionIds = $submission->intakeAnswers()->pluck('intake_question_id')->all();
+
+        IntakeQuestion::whereNotIn('id', $answeredQuestionIds)->get()->each(fn (IntakeQuestion $question) => $submission->intakeAnswers()->create([
+            'intake_question_id' => $question->id,
+            'response' => "Test answer for \"{$question->title}\", entered via the admin Document Generator.",
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]));
+
+        $submission->update(['wizard_screen' => 'done']);
+
+        ActivityLog::record(
+            'submission.admin_test_answers_filled',
+            "Practice Intake questions auto-filled with test answers for test order #{$order->id} via the admin Document Generator.",
+            user: auth()->user(),
+            order: $order,
+            subject: $submission,
+        );
+
+        unset($this->order);
+    }
+
+    /** Dispatches generation for every wizard-driven manual this package includes — mirrors
+     *  ⚡admin/submission-detail.blade.php's generateIncludedDocuments(), minus the "already
+     *  generated" guard, since re-running here (after re-filling answers) is exactly the point. */
+    public function generateWizardDrivenManuals(): void
+    {
+        $order = $this->order;
+
+        abort_unless($order, 404);
+
+        foreach ($this->wizardDrivenIncludedTypes as $documentType) {
+            GenerateComplianceDocument::dispatch($order, $documentType);
+        }
+
+        ActivityLog::record(
+            'document.test_generation_requested',
+            'Wizard-driven manual generation requested for test order #'.$order->id.' via the admin Document Generator.',
+            user: auth()->user(),
+            order: $order,
+        );
+
+        unset($this->documentsForReview);
+    }
+
     /** Questionnaires already uploaded for the current submission, keyed by upload type value —
      *  lets the page show what's already on file instead of leaving the browser's own stale
      *  "file chosen" text as the only (misleading) indicator after a successful submit. */
@@ -162,7 +244,9 @@ new class extends Component
             'payment_status' => PaymentStatus::SimulatedPaid,
             'amount_paid' => 0,
             'original_price' => $package->annual_price,
+            'billing_cycle' => BillingCycle::Annual,
             'paid_at' => now(),
+            'next_bill_date' => now()->addYear(),
             'notes' => "Test order created via the admin Document Generator by {$this->adminName()}. No real payment was taken.",
         ]);
 
@@ -510,6 +594,31 @@ new class extends Component
                 </button>
             </div>
         </div>
+
+        {{-- Step 2b: wizard-driven manuals (Practice Intake answers, not a questionnaire upload) --}}
+        @if($this->wizardDrivenIncludedTypes->isNotEmpty())
+            <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 space-y-4">
+                <h2 class="text-lg font-semibold text-navy">2b. Practice Intake wizard manuals</h2>
+                <p class="text-sm text-empower-muted">
+                    This package's {{ $this->wizardDrivenIncludedTypes->map(fn ($t) => $t->label())->implode(', ') }}
+                    {{ $this->wizardDrivenIncludedTypes->count() === 1 ? 'is' : 'are' }} generated from Practice Intake
+                    wizard answers, not an uploaded questionnaire. Auto-fill placeholder answers below to test
+                    generation without walking the real wizard.
+                </p>
+                <div class="flex flex-wrap gap-3">
+                    <button wire:click="autoFillWizardAnswers" wire:loading.attr="disabled" wire:target="autoFillWizardAnswers"
+                        class="inline-flex items-center gap-1 rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-text hover:bg-page transition-colors">
+                        <span wire:loading.remove wire:target="autoFillWizardAnswers">Auto-fill test answers</span>
+                        <span wire:loading.inline-flex wire:target="autoFillWizardAnswers" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Filling…</span>
+                    </button>
+                    <button wire:click="generateWizardDrivenManuals" wire:loading.attr="disabled" wire:target="generateWizardDrivenManuals"
+                        class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors">
+                        <span wire:loading.remove wire:target="generateWizardDrivenManuals">Generate manuals &rarr;</span>
+                        <span wire:loading.inline-flex wire:target="generateWizardDrivenManuals" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Dispatching…</span>
+                    </button>
+                </div>
+            </div>
+        @endif
 
         {{-- Step 3: generation status + release --}}
         @if($order->intakeSubmission)

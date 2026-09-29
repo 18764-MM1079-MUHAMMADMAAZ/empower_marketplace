@@ -54,6 +54,11 @@ class Package extends Model
         return $this->tier()->allowsQuestionnaireDownload();
     }
 
+    public function includesWorkflowQuestionnaire(): bool
+    {
+        return $this->tier()->includesWorkflowQuestionnaire();
+    }
+
     /** Null for Monthly means this package has no monthly price set — see hasMonthlyPricing(). */
     public function priceForCycle(BillingCycle $cycle): ?float
     {

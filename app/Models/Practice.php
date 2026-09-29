@@ -13,6 +13,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'user_id', 'name', 'logo_path', 'address',
     'specialty', 'billable_providers_count',
     'is_profile_locked', 'locked_at',
+    'compliance_officer_name', 'compliance_officer_phone', 'compliance_officer_email',
+    'hipaa_privacy_officer_name', 'hipaa_privacy_officer_phone', 'hipaa_privacy_officer_email',
+    'hipaa_security_officer_name', 'hipaa_security_officer_phone', 'hipaa_security_officer_email',
+    'release_of_info_officer_name', 'release_of_info_officer_phone', 'release_of_info_officer_email',
+    'it_vendor_name', 'compliance_hotline_number', 'compliance_hotline_email',
+    'uses_ehcp_hotline', 'hotline_poster_count',
+    'compliance_committee_members', 'compliance_governing_board_members',
 ])]
 class Practice extends Model
 {
@@ -20,8 +27,11 @@ class Practice extends Model
     use HasFactory;
 
     public const SPECIALTIES = [
-        'General Practice', 'Dermatology', 'Cardiology', 'Behavioral Health',
-        'Pediatrics', 'Orthopedics', 'Dental', 'Other',
+        'General Practice', 'Family Medicine', 'Internal Medicine', 'Pediatrics', 'Cardiology',
+        'Orthopedics', 'Dermatology', 'OB/GYN', 'Behavioral Health', 'Gastroenterology',
+        'Neurology', 'Oncology', 'Ophthalmology', 'Otolaryngology (ENT)', 'Pain Management',
+        'Physical Therapy', 'Podiatry', 'Pulmonology', 'Radiology', 'Rheumatology', 'Urgent Care',
+        'Urology', 'Multi-specialty', 'Other',
     ];
 
     /**
@@ -33,6 +43,10 @@ class Practice extends Model
             'is_profile_locked' => 'boolean',
             'locked_at' => 'datetime',
             'billable_providers_count' => 'integer',
+            'uses_ehcp_hotline' => 'boolean',
+            'hotline_poster_count' => 'integer',
+            'compliance_committee_members' => 'array',
+            'compliance_governing_board_members' => 'array',
         ];
     }
 

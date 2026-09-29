@@ -2,7 +2,6 @@
 
 namespace Database\Factories;
 
-use App\Enums\IntakeMethod;
 use App\Enums\IntakeSubmissionStatus;
 use App\Models\IntakeSubmission;
 use App\Models\Order;
@@ -21,7 +20,6 @@ class IntakeSubmissionFactory extends Factory
         return [
             'order_id' => Order::factory(),
             'status' => IntakeSubmissionStatus::Pending,
-            'intake_method' => IntakeMethod::Download,
             'handbook_answers' => null,
             'reviewer_notes' => null,
             'reviewed_by' => null,
@@ -44,13 +42,6 @@ class IntakeSubmissionFactory extends Factory
             'status' => IntakeSubmissionStatus::Approved,
             'submitted_at' => now()->subDay(),
             'reviewed_at' => now(),
-        ]);
-    }
-
-    public function uploadForReview(): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'intake_method' => IntakeMethod::UploadForReview,
         ]);
     }
 }

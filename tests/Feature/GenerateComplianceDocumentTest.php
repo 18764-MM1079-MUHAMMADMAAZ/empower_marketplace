@@ -9,7 +9,10 @@ use App\Enums\IntakeUploadType;
 use App\Enums\PaymentStatus;
 use App\Jobs\GenerateComplianceDocument;
 use App\Mail\ClientDocumentsApprovedMail;
+use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeQuestion;
+use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -402,6 +405,122 @@ class GenerateComplianceDocumentTest extends TestCase
 
         $this->assertStringContainsString('[No response provided]', $xml);
         $this->assertStringNotContainsString('Click or tap here to enter text.', $xml);
+
+        Storage::disk('local')->deleteDirectory("private/compliance/{$order->id}");
+    }
+
+    // ── Practice Intake wizard-driven manuals (policy/answer based) ──────────
+
+    public function test_compliance_ethics_manual_merges_intake_answers_and_removes_unanswered_policy_sections(): void
+    {
+        $this->mock(CompliancePdfGenerator::class, function ($mock) {
+            $mock->shouldReceive('generate')->once()->andReturn('%PDF-1.4 fake protected pdf');
+        });
+
+        $order = $this->makeOrder('complete');
+        $submission = $order->intakeSubmission;
+
+        $order->user->practice->update([
+            'compliance_officer_name' => 'Dr. Jane Rivera',
+            'compliance_officer_email' => 'jane.rivera@example.com',
+            'compliance_officer_phone' => '(555) 010-2200',
+        ]);
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $policyAnswered = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $policyUnanswered = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-02', 'title' => 'Management', 'requirements' => []]);
+
+        $questionAnswered = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $questionAnswered->policies()->attach($policyAnswered->id);
+        $questionUnanswered = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 2, 'title' => "Management's role"]);
+        $questionUnanswered->policies()->attach($policyUnanswered->id);
+
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $questionAnswered->id,
+            'response' => 'The board reviews the compliance program every quarter.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $questionUnanswered->id,
+            'response' => null,
+            'has_documented_process' => false,
+            'answered_at' => now(),
+        ]);
+
+        GenerateComplianceDocument::dispatchSync($order, DocumentType::ComplianceEthicsManual);
+
+        $doc = GeneratedDocument::where('order_id', $order->id)
+            ->where('document_type', DocumentType::ComplianceEthicsManual)
+            ->firstOrFail();
+        $this->assertEquals(DocumentStatus::Completed, $doc->status);
+
+        $absoluteDocxPath = Storage::disk('local')->path($doc->docx_storage_path);
+        $zip = new \ZipArchive;
+        $zip->open($absoluteDocxPath);
+        $xml = $zip->getFromName('word/document.xml');
+        $zip->close();
+
+        $this->assertStringContainsString('The board reviews the compliance program every quarter.', $xml);
+        $this->assertStringContainsString('Dr. Jane Rivera', $xml);
+
+        // The unanswered policy's whole section is gone — not left with placeholder text.
+        $this->assertStringNotContainsString('cmp_02_block', $xml);
+        $this->assertStringNotContainsString('cmp_02_answer', $xml);
+        $this->assertStringNotContainsString('[No response provided]', $xml);
+
+        Storage::disk('local')->deleteDirectory("private/compliance/{$order->id}");
+    }
+
+    public function test_a_policy_fed_by_multiple_questions_concatenates_every_answered_response(): void
+    {
+        $this->mock(CompliancePdfGenerator::class, function ($mock) {
+            $mock->shouldReceive('generate')->once()->andReturn('%PDF-1.4 fake protected pdf');
+        });
+
+        $order = $this->makeOrder('complete');
+        $submission = $order->intakeSubmission;
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $sharedPolicy = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-05', 'title' => 'Staff sign-offs', 'requirements' => []]);
+
+        $questionA = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Compliance & HIPAA training']);
+        $questionA->policies()->attach($sharedPolicy->id);
+        $questionB = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 2, 'title' => 'Reporting concerns']);
+        $questionB->policies()->attach($sharedPolicy->id);
+
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $questionA->id,
+            'response' => 'Staff complete annual HIPAA training.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $questionB->id,
+            'response' => 'Concerns are reported to the compliance hotline.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+
+        GenerateComplianceDocument::dispatchSync($order, DocumentType::ComplianceEthicsManual);
+
+        $doc = GeneratedDocument::where('order_id', $order->id)
+            ->where('document_type', DocumentType::ComplianceEthicsManual)
+            ->firstOrFail();
+
+        $absoluteDocxPath = Storage::disk('local')->path($doc->docx_storage_path);
+        $zip = new \ZipArchive;
+        $zip->open($absoluteDocxPath);
+        $xml = $zip->getFromName('word/document.xml');
+        $zip->close();
+
+        // Both source questions' answers appear in the shared policy's merge field, each
+        // labeled by its own question title, and the section is kept (not removed).
+        $this->assertStringContainsString('Compliance &amp; HIPAA training', $xml);
+        $this->assertStringContainsString('Staff complete annual HIPAA training.', $xml);
+        $this->assertStringContainsString('Reporting concerns', $xml);
+        $this->assertStringContainsString('Concerns are reported to the compliance hotline.', $xml);
+        $this->assertStringNotContainsString('cmp_05_block', $xml);
 
         Storage::disk('local')->deleteDirectory("private/compliance/{$order->id}");
     }

@@ -15,6 +15,8 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(PackageSeeder::class);
         $this->call(QuestionnaireSeeder::class);
+        $this->call(CompliancePolicySeeder::class);
+        $this->call(IntakeSectionSeeder::class);
 
         // Admin user for local development
         User::factory()->create([

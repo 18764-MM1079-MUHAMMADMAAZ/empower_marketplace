@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Enums\AiExtractionStatus;
 use App\Enums\BillingCycle;
 use App\Enums\DocumentType;
-use App\Enums\IntakeMethod;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
@@ -28,7 +27,6 @@ use App\Models\Package;
 use App\Models\Practice;
 use App\Models\User;
 use App\Services\MtbcCardCipher;
-use App\Support\Questionnaires;
 use Database\Seeders\QuestionnaireSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -156,12 +154,12 @@ class PortalTest extends TestCase
         Livewire::test('portal')->call('saveProfile');
     }
 
-    public function test_guest_cannot_call_submit_intake_directly(): void
+    public function test_guest_cannot_call_finalize_intake_directly(): void
     {
         $this->withoutExceptionHandling();
         $this->expectException(HttpException::class);
 
-        Livewire::test('portal')->call('submitIntake');
+        Livewire::test('portal')->call('finalizeIntake');
     }
 
     public function test_osha_location_can_be_added_even_if_practice_was_missing_on_load(): void
@@ -200,7 +198,8 @@ class PortalTest extends TestCase
             ->set('billingState', 'NJ')
             ->set('billingZip', '08873')
             ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
-            ->assertSee('Payment received');
+            ->assertSee('Payment of $999 received')
+            ->assertSee('Account created for jane@practice.com; a login password would be emailed there');
 
         $user = User::where('email', 'jane@practice.com')->first();
         $this->assertNotNull($user);
@@ -341,7 +340,8 @@ class PortalTest extends TestCase
             ->set('billingZip', '08873')
             ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
             ->assertSet('step', 1)
-            ->assertSee('Payment received');
+            ->assertSee('Payment of $999 received')
+            ->assertDontSee('Account created for');
 
         $this->assertDatabaseHas('orders', [
             'user_id' => $user->id,
@@ -467,7 +467,7 @@ class PortalTest extends TestCase
 
         $this->withoutVite()->actingAs($user)->get('/portal?package=essential')
             ->assertOk()
-            ->assertSee('Your Dashboard');
+            ->assertSee('Your history, payments and generated documents');
     }
 
     public function test_pay_requires_package_and_card_fields(): void
@@ -1572,7 +1572,7 @@ class PortalTest extends TestCase
             ->set('dashboardOrderId', $order->id)
             ->assertSee('Free trial active')
             ->assertSee('Proceed with Payment')
-            ->assertSeeHtml('wire:click="cancelSubscription('.$order->id.')"');
+            ->assertSeeHtml('confirmCancel('.$order->id.',');
     }
 
     public function test_client_can_cancel_trial_subscription(): void
@@ -1631,11 +1631,10 @@ class PortalTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf'))
-            ->call('submitIntake')
+            ->call('finalizeIntake')
             ->assertHasErrors(['payment']);
 
-        Bus::assertNotDispatched(ProcessIntakeUpload::class);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class);
     }
 
     public function test_a_client_with_a_cancelled_trial_cannot_regenerate_a_document(): void
@@ -1676,81 +1675,7 @@ class PortalTest extends TestCase
             ->assertSet('step', 1);
     }
 
-    public function test_saving_profile_locks_practice_and_advances_to_step_3(): void
-    {
-        $user = User::factory()->create();
-        $practice = Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('billableProviders', 3)
-            ->set('intakeMethod', 'download')
-            ->call('saveProfile')
-            ->assertSet('step', 3);
-
-        $this->assertDatabaseHas('practices', [
-            'id' => $practice->id,
-            'name' => 'Sunrise Family Medicine',
-            'is_profile_locked' => true,
-        ]);
-    }
-
-    public function test_saving_profile_with_a_logo_stores_it_on_the_practice(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $logo = UploadedFile::fake()->image('logo.png');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', $logo)
-            ->set('intakeMethod', 'download')
-            ->call('saveProfile')
-            ->assertSet('step', 3);
-
-        $practice = $user->fresh()->practice;
-        $this->assertNotNull($practice->logo_path);
-        Storage::disk('public')->assertExists($practice->logo_path);
-    }
-
-    public function test_save_profile_requires_practice_name(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', '')
-            ->call('saveProfile')
-            ->assertHasErrors(['practiceName']);
-    }
-
-    public function test_practice_fields_validate_live_without_calling_save_profile(): void
+    public function test_step2_delegates_to_the_practice_intake_wizard_component(): void
     {
         $user = User::factory()->create();
         Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
@@ -1765,31 +1690,7 @@ class PortalTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal')
             ->call('goToStep', 2)
-            ->set('practiceName', '')
-            ->assertHasErrors(['practiceName'])
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->assertHasNoErrors(['practiceName']);
-    }
-
-    public function test_save_profile_requires_logo_address_and_specialty_on_first_submission(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('practiceAddress', '')
-            ->set('specialty', '')
-            ->call('saveProfile')
-            ->assertHasErrors(['logoFile', 'practiceAddress', 'specialty']);
+            ->assertSee('portal.practice-intake-wizard', false);
     }
 
     public function test_save_profile_does_not_require_a_new_logo_once_profile_is_locked(): void
@@ -1804,57 +1705,6 @@ class PortalTest extends TestCase
             ->call('editProfile')
             ->call('saveProfile')
             ->assertHasNoErrors(['logoFile']);
-    }
-
-    public function test_save_profile_validates_specialty_length(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('specialty', str_repeat('x', 101))
-            ->call('saveProfile')
-            ->assertHasErrors(['specialty']);
-    }
-
-    // ── Step 2: Questionnaire downloads ─────────────────────────────────────
-
-    public function test_every_tier_sees_all_four_questionnaires_in_step2(): void
-    {
-        foreach (['essential', 'professional', 'advanced', 'complete'] as $slug) {
-            $user = User::factory()->create();
-            Practice::factory()->create(['user_id' => $user->id]);
-            $package = Package::factory()->create([
-                'slug' => $slug,
-                'annual_price' => $slug === 'complete' ? null : 999,
-                'billing_type' => $slug === 'complete' ? 'custom' : 'annual',
-                'is_active' => true,
-            ]);
-            Order::factory()->create([
-                'user_id' => $user->id,
-                'package_id' => $package->id,
-                'payment_status' => PaymentStatus::SimulatedPaid,
-                'status' => OrderStatus::Paid,
-            ]);
-
-            Livewire::actingAs($user)
-                ->test('portal')
-                ->call('goToStep', 2)
-                ->set('intakeMethod', 'download')
-                ->assertSee('Compliance & Ethics Questionnaire')
-                ->assertSee('HIPAA Business Associate Questionnaire')
-                ->assertSee('HIPAA Privacy Questionnaire')
-                ->assertSee('HIPAA Security Questionnaire');
-        }
     }
 
     // ── Step 2: OSHA Modal ──────────────────────────────────────────────────
@@ -1883,16 +1733,12 @@ class PortalTest extends TestCase
         ]);
     }
 
-    // ── Step 3: Intake Upload ───────────────────────────────────────────────
+    // ── Step 2/3: Practice Intake wizard routing ─────────────────────────────
 
-    public function test_submitting_intake_creates_submission_and_upload(): void
+    public function test_draft_submission_mid_wizard_routes_to_step_2_on_reload(): void
     {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
         $user = User::factory()->create();
-        $practice = Practice::factory()->locked()->create(['user_id' => $user->id]);
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
         $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
         $order = Order::factory()->create([
             'user_id' => $user->id,
@@ -1900,703 +1746,40 @@ class PortalTest extends TestCase
             'payment_status' => PaymentStatus::SimulatedPaid,
             'status' => OrderStatus::Paid,
         ]);
-
-        $file = UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $file)
-            ->call('submitIntake')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_submissions', [
+        IntakeSubmission::factory()->create([
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Submitted->value,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'basics',
         ]);
 
-        $this->assertDatabaseHas('intake_uploads', [
-            'original_filename' => 'intake.pdf',
-        ]);
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->assertSet('step', 2);
+    }
 
-        $this->assertDatabaseHas('activity_logs', [
+    public function test_draft_submission_with_wizard_done_routes_to_step_3_on_reload(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $order = Order::factory()->create([
             'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+        IntakeSubmission::factory()->create([
             'order_id' => $order->id,
-            'event_type' => 'submission.submitted',
-        ]);
-    }
-
-    public function test_submitting_intake_notifies_every_admin_by_email(): void
-    {
-        Mail::fake();
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
-        $admin = User::factory()->create(['role' => UserRole::Admin]);
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $file = UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $file)
-            ->call('submitIntake');
-
-        Mail::assertSent(AdminIntakeSubmittedMail::class, fn ($mail) => $mail->hasTo($admin->email));
-    }
-
-    public function test_revisiting_step3_after_submission_shows_existing_upload_and_does_not_duplicate_it(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $file = UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $file)
-            ->call('submitIntake')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseCount('intake_uploads', 1);
-
-        // Simulate the user navigating back to Step 3 on a fresh page load.
-        $component = Livewire::actingAs($user)->test('portal')->call('goToStep', 3);
-        $component->assertSee('Already uploaded: intake.pdf');
-
-        // Resubmitting without choosing a new file must not create a second row.
-        $component->call('submitIntake')->assertHasNoErrors();
-        $this->assertDatabaseCount('intake_uploads', 1);
-
-        // Resubmitting with a replacement file updates the existing row instead of adding a new one.
-        $replacement = UploadedFile::fake()->create('intake-v2.pdf', 100, 'application/pdf');
-        $component->set('questionnaireFiles.compliance_ethics_questionnaire', $replacement)
-            ->call('submitIntake')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseCount('intake_uploads', 1);
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'intake-v2.pdf']);
-    }
-
-    public function test_removing_a_just_picked_file_lets_the_client_choose_a_different_one(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $wrongFile = UploadedFile::fake()->create('wrong.pdf', 100, 'application/pdf');
-
-        $component = Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 3)
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $wrongFile);
-
-        $component->assertSee('wrong.pdf');
-
-        $component->call('removeQuestionnaireFile', 'compliance_ethics_questionnaire');
-
-        $component->assertDontSee('wrong.pdf');
-        $this->assertNull($component->get('questionnaireFiles')['compliance_ethics_questionnaire'] ?? null);
-
-        // The slot is empty again, so submitting without picking a replacement is rejected.
-        $component->call('submitIntake')
-            ->assertHasErrors(['questionnaireFiles.compliance_ethics_questionnaire']);
-
-        $rightFile = UploadedFile::fake()->create('right.pdf', 100, 'application/pdf');
-        $component->set('questionnaireFiles.compliance_ethics_questionnaire', $rightFile)
-            ->call('submitIntake')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'right.pdf']);
-        $this->assertDatabaseMissing('intake_uploads', ['original_filename' => 'wrong.pdf']);
-    }
-
-    public function test_step3_shows_an_upload_box_for_every_questionnaire_shown_in_step2(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
         ]);
 
         Livewire::actingAs($user)
             ->test('portal')
-            ->call('goToStep', 3)
-            ->assertSee('Compliance & Ethics Questionnaire')
-            ->assertSee('HIPAA Business Associate Questionnaire')
-            ->assertSee('HIPAA Privacy Questionnaire')
-            ->assertSee('HIPAA Security Questionnaire');
-    }
-
-    public function test_submitting_intake_stores_an_optional_questionnaire_upload(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $requiredFile = UploadedFile::fake()->create('compliance.pdf', 100, 'application/pdf');
-        $optionalFile = UploadedFile::fake()->create('security.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $requiredFile)
-            ->set('questionnaireFiles.hipaa_security_questionnaire', $optionalFile)
-            ->call('submitIntake')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_uploads', [
-            'original_filename' => 'compliance.pdf',
-            'upload_type' => 'compliance_ethics_questionnaire',
-        ]);
-        $this->assertDatabaseHas('intake_uploads', [
-            'original_filename' => 'security.pdf',
-            'upload_type' => 'hipaa_security_questionnaire',
-        ]);
-    }
-
-    public function test_submit_intake_requires_a_file(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('submitIntake')
-            ->assertHasErrors(['questionnaireFiles.compliance_ethics_questionnaire']);
-    }
-
-    public function test_hiding_the_required_questionnaire_removes_it_from_step_2_and_promotes_another(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Questionnaires::setVisibility(IntakeUploadType::ComplianceEthicsQuestionnaire, false);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('step', 2)
-            ->set('intakeMethod', 'download')
-            ->assertDontSee('Compliance & Ethics Questionnaire')
-            ->assertSee('HIPAA Business Associate Questionnaire');
-    }
-
-    public function test_submitting_intake_without_the_promoted_questionnaire_blocks_submission_the_way_the_original_required_one_did(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Questionnaires::setVisibility(IntakeUploadType::ComplianceEthicsQuestionnaire, false);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('submitIntake')
-            ->assertHasErrors(['questionnaireFiles.hipaa_business_associate_questionnaire'])
-            ->assertHasNoErrors(['questionnaireFiles.compliance_ethics_questionnaire']);
-    }
-
-    public function test_every_downloaded_questionnaire_becomes_mandatory_to_upload_and_stale_errors_clear_after_fixing(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $complianceFile = UploadedFile::fake()->create('compliance.pdf', 100, 'application/pdf');
-
-        $component = Livewire::actingAs($user)
-            ->test('portal')
-            ->set('downloadedQuestionnaireKeys', ['compliance_ethics_questionnaire', 'hipaa_business_associate_questionnaire'])
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $complianceFile)
-            ->call('submitIntake');
-
-        // The optional HIPAA Business Associate questionnaire was downloaded, so it's now
-        // mandatory too — even though only Compliance & Ethics is required by default.
-        $component->assertHasErrors(['questionnaireFiles.hipaa_business_associate_questionnaire'])
             ->assertSet('step', 3);
-
-        // Uploading the missing file and resubmitting must clear the stale error, not just
-        // leave it stuck on screen from the previous failed attempt.
-        $hipaaFile = UploadedFile::fake()->create('hipaa-ba.pdf', 100, 'application/pdf');
-
-        $component->set('questionnaireFiles.hipaa_business_associate_questionnaire', $hipaaFile)
-            ->call('submitIntake')
-            ->assertHasNoErrors()
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'compliance.pdf']);
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'hipaa-ba.pdf']);
     }
 
-    public function test_submitting_intake_once_creates_a_submission_for_every_order_in_the_batch(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response([
-                'choices' => [['message' => ['content' => '{"practice_name":"Test Practice"}']]],
-            ]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $essential = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $professional = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-
-        $batchId = (string) Str::ulid();
-        $orderA = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $essential->id,
-            'checkout_batch_id' => $batchId,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        $orderB = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $professional->id,
-            'checkout_batch_id' => $batchId,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $file = UploadedFile::fake()->create('intake.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('questionnaireFiles.compliance_ethics_questionnaire', $file)
-            ->call('submitIntake')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
-
-        $uploads = IntakeUpload::all();
-        $this->assertCount(2, $uploads);
-
-        // Every upload in the batch — not just the primary one — should end up completed
-        // with the same extracted data...
-        $this->assertTrue($uploads->every(fn ($u) => $u->ai_extraction_status === AiExtractionStatus::Completed));
-        $this->assertSame(1, $uploads->pluck('ai_extracted_data')->map(fn ($d) => json_encode($d))->unique()->count());
-
-        // ...but the shared document was only extracted (and verified) once, not once per
-        // order in the batch — two calls total: the extraction, then the verification pass
-        // that Compliance & Ethics questionnaires get since they have a structured schema.
-        Http::assertSentCount(2);
-    }
-
-    // ── Step 2: Essential-only upload intake ─────────────────────────────────
-
-    public function test_essential_package_step2_hides_the_choice_and_preselects_upload_for_review(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->assertSet('intakeMethod', 'upload_for_review')
-            ->assertDontSee('Do you want to upload your documents')
-            ->assertDontSee('Download our questionnaires')
-            ->assertSee('Since Essential Compliance is based on your own documents');
-    }
-
-    public function test_essential_package_can_submit_for_review_without_ever_choosing_an_intake_method(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        $file = UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('practiceAddress', '7 Clyde Road, Somerset, NJ, 08873')
-            ->set('specialty', 'General Practice')
-            ->set('billableProviders', 2)
-            ->set('reviewDocumentFiles', [$file])
-            ->call('submitForReview')
-            ->assertHasNoErrors()
-            ->assertSet('step', 4);
-    }
-
-    public function test_a_forged_download_request_is_ignored_for_an_essential_package(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->assertSet('intakeMethod', 'upload_for_review')
-            ->call('setIntakeMethod', 'download')
-            ->assertSet('intakeMethod', 'upload_for_review');
-    }
-
-    // ── Step 2: Upload for review (alternate to questionnaire downloads) ────
-
-    public function test_step2_shows_intake_method_radio_buttons_after_billable_providers(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        // Not essential — that tier only offers upload-for-review, so there'd be no choice to show.
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->assertSee('Do you want to upload your documents')
-            ->assertSee('Download our questionnaires')
-            ->assertSee('Upload your existing documents');
-    }
-
-    public function test_selecting_upload_for_review_hides_questionnaire_downloads_and_shows_the_simple_uploader(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        // Not essential — that tier only offers upload-for-review, so "download" isn't reachable.
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $component = Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->assertDontSee('Download Form')
-            ->assertDontSee('Upload document(s) for review');
-
-        $component->set('intakeMethod', 'download')
-            ->assertSee('Download Form')
-            ->assertDontSee('Upload document(s) for review');
-
-        $component->set('intakeMethod', 'upload_for_review')
-            ->assertDontSee('Download Form')
-            ->assertSee('Upload document(s) for review');
-    }
-
-    public function test_save_profile_requires_choosing_an_intake_method(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        // Not essential — that tier auto-selects upload-for-review, so there's nothing to require.
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->call('saveProfile')
-            ->assertHasErrors(['intakeMethod']);
-    }
-
-    /**
-     * The intake-method radios call setIntakeMethod() via wire:click rather than binding
-     * with wire:model, specifically so the "download" option's wire:confirm can gate it —
-     * wire:confirm only intercepts action calls, not property-binding updates.
-     */
-    public function test_choosing_an_intake_method_sets_it_via_the_dedicated_method(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        // Not essential — that tier refuses to set 'download' via setIntakeMethod() at all.
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->call('goToStep', 2)
-            ->call('setIntakeMethod', 'download')
-            ->assertSet('intakeMethod', 'download')
-            ->call('setIntakeMethod', 'upload_for_review')
-            ->assertSet('intakeMethod', 'upload_for_review');
-    }
-
-    public function test_submit_for_review_requires_at_least_one_file(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('billableProviders', 3)
-            ->set('intakeMethod', 'upload_for_review')
-            ->call('submitForReview')
-            ->assertHasErrors(['reviewDocumentFiles']);
-    }
-
-    public function test_submit_for_review_creates_submission_and_upload_and_advances_directly_to_step_4(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{"html":"<p>Polished.</p>"}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $order = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        $file = UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf');
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('billableProviders', 3)
-            ->set('intakeMethod', 'upload_for_review')
-            ->set('reviewDocumentFiles', [$file])
-            ->call('submitForReview')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_submissions', [
-            'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Submitted->value,
-            'intake_method' => IntakeMethod::UploadForReview->value,
-        ]);
-
-        $this->assertDatabaseHas('intake_uploads', [
-            'original_filename' => 'handbook.pdf',
-            'upload_type' => IntakeUploadType::ClientDocumentForReview->value,
-        ]);
-
-        $this->assertDatabaseHas('practices', [
-            'user_id' => $user->id,
-            'is_profile_locked' => true,
-        ]);
-
-        $upload = IntakeUpload::first();
-        $this->assertSame('<p>Polished.</p>', $upload->ai_extracted_data['html'] ?? null);
-
-        $this->assertDatabaseHas('generated_documents', [
-            'order_id' => $order->id,
-            'document_type' => DocumentType::PolishedClientDocument->value,
-            'intake_upload_id' => $upload->id,
-        ]);
-    }
-
-    public function test_submit_for_review_with_multiple_files_creates_one_upload_row_per_file(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{"html":"<p>Polished.</p>"}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('billableProviders', 3)
-            ->set('intakeMethod', 'upload_for_review')
-            ->set('reviewDocumentFiles', [
-                UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf'),
-                UploadedFile::fake()->create('safety-plan.pdf', 100, 'application/pdf'),
-            ])
-            ->call('submitForReview')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseCount('intake_uploads', 2);
-        $this->assertDatabaseCount('generated_documents', 2);
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'handbook.pdf']);
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'safety-plan.pdf']);
-    }
-
-    public function test_submit_for_review_creates_a_submission_for_every_order_in_the_batch(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{"html":"<p>Polished.</p>"}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'is_profile_locked' => false]);
-        $essential = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $professional = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
-
-        $batchId = (string) Str::ulid();
-        $orderA = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $essential->id,
-            'checkout_batch_id' => $batchId,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        $orderB = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $professional->id,
-            'checkout_batch_id' => $batchId,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('practiceName', 'Sunrise Family Medicine')
-            ->set('logoFile', UploadedFile::fake()->image('logo.png'))
-            ->set('billableProviders', 3)
-            ->set('intakeMethod', 'upload_for_review')
-            ->set('reviewDocumentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
-            ->call('submitForReview')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'intake_method' => IntakeMethod::UploadForReview->value]);
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'intake_method' => IntakeMethod::UploadForReview->value]);
-        $this->assertDatabaseCount('intake_uploads', 2);
-    }
-
-    public function test_rejected_upload_for_review_submission_routes_back_to_step_2_on_reload(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $order = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        IntakeSubmission::factory()->uploadForReview()->create([
-            'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Rejected,
-            'reviewer_notes' => 'Please upload a clearer scan.',
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->assertSet('step', 2)
-            ->assertSet('intakeMethod', 'upload_for_review')
-            ->assertSee('Please upload a clearer scan.');
-    }
-
-    public function test_rejected_download_method_submission_still_routes_to_step_3_on_reload(): void
+    public function test_rejected_submission_still_routes_to_step_4_on_reload(): void
     {
         $user = User::factory()->create();
         Practice::factory()->locked()->create(['user_id' => $user->id]);
@@ -2610,66 +1793,47 @@ class PortalTest extends TestCase
         IntakeSubmission::factory()->create([
             'order_id' => $order->id,
             'status' => IntakeSubmissionStatus::Rejected,
+            'reviewer_notes' => 'Please clarify your HIPAA privacy officer contact.',
         ]);
 
         Livewire::actingAs($user)
             ->test('portal')
-            ->assertSet('step', 3);
+            ->assertSet('step', 4)
+            ->assertSee('Please clarify your HIPAA privacy officer contact.');
     }
 
-    public function test_navigating_back_to_step2_via_the_stepper_restores_the_chosen_intake_method(): void
+    public function test_reupload_button_reopens_the_submission_as_draft_and_routes_to_step_2(): void
     {
         $user = User::factory()->create();
         Practice::factory()->locked()->create(['user_id' => $user->id]);
-        // Not essential — that tier's Step 2 no longer shows the "Upload your existing documents"
-        // choice card text this test checks for (it shows a short info line instead).
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
         $order = Order::factory()->create([
             'user_id' => $user->id,
             'package_id' => $package->id,
             'payment_status' => PaymentStatus::SimulatedPaid,
             'status' => OrderStatus::Paid,
         ]);
-        IntakeSubmission::factory()->uploadForReview()->submitted()->create(['order_id' => $order->id]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->assertSet('step', 4)
-            ->assertSet('intakeMethod', '')
-            ->call('goToStep', 2)
-            ->assertSet('step', 2)
-            ->assertSet('intakeMethod', 'upload_for_review')
-            ->assertSee('Upload your existing documents');
-    }
-
-    public function test_reupload_button_routes_to_the_step_matching_how_the_order_was_submitted(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $reviewOrder = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        IntakeSubmission::factory()->uploadForReview()->create([
-            'order_id' => $reviewOrder->id,
+        $submission = IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
             'status' => IntakeSubmissionStatus::Rejected,
+            'wizard_screen' => 'done',
         ]);
 
         Livewire::actingAs($user)
             ->test('portal')
             ->set('step', 4)
-            ->call('reuploadForOrder', $reviewOrder->id)
-            ->assertSet('step', 2)
-            ->assertSet('intakeMethod', 'upload_for_review');
+            ->call('reuploadForOrder', $order->id)
+            ->assertSet('step', 2);
+
+        $this->assertSame(IntakeSubmissionStatus::Draft, $submission->fresh()->status);
     }
 
-    public function test_step3_is_unreachable_for_an_upload_for_review_submission(): void
+    // ── Step 3: Upload & Confirm ─────────────────────────────────────────────
+
+    public function test_step3_shows_a_summary_and_requires_certification_fields(): void
     {
         $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        Practice::factory()->locked()->create(['user_id' => $user->id, 'name' => 'Sunrise Family Medicine']);
         $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
         $order = Order::factory()->create([
             'user_id' => $user->id,
@@ -2677,75 +1841,10 @@ class PortalTest extends TestCase
             'payment_status' => PaymentStatus::SimulatedPaid,
             'status' => OrderStatus::Paid,
         ]);
-        IntakeSubmission::factory()->uploadForReview()->submitted()->create(['order_id' => $order->id]);
-
-        $component = Livewire::actingAs($user)
-            ->test('portal')
-            ->assertSet('step', 4);
-
-        $this->assertFalse($component->instance()->canReach(3));
-
-        // Neither the stepper icon nor any other action can land on Step 3.
-        $component->call('goToStep', 3)->assertSet('step', 4);
-    }
-
-    public function test_resubmitting_for_review_after_rejection_replaces_the_prior_upload_and_document(): void
-    {
-        Http::fake([
-            'https://api.openai.com/*' => Http::response(['choices' => [['message' => ['content' => '{"html":"<p>Polished.</p>"}']]]]),
-        ]);
-
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $order = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        $submission = IntakeSubmission::factory()->uploadForReview()->create([
+        $submission = IntakeSubmission::factory()->create([
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Rejected,
-        ]);
-        $oldUpload = IntakeUpload::factory()->completed()->create([
-            'intake_submission_id' => $submission->id,
-            'upload_type' => IntakeUploadType::ClientDocumentForReview,
-            'original_filename' => 'old-handbook.pdf',
-        ]);
-        GeneratedDocument::factory()->completed()->create([
-            'order_id' => $order->id,
-            'document_type' => DocumentType::PolishedClientDocument,
-            'intake_upload_id' => $oldUpload->id,
-        ]);
-
-        Livewire::actingAs($user)
-            ->test('portal')
-            ->set('intakeMethod', 'upload_for_review')
-            ->set('reviewDocumentFiles', [UploadedFile::fake()->create('new-handbook.pdf', 100, 'application/pdf')])
-            ->call('submitForReview')
-            ->assertSet('step', 4);
-
-        $this->assertDatabaseMissing('intake_uploads', ['id' => $oldUpload->id]);
-        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'new-handbook.pdf']);
-        $this->assertDatabaseCount('intake_uploads', 1);
-        $this->assertDatabaseCount('generated_documents', 1);
-    }
-
-    public function test_step2_shows_previously_uploaded_review_documents_after_returning_from_rejection(): void
-    {
-        $user = User::factory()->create();
-        Practice::factory()->locked()->create(['user_id' => $user->id]);
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
-        $order = Order::factory()->create([
-            'user_id' => $user->id,
-            'package_id' => $package->id,
-            'payment_status' => PaymentStatus::SimulatedPaid,
-            'status' => OrderStatus::Paid,
-        ]);
-        $submission = IntakeSubmission::factory()->uploadForReview()->create([
-            'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Rejected,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
         ]);
         IntakeUpload::factory()->completed()->create([
             'intake_submission_id' => $submission->id,
@@ -2755,13 +1854,18 @@ class PortalTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal')
-            ->assertSet('step', 2)
-            ->assertSet('intakeMethod', 'upload_for_review')
-            ->assertSee('employee-handbook.pdf');
+            ->assertSet('step', 3)
+            ->assertSee('Sunrise Family Medicine')
+            ->assertSee('employee-handbook.pdf')
+            ->call('finalizeIntake')
+            ->assertHasErrors(['certifiedByName', 'certifiedByTitle', 'certifiedSignature', 'certifyChecked']);
     }
 
-    public function test_resubmitting_for_review_without_new_files_keeps_the_existing_upload(): void
+    public function test_finalize_intake_certifies_submits_and_notifies_admins(): void
     {
+        Mail::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
         $user = User::factory()->create();
         Practice::factory()->locked()->create(['user_id' => $user->id]);
         $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
@@ -2771,32 +1875,135 @@ class PortalTest extends TestCase
             'payment_status' => PaymentStatus::SimulatedPaid,
             'status' => OrderStatus::Paid,
         ]);
-        $submission = IntakeSubmission::factory()->uploadForReview()->create([
+        IntakeSubmission::factory()->create([
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Rejected,
-        ]);
-        $existingUpload = IntakeUpload::factory()->completed()->create([
-            'intake_submission_id' => $submission->id,
-            'upload_type' => IntakeUploadType::ClientDocumentForReview,
-            'original_filename' => 'employee-handbook.pdf',
-        ]);
-        $existingDoc = GeneratedDocument::factory()->completed()->create([
-            'order_id' => $order->id,
-            'document_type' => DocumentType::PolishedClientDocument,
-            'intake_upload_id' => $existingUpload->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
         ]);
 
         Livewire::actingAs($user)
             ->test('portal')
-            ->set('intakeMethod', 'upload_for_review')
-            ->call('submitForReview')
+            ->set('certifiedByName', 'Jane Provider')
+            ->set('certifiedByTitle', 'Owner')
+            ->set('certifiedSignature', 'Jane Provider')
+            ->set('certifyChecked', true)
+            ->call('finalizeIntake')
             ->assertHasNoErrors()
             ->assertSet('step', 4);
 
-        $this->assertDatabaseHas('intake_uploads', ['id' => $existingUpload->id]);
-        $this->assertDatabaseHas('generated_documents', ['id' => $existingDoc->id]);
-        $this->assertDatabaseCount('intake_uploads', 1);
-        $this->assertSame(IntakeSubmissionStatus::Submitted, $submission->fresh()->status);
+        $this->assertDatabaseHas('intake_submissions', [
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Submitted->value,
+            'certified_by_name' => 'Jane Provider',
+            'certified_by_title' => 'Owner',
+            'certified_signature' => 'Jane Provider',
+        ]);
+
+        $this->assertDatabaseHas('activity_logs', [
+            'user_id' => $user->id,
+            'order_id' => $order->id,
+            'event_type' => 'submission.submitted',
+        ]);
+
+        Mail::assertSent(AdminIntakeSubmittedMail::class, fn ($mail) => $mail->hasTo($admin->email));
+    }
+
+    public function test_finalize_intake_creates_a_submission_for_every_order_in_the_batch(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $essential = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $professional = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
+
+        $batchId = (string) Str::ulid();
+        $orderA = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $essential->id,
+            'checkout_batch_id' => $batchId,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+        $orderB = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $professional->id,
+            'checkout_batch_id' => $batchId,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+
+        $primarySubmission = IntakeSubmission::factory()->create([
+            'order_id' => $orderA->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
+        ]);
+        IntakeUpload::factory()->completed()->create([
+            'intake_submission_id' => $primarySubmission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'original_filename' => 'handbook.pdf',
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('certifiedByName', 'Jane Provider')
+            ->set('certifiedByTitle', 'Owner')
+            ->set('certifiedSignature', 'Jane Provider')
+            ->set('certifyChecked', true)
+            ->call('finalizeIntake')
+            ->assertSet('step', 4);
+
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
+
+        $this->assertDatabaseCount('intake_uploads', 2);
+        $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'handbook.pdf']);
+    }
+
+    public function test_finalize_intake_dispatches_ai_review_only_for_untouched_document_uploads(): void
+    {
+        Bus::fake();
+
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+        $submission = IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
+        ]);
+        // Still sitting at the wizard's reference-only default — this is the one finalizing
+        // should pick up and send for AI review.
+        $draftUpload = IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'ai_extraction_status' => AiExtractionStatus::NotApplicable,
+        ]);
+        // Already ran through AI review by some other means (e.g. admin test data) — finalizing
+        // must leave it alone rather than re-queuing it.
+        $alreadyProcessedUpload = IntakeUpload::factory()->completed()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('certifiedByName', 'Jane Provider')
+            ->set('certifiedByTitle', 'Owner')
+            ->set('certifiedSignature', 'Jane Provider')
+            ->set('certifyChecked', true)
+            ->call('finalizeIntake')
+            ->assertHasNoErrors();
+
+        $this->assertEquals(AiExtractionStatus::Pending, $draftUpload->fresh()->ai_extraction_status);
+        $this->assertEquals(AiExtractionStatus::Completed, $alreadyProcessedUpload->fresh()->ai_extraction_status);
+
+        Bus::assertDispatched(ProcessIntakeUpload::class, fn ($job) => $job->upload->id === $draftUpload->id);
+        Bus::assertNotDispatched(ProcessIntakeUpload::class, fn ($job) => $job->upload->id === $alreadyProcessedUpload->id);
     }
 
     // ── Step 4: Review Status ───────────────────────────────────────────────
@@ -2919,8 +2126,8 @@ class PortalTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal')
             ->set('step', 5)
-            ->assertSee('Ready')
-            ->assertSee('Download PDF')
+            ->assertSee('Current')
+            ->assertSee('Download')
             ->assertDontSee('Pending Review');
     }
 
@@ -2983,6 +2190,45 @@ class PortalTest extends TestCase
             ->assertDontSee('HIPAA Business Associate Manual');
     }
 
+    /** Regression: the new practice intake wizard generates Professional/Advanced's manuals
+     *  directly from typed answers — no "questionnaire upload" ever exists to drive the legacy
+     *  per-upload-type matching above, so expectedDocuments() must also list the package's
+     *  included_document_types directly. */
+    public function test_dashboard_shows_tier_driven_manuals_with_no_matching_questionnaire_upload(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'slug' => 'professional',
+            'annual_price' => 1299,
+            'is_active' => true,
+            'included_document_types' => [
+                DocumentType::ComplianceEthicsManual->value,
+                DocumentType::HipaaPrivacyPolicy->value,
+                DocumentType::HipaaSecurityManual->value,
+            ],
+        ]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Approved,
+        ]);
+        IntakeSubmission::factory()->approved()->create(['order_id' => $order->id]);
+        GeneratedDocument::factory()->completed()->approved()->create([
+            'order_id' => $order->id,
+            'document_type' => DocumentType::ComplianceEthicsManual,
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('Compliance & Ethics Manual')
+            ->assertSee('HIPAA Privacy Policy')
+            ->assertSee('HIPAA Security Manual')
+            ->assertSee('Current');
+    }
+
     public function test_dashboard_shows_practice_info_bar_and_defaults_to_documents_tab(): void
     {
         $user = User::factory()->create();
@@ -2998,9 +2244,10 @@ class PortalTest extends TestCase
             ->test('portal')
             ->set('step', 5)
             ->assertSee('Sunrise Family Medicine')
-            ->assertSee('Update Practice Info')
             ->assertSee('Compliance & Ethics Manual')
-            ->assertSee('Generating');
+            ->assertSee('Generating')
+            ->set('dashboardTab', 'profile')
+            ->assertSee('Edit intake answers');
     }
 
     public function test_documents_tab_shows_a_contact_us_link(): void
@@ -3016,6 +2263,75 @@ class PortalTest extends TestCase
             ->assertSee(route('contact'), false);
     }
 
+    public function test_client_can_upload_an_additional_document_for_ai_review(): void
+    {
+        Bus::fake();
+
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = $this->makeApprovedOrder($user);
+
+        $file = UploadedFile::fake()->create('extra-policy.pdf', 100, 'application/pdf');
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->set('dashboardOrderId', $order->id)
+            ->set('additionalDocumentFile', $file)
+            ->set('additionalDocumentCategory', 'training_materials')
+            ->call('uploadAdditionalDocument')
+            ->assertHasNoErrors()
+            ->assertSee('Uploaded — this will appear below once our team has reviewed it.');
+
+        $this->assertDatabaseHas('intake_uploads', [
+            'intake_submission_id' => $order->intakeSubmission->id,
+            'original_filename' => 'extra-policy.pdf',
+            'document_category' => 'training_materials',
+            'upload_type' => IntakeUploadType::ClientDocumentForReview->value,
+            'ai_extraction_status' => AiExtractionStatus::Pending->value,
+        ]);
+
+        Bus::assertDispatched(ProcessIntakeUpload::class);
+
+        $this->assertDatabaseHas('activity_logs', [
+            'order_id' => $order->id,
+            'event_type' => 'upload.additional_document_submitted',
+        ]);
+    }
+
+    public function test_uploading_an_additional_document_requires_a_file(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->set('dashboardOrderId', $order->id)
+            ->call('uploadAdditionalDocument')
+            ->assertHasErrors(['additionalDocumentFile']);
+    }
+
+    public function test_a_client_with_a_cancelled_trial_cannot_upload_an_additional_document(): void
+    {
+        Bus::fake();
+
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = Order::factory()->trialCancelled()->create(['user_id' => $user->id]);
+        IntakeSubmission::factory()->approved()->create(['order_id' => $order->id]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->set('dashboardOrderId', $order->id)
+            ->call('uploadAdditionalDocument')
+            ->assertHasErrors(['additionalDocumentFile']);
+
+        Bus::assertNotDispatched(ProcessIntakeUpload::class);
+    }
+
     public function test_dashboard_can_switch_between_tabs(): void
     {
         $user = User::factory()->create();
@@ -3026,9 +2342,9 @@ class PortalTest extends TestCase
             ->test('portal')
             ->set('step', 5)
             ->set('dashboardTab', 'payments')
-            ->assertSee('Purchase History')
+            ->assertSee('Initial payment')
             ->set('dashboardTab', 'history')
-            ->assertSee('Account Activity');
+            ->assertSee('No activity yet.');
     }
 
     public function test_update_practice_info_button_enters_edit_mode_and_returns_to_dashboard(): void
