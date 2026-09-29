@@ -77,6 +77,18 @@ class PracticeIntakeWizardTest extends TestCase
         ]);
     }
 
+    private function makeAdvancedOrder(User $user): Order
+    {
+        $package = Package::factory()->create(['slug' => 'advanced', 'annual_price' => 1699, 'is_active' => true]);
+
+        return Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+    }
+
     // ── Documents screen ──────────────────────────────────────────────────
 
     public function test_essential_tier_requires_at_least_one_document_before_continuing(): void
@@ -103,6 +115,30 @@ class PracticeIntakeWizardTest extends TestCase
             ->call('continueFromDocuments')
             ->assertHasNoErrors()
             ->assertSet('screen', 'b_profile');
+    }
+
+    public function test_advanced_tier_documents_screen_offers_employee_manual_and_encounter_list(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeAdvancedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSee('Employee manual')
+            ->assertSee('Encounter list (10 per provider)');
+    }
+
+    public function test_professional_tier_documents_screen_does_not_offer_employee_manual_or_encounter_list(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertDontSee('Employee manual')
+            ->assertDontSee('Encounter list (10 per provider)');
     }
 
     public function test_uploading_a_document_stores_it_against_the_draft_submission(): void
@@ -387,6 +423,8 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('screen', 'b_logo')
             ->call('continueFromLogo')
             ->assertHasNoErrors()
+            ->assertSet('screen', 'done')
+            ->call('continueToConfirm')
             ->assertDispatched('intake-wizard-complete');
     }
 
@@ -411,7 +449,8 @@ class PracticeIntakeWizardTest extends TestCase
             ->call('continueFromLogo');
 
         $component->assertHasNoErrors();
-        $component->assertDispatched('intake-wizard-complete');
+        $component->assertSet('screen', 'done');
+        $component->call('continueToConfirm')->assertDispatched('intake-wizard-complete');
 
         $this->assertDatabaseHas('practices', [
             'user_id' => $user->id,
@@ -443,10 +482,10 @@ class PracticeIntakeWizardTest extends TestCase
             ->call('continueFromAddress')
             ->call('continueFromLogo')
             ->assertHasNoErrors()
-            ->assertSet('screen', 'team');
+            ->assertSet('screen', 't_practice');
     }
 
-    public function test_team_screen_requires_hotline_details_unless_using_the_shared_hotline(): void
+    public function test_team_practice_screen_requires_legal_name_contact_and_a_location(): void
     {
         $user = User::factory()->create();
         Practice::factory()->create(['user_id' => $user->id]);
@@ -454,13 +493,30 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->set('screen', 'team')
-            ->set('usesEhcpHotline', false)
-            ->call('continueFromTeam')
-            ->assertHasErrors(['complianceOfficerName', 'complianceHotlineNumber', 'complianceHotlineEmail']);
+            ->set('screen', 't_practice')
+            // legalPracticeName pre-fills from the practice name captured on the basics screen —
+            // clear it here to also exercise its own "required" validation.
+            ->set('legalPracticeName', '')
+            ->set('practiceLocations', [''])
+            ->call('continueFromPractice')
+            ->assertHasErrors(['legalPracticeName', 'mainPhone', 'mainEmail', 'practiceLocations']);
     }
 
-    public function test_team_screen_saves_practice_fields_and_advances_to_the_first_question(): void
+    public function test_team_hotline_screen_requires_hotline_contact_unless_using_the_shared_hotline(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_hotline')
+            ->set('usesEhcpHotline', false)
+            ->call('continueFromHotline')
+            ->assertHasErrors(['hotlineContact']);
+    }
+
+    public function test_team_screens_save_practice_fields_and_advance_to_the_first_question(): void
     {
         $this->seedWorkflowQuestions();
 
@@ -468,34 +524,71 @@ class PracticeIntakeWizardTest extends TestCase
         Practice::factory()->create(['user_id' => $user->id]);
         $order = $this->makeProfessionalOrder($user);
 
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->set('screen', 'team')
-            ->set('complianceOfficerName', 'Jane Provider')
-            ->set('complianceOfficerPhone', '555-0100')
-            ->set('complianceOfficerEmail', 'jane@example.com')
-            ->set('hipaaPrivacyOfficerName', 'Jane Provider')
-            ->set('hipaaPrivacyOfficerPhone', '555-0100')
-            ->set('hipaaPrivacyOfficerEmail', 'jane@example.com')
-            ->set('hipaaSecurityOfficerName', 'Jane Provider')
-            ->set('hipaaSecurityOfficerPhone', '555-0100')
-            ->set('hipaaSecurityOfficerEmail', 'jane@example.com')
-            ->set('releaseOfInfoOfficerName', 'Jane Provider')
-            ->set('releaseOfInfoOfficerPhone', '555-0100')
-            ->set('releaseOfInfoOfficerEmail', 'jane@example.com')
-            ->set('itVendorName', 'Acme IT')
-            ->set('usesEhcpHotline', true)
-            ->set('hotlinePosterCount', 2)
-            ->call('continueFromTeam')
+        $this->advanceToQuestions($user, $order)
             ->assertHasNoErrors()
             ->assertSet('screen', 'question');
 
         $this->assertDatabaseHas('practices', [
             'user_id' => $user->id,
+            'legal_practice_name' => 'Sunrise Family Medicine LLC',
             'compliance_officer_name' => 'Jane Provider',
+            'it_mode' => 'vendor',
             'it_vendor_name' => 'Acme IT',
             'uses_ehcp_hotline' => true,
+            'board_mode' => 'owners',
         ]);
+    }
+
+    public function test_leadership_quick_add_dedupes_a_shared_name_and_joins_its_roles(): void
+    {
+        $user = User::factory()->create(['name' => 'Muhammad Maaz']);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_leadership')
+            ->set('complianceOfficerName', 'Muhammad Maaz')
+            ->set('hipaaPrivacyOfficerName', 'Muhammad Maaz')
+            ->set('hipaaSecurityOfficerName', 'Muhammad Maaz')
+            ->set('releaseOfInfoOfficerName', 'Muhammad Maaz');
+
+        // One pill for the shared name, not one per role/account-holder match.
+        $roster = $component->get('knownTeamRoster');
+        $this->assertCount(1, $roster);
+        $this->assertSame('Muhammad Maaz', $roster[0]['name']);
+        $this->assertSame(
+            'HIPAA Privacy Officer, HIPAA Security Officer, Release of Information Officer, Compliance Officer',
+            $roster[0]['roles']
+        );
+
+        $component->call('quickAddMember', 'committee', 'Muhammad Maaz', $roster[0]['roles']);
+
+        $this->assertSame('Muhammad Maaz', $component->get('complianceCommitteeMembers')[0]['name']);
+        $this->assertSame(
+            'HIPAA Privacy Officer, HIPAA Security Officer, Release of Information Officer, Compliance Officer',
+            $component->get('complianceCommitteeMembers')[0]['title']
+        );
+    }
+
+    public function test_leadership_quick_add_lists_distinct_names_with_their_own_single_role(): void
+    {
+        $user = User::factory()->create(['name' => 'Jane Provider']);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $roster = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_leadership')
+            ->set('complianceOfficerName', 'Jane Provider')
+            ->set('hipaaPrivacyOfficerName', 'Alex Privacy')
+            ->set('hipaaSecurityOfficerName', 'Sam Security')
+            ->get('knownTeamRoster');
+
+        $byName = collect($roster)->keyBy('name');
+        $this->assertSame('Compliance Officer', $byName['Jane Provider']['roles']);
+        $this->assertSame('HIPAA Privacy Officer', $byName['Alex Privacy']['roles']);
+        $this->assertSame('HIPAA Security Officer', $byName['Sam Security']['roles']);
     }
 
     // ── Questions ─────────────────────────────────────────────────────────
@@ -504,7 +597,12 @@ class PracticeIntakeWizardTest extends TestCase
     {
         return Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->set('screen', 'team')
+            ->set('screen', 't_practice')
+            ->set('legalPracticeName', 'Sunrise Family Medicine LLC')
+            ->set('mainPhone', '555-0100')
+            ->set('mainEmail', 'jane@example.com')
+            ->set('practiceLocations', ['123 Main St'])
+            ->call('continueFromPractice')
             ->set('complianceOfficerName', 'Jane Provider')
             ->set('complianceOfficerPhone', '555-0100')
             ->set('complianceOfficerEmail', 'jane@example.com')
@@ -517,10 +615,18 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('releaseOfInfoOfficerName', 'Jane Provider')
             ->set('releaseOfInfoOfficerPhone', '555-0100')
             ->set('releaseOfInfoOfficerEmail', 'jane@example.com')
+            ->call('continueFromOfficers')
+            ->set('itMode', 'vendor')
             ->set('itVendorName', 'Acme IT')
+            ->set('itContactPhone', '555-0200')
+            ->set('itContactEmail', 'it@example.com')
+            ->call('continueFromIt')
             ->set('usesEhcpHotline', true)
-            ->set('hotlinePosterCount', 2)
-            ->call('continueFromTeam');
+            ->call('continueFromHotline')
+            ->set('committeeNone', true)
+            ->set('boardMode', 'owners')
+            ->set('complianceGoverningBoardMembers.0.name', 'Jane Provider')
+            ->call('continueFromLeadership');
     }
 
     public function test_documented_process_answer_requires_response_text(): void
@@ -568,7 +674,8 @@ class PracticeIntakeWizardTest extends TestCase
         $component = $this->advanceToQuestions($user, $order);
         $firstQuestionId = $component->get('currentQuestionId');
 
-        $component->set('currentResponse', 'Our board reviews the program quarterly.')
+        $component->set('currentHasDocumentedProcess', true)
+            ->set('currentResponse', 'Our board reviews the program quarterly.')
             ->call('saveCurrentAnswer')
             ->assertHasNoErrors();
 
@@ -596,17 +703,17 @@ class PracticeIntakeWizardTest extends TestCase
 
         // Answering the next (unskipped) question in order must not bring the skipped one back
         // yet — it's deferred to the end of the queue, not immediately after.
-        $component->set('currentResponse', 'Answer two')->call('saveCurrentAnswer');
+        $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer two')->call('saveCurrentAnswer');
         $thirdQuestionId = $component->get('currentQuestionId');
         $this->assertNotSame($firstQuestionId, $thirdQuestionId);
         $this->assertNotSame($secondQuestionId, $thirdQuestionId);
 
         // Only once every other question has been answered does the skipped one come back around.
-        $component->set('currentResponse', 'Answer three')->call('saveCurrentAnswer');
+        $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer three')->call('saveCurrentAnswer');
         $this->assertSame($firstQuestionId, $component->get('currentQuestionId'));
     }
 
-    public function test_completing_every_question_dispatches_intake_wizard_complete(): void
+    public function test_completing_every_question_shows_the_done_screen_without_advancing_yet(): void
     {
         $this->seedWorkflowQuestions();
         $user = User::factory()->create();
@@ -615,13 +722,15 @@ class PracticeIntakeWizardTest extends TestCase
 
         $component = $this->advanceToQuestions($user, $order);
 
-        $component->set('currentResponse', 'Answer one')->call('saveCurrentAnswer');
-        $component->set('currentResponse', 'Answer two')->call('saveCurrentAnswer');
-        $component->set('currentResponse', 'Answer three')->call('saveCurrentAnswer');
+        $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer one')->call('saveCurrentAnswer');
+        $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer two')->call('saveCurrentAnswer');
+        $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer three')->call('saveCurrentAnswer');
 
-        $component->assertDispatched('intake-wizard-complete');
+        $component->assertSet('screen', 'done')->assertNotDispatched('intake-wizard-complete');
         $this->assertDatabaseHas('intake_submissions', ['order_id' => $order->id, 'wizard_screen' => 'done']);
         $this->assertDatabaseCount('intake_answers', 3);
+
+        $component->call('continueToConfirm')->assertDispatched('intake-wizard-complete');
     }
 
     public function test_resuming_a_draft_submission_reloads_the_saved_screen_and_answers(): void

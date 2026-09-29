@@ -324,6 +324,10 @@ new class extends Component
             subject: $submission,
         );
 
+        // Kicks off AI generation as soon as review starts, rather than waiting for the final
+        // Approve — otherwise there's nothing yet for the admin to actually review below.
+        $this->generateIncludedDocuments($submission->order);
+
         unset($this->submission);
     }
 
@@ -357,26 +361,39 @@ new class extends Component
         unset($this->submission, $this->documentsForReview);
     }
 
-    public function deleteSubmission(): void
+    /**
+     * Sends the client back to Step 3 "Upload & Confirm" to re-certify and resubmit their
+     * existing intake as-is — every intake_answer, intake_upload and GeneratedDocument is left
+     * untouched, only the certification/submission state is cleared. Distinct from reject(),
+     * which requires a reviewer note and is meant for "this needs changes"; this is for
+     * resetting a submission that's stuck or needs a clean resubmission with no content changes.
+     */
+    public function sendBackForResubmission(): void
     {
         $submission = $this->submission;
-        $orderId = $submission->order_id;
 
-        foreach ($submission->intakeUploads as $upload) {
-            if ($upload->storage_path) {
-                Storage::disk('local')->delete($upload->storage_path);
-            }
-        }
+        $submission->update([
+            'status' => IntakeSubmissionStatus::Draft,
+            'reviewer_notes' => null,
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'submitted_at' => null,
+            'certified_by_name' => null,
+            'certified_by_title' => null,
+            'certified_signature' => null,
+            'certified_at' => null,
+        ]);
 
-        // Every generated document only exists because of this submission's uploads — without
-        // them, none can be regenerated, so leaving the rows behind would just orphan them (see
-        // deleteIntakeUpload()'s comment). A fresh submission will recreate whatever's expected.
-        $this->deleteGeneratedDocumentsForOrder($orderId);
+        ActivityLog::record(
+            'submission.sent_back_for_resubmission',
+            "Submission for order #{$submission->order_id} sent back to the client for resubmission.",
+            user: auth()->user(),
+            order: $submission->order,
+            subject: $submission,
+        );
 
-        $submission->delete();
-
-        ActivityLog::record('submission.deleted', "Intake submission for order #{$orderId} was deleted by an admin.", user: auth()->user());
-
+        // Back to Draft means it no longer belongs in the admin queue (submission-list excludes
+        // Draft submissions) — leave for the list rather than sit on a now-stale detail view.
         $this->redirect(route('admin.submissions'), navigate: true);
     }
 
@@ -387,14 +404,6 @@ new class extends Component
 
         $this->deleteGeneratedDocumentFiles($documents);
         GeneratedDocument::whereIn('id', $documents->pluck('id'))->delete();
-    }
-
-    private function deleteGeneratedDocumentsForOrder(int $orderId): void
-    {
-        $documents = GeneratedDocument::where('order_id', $orderId)->get();
-
-        $this->deleteGeneratedDocumentFiles($documents);
-        GeneratedDocument::where('order_id', $orderId)->delete();
     }
 
     /** @param  Collection<int, GeneratedDocument>  $documents */
@@ -843,12 +852,12 @@ new class extends Component
         deleteDocument: { title: 'Delete this document?', body: 'This permanently deletes the generated document and any custom file uploaded for it. This cannot be undone.', label: 'Delete', danger: true },
         regenerateExtraction: { title: 'Regenerate this document?', body: 'Re-runs AI extraction on the source questionnaire and rebuilds every document for this submission once it completes. This can take a couple of minutes.', label: 'Regenerate', danger: false },
         deleteUpload: { title: 'Delete this uploaded file?', body: 'This permanently deletes the file the client uploaded. This cannot be undone.', label: 'Delete', danger: true },
-        deleteSubmission: { title: 'Delete this intake submission?', body: 'This permanently deletes the submission and every file the client uploaded for it. This cannot be undone.', label: 'Delete', danger: true },
+        sendBackForResubmission: { title: 'Send back for resubmission?', body: 'The client is returned to Step 3 (Upload & Confirm) to re-certify and resubmit their existing intake as-is. Every answer, upload and generated document is kept — only the certification and submitted status are cleared.', label: 'Send back', danger: true },
     },
 }">
     <div class="flex items-center justify-between">
         <a href="{{ route('admin.submissions') }}" wire:navigate class="text-sm font-semibold text-[#0b9ed0] hover:underline">&larr; Back to submissions</a>
-        <button type="button" x-on:click="confirmAction = 'deleteSubmission'" class="text-xs font-bold text-red-600 hover:underline">Delete Submission</button>
+        <button type="button" x-on:click="confirmAction = 'sendBackForResubmission'" class="text-xs font-bold text-red-600 hover:underline">Send Back for Resubmission</button>
     </div>
 
     @if($notice)
@@ -998,7 +1007,7 @@ new class extends Component
                         <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>
                                 <p class="text-sm font-semibold text-empower-text">
-                                    {{ $document->document_type->label() }}{{ $document->oshaLocation ? ' — '.$document->oshaLocation->name : '' }}{{ $document->intakeUpload ? ' — '.$document->intakeUpload->original_filename : '' }}
+                                    {{ $document->intakeUpload?->document_category === 'employee_manual' ? 'Employee manual (reviewed)' : $document->document_type->label() }}{{ $document->oshaLocation ? ' — '.$document->oshaLocation->name : '' }}{{ $document->intakeUpload ? ' — '.$document->intakeUpload->original_filename : '' }}
                                 </p>
                                 @if($document->isApproved())
                                     <p class="text-xs text-empower-muted">Approved by {{ $document->reviewedBy?->name ?? 'admin' }} &middot; {{ $document->reviewed_at->format('M j, Y') }} &middot; delivered the {{ $document->delivery_source === DocumentDeliverySource::Custom ? 'custom' : 'AI-generated' }} file</p>
@@ -1148,7 +1157,7 @@ new class extends Component
                     class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition-colors">
                     Cancel
                 </button>
-                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,approveDocument,deleteDocument,regenerateExtraction,deleteUpload,deleteSubmission'; @endphp
+                @php $modalTargets = 'approve,reject,deleteCustom,reopen,revokeApproval,approveDocument,deleteDocument,regenerateExtraction,deleteUpload,sendBackForResubmission'; @endphp
                 <button type="button"
                     x-on:click="(confirmAction === 'approve' ? $wire.approve()
                         : confirmAction === 'reject' ? $wire.reject()
@@ -1159,7 +1168,7 @@ new class extends Component
                         : confirmAction === 'deleteDocument' ? $wire.deleteGeneratedDocument(confirmDocumentId)
                         : confirmAction === 'regenerateExtraction' ? $wire.regenerateExtraction(confirmDocumentId)
                         : confirmAction === 'deleteUpload' ? $wire.deleteIntakeUpload(confirmUploadId)
-                        : $wire.deleteSubmission()
+                        : $wire.sendBackForResubmission()
                     ).then(() => confirmAction = null).catch(() => {})"
                     wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed" wire:target="{{ $modalTargets }}"
                     x-bind:class="modalText[confirmAction]?.danger ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-accent text-navy-dark hover:bg-accent-dark'"

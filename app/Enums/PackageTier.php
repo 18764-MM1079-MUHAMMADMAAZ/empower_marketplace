@@ -40,4 +40,12 @@ enum PackageTier: string
     {
         return $this !== self::Essential;
     }
+
+    /** Whether the "Your documents" screen offers the Advanced-only "Employee manual" and
+     *  "Encounter list (10 per provider)" upload categories, for its Coding & Documentation
+     *  Mini Audit and Employee Manual Creation features. */
+    public function includesAdvancedDocumentCategories(): bool
+    {
+        return $this === self::Advanced;
+    }
 }

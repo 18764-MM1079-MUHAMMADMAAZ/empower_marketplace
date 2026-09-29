@@ -422,6 +422,53 @@ class AdminPanelTest extends TestCase
         Bus::assertNotDispatched(GenerateComplianceDocument::class);
     }
 
+    public function test_starting_review_dispatches_generation_for_included_manuals(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'included_document_types' => ['compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual'],
+        ]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startReview');
+
+        $this->assertSame(IntakeSubmissionStatus::UnderReview, $submission->fresh()->status);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ComplianceEthicsManual);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaPrivacyPolicy);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaSecurityManual);
+    }
+
+    public function test_starting_review_on_an_advanced_submission_also_dispatches_the_sra_and_mini_audit_report(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'included_document_types' => [
+                'compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual',
+                'security_risk_assessment', 'coding_mini_audit_report',
+            ],
+        ]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startReview');
+
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::SecurityRiskAssessment);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::CodingMiniAuditReport);
+    }
+
     public function test_approving_a_submission_also_approves_its_ready_documents(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -547,18 +594,32 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'upload.deleted']);
     }
 
-    public function test_admin_can_delete_a_submission(): void
+    public function test_admin_can_send_back_a_submission_for_resubmission(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $submission = $this->makeSubmission();
+        $submission->update([
+            'status' => IntakeSubmissionStatus::Submitted,
+            'submitted_at' => now(),
+            'certified_by_name' => 'Jane Provider',
+            'certified_by_title' => 'Owner',
+            'certified_signature' => 'Jane Provider',
+            'certified_at' => now(),
+        ]);
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
-            ->call('deleteSubmission')
+            ->call('sendBackForResubmission')
             ->assertRedirect(route('admin.submissions'));
 
-        $this->assertDatabaseMissing('intake_submissions', ['id' => $submission->id]);
-        $this->assertDatabaseHas('activity_logs', ['event_type' => 'submission.deleted']);
+        $submission->refresh();
+        $this->assertSame(IntakeSubmissionStatus::Draft, $submission->status);
+        $this->assertNull($submission->submitted_at);
+        $this->assertNull($submission->certified_by_name);
+        $this->assertNull($submission->certified_by_title);
+        $this->assertNull($submission->certified_signature);
+        $this->assertNull($submission->certified_at);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'submission.sent_back_for_resubmission']);
     }
 
     /** generated_documents.intake_upload_id is nullOnDelete, not cascade — without explicit
@@ -588,39 +649,35 @@ class AdminPanelTest extends TestCase
         Storage::disk('local')->assertMissing($document->pdf_storage_path);
     }
 
-    /** deleteSubmission() must clean up every generated document for the order too — otherwise
-     *  they survive as permanent orphans (nulled intake_upload_id) and keep reappearing in
-     *  Document Review with no source file, duplicating whatever a later resubmission creates. */
-    public function test_deleting_a_submission_also_deletes_its_generated_documents(): void
+    /** Sending a submission back for resubmission resets the certification/submitted state so
+     *  the client can re-certify, but must not touch anything they already answered or uploaded —
+     *  unlike the old delete action, nothing here should be destructive. */
+    public function test_sending_a_submission_back_preserves_its_answers_uploads_and_documents(): void
     {
         Storage::fake('local');
 
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $submission = $this->makeSubmission();
+        $submission->update(['status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
         $upload = IntakeUpload::factory()->create([
             'intake_submission_id' => $submission->id,
             'upload_type' => IntakeUploadType::ClientDocumentForReview,
         ]);
-        $perUploadDoc = GeneratedDocument::factory()->completed()->create([
+        $document = GeneratedDocument::factory()->completed()->create([
             'order_id' => $submission->order_id,
             'document_type' => DocumentType::PolishedClientDocument,
             'intake_upload_id' => $upload->id,
         ]);
-        $orderScopedDoc = GeneratedDocument::factory()->completed()->create([
-            'order_id' => $submission->order_id,
-            'document_type' => DocumentType::EmployeeHandbookBasic,
-        ]);
-        Storage::disk('local')->put($perUploadDoc->pdf_storage_path, 'fake-pdf');
-        Storage::disk('local')->put($orderScopedDoc->pdf_storage_path, 'fake-pdf');
+        Storage::disk('local')->put($document->pdf_storage_path, 'fake-pdf');
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
-            ->call('deleteSubmission');
+            ->call('sendBackForResubmission');
 
-        $this->assertDatabaseMissing('generated_documents', ['id' => $perUploadDoc->id]);
-        $this->assertDatabaseMissing('generated_documents', ['id' => $orderScopedDoc->id]);
-        Storage::disk('local')->assertMissing($perUploadDoc->pdf_storage_path);
-        Storage::disk('local')->assertMissing($orderScopedDoc->pdf_storage_path);
+        $this->assertDatabaseHas('intake_submissions', ['id' => $submission->id]);
+        $this->assertDatabaseHas('intake_uploads', ['id' => $upload->id]);
+        $this->assertDatabaseHas('generated_documents', ['id' => $document->id]);
+        Storage::disk('local')->assertExists($document->pdf_storage_path);
     }
 
     public function test_rejecting_a_submission_emails_the_client(): void
@@ -660,6 +717,7 @@ class AdminPanelTest extends TestCase
             'status' => IntakeSubmissionStatus::Rejected,
             'reviewer_notes' => 'Fix the signature.',
             'submitted_at' => now()->subDay(),
+            'wizard_screen' => 'done',
         ]);
 
         Livewire::actingAs($user)

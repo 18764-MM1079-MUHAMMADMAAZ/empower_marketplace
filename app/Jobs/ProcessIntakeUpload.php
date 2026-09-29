@@ -43,9 +43,14 @@ class ProcessIntakeUpload implements ShouldQueue
         $this->upload->update(['ai_extraction_status' => AiExtractionStatus::Processing]);
 
         try {
-            $data = $this->upload->upload_type === IntakeUploadType::ClientDocumentForReview
-                ? ($this->isDocx() ? $this->polishFromDocx() : $this->polishWithVision())
-                : ($this->isDocx() ? $this->extractFromDocx() : $this->extractWithVision());
+            $data = match (true) {
+                // An encounter list is raw visit/billing data to feed the Mini Audit report's
+                // own analysis prompt, not a policy document to review — see
+                // GenerateComplianceDocument::generateAiSynthesizedReport().
+                $this->upload->document_category === 'encounter_list' => ($this->isDocx() ? $this->extractEncounterListFromDocx() : $this->extractEncounterListWithVision()),
+                $this->upload->upload_type === IntakeUploadType::ClientDocumentForReview => ($this->isDocx() ? $this->polishFromDocx() : $this->polishWithVision()),
+                default => ($this->isDocx() ? $this->extractFromDocx() : $this->extractWithVision()),
+            };
 
             $schema = $this->upload->upload_type
                 ? ManualQuestionSets::forQuestionnaireType($this->upload->upload_type)
@@ -243,6 +248,73 @@ class ProcessIntakeUpload implements ShouldQueue
         $data['html'] = $this->buildReviewedDocumentHtml($data);
 
         return $data;
+    }
+
+    /**
+     * Transcribes an uploaded encounter list into plain text — no compliance-review framing
+     * and no fixed answer schema, just the raw visit/billing data GenerateComplianceDocument's
+     * Mini Audit prompt needs to analyze later.
+     */
+    private function extractEncounterListWithVision(): array
+    {
+        $fileContent = Storage::disk('local')->get($this->upload->storage_path);
+        $base64 = base64_encode((string) $fileContent);
+        $mediaType = $this->upload->mime_type ?? 'application/pdf';
+
+        $response = $this->openai()->post($this->openaiUrl(), [
+            'model' => config('services.openai.model'),
+            'response_format' => ['type' => 'json_object'],
+            'messages' => [[
+                'role' => 'user',
+                'content' => [
+                    $this->buildFilePart($base64, $mediaType),
+                    ['type' => 'text', 'text' => $this->buildEncounterListExtractionPrompt()],
+                ],
+            ]],
+        ]);
+
+        $this->logAiUsage('encounter_list_extraction_vision', $response);
+
+        if ($response->failed()) {
+            throw new \RuntimeException('OpenAI API error: '.$response->status());
+        }
+
+        return $this->parseJson($response->json('choices.0.message.content', ''));
+    }
+
+    private function extractEncounterListFromDocx(): array
+    {
+        $absolutePath = Storage::disk('local')->path($this->upload->storage_path);
+        $phpWord = IOFactory::load($absolutePath);
+        $text = $this->extractText($phpWord);
+
+        $response = $this->openai()->post($this->openaiUrl(), [
+            'model' => config('services.openai.model'),
+            'response_format' => ['type' => 'json_object'],
+            'messages' => [[
+                'role' => 'user',
+                'content' => $this->buildEncounterListExtractionPrompt()."\n\nDocument content:\n".$text,
+            ]],
+        ]);
+
+        $this->logAiUsage('encounter_list_extraction_docx', $response);
+
+        if ($response->failed()) {
+            throw new \RuntimeException('OpenAI API error: '.$response->status());
+        }
+
+        return $this->parseJson($response->json('choices.0.message.content', ''));
+    }
+
+    private function buildEncounterListExtractionPrompt(): string
+    {
+        return <<<'PROMPT'
+You are transcribing a medical practice's patient encounter list for a later coding and documentation audit. This is raw visit data, not a policy document — do not review, critique or summarize it here, only transcribe it faithfully.
+
+Return a JSON object with a single field "raw_text" containing every encounter as plain text, one per line, preserving whatever fields are present (e.g. date of service, provider, patient identifier, CPT/HCPCS codes, ICD-10 codes, place of service, documentation notes). Do not omit, invent, or reorder any encounters. Do not include any commentary, analysis, or additional fields.
+
+Return only valid JSON with no additional text or markdown formatting.
+PROMPT;
     }
 
     private function buildPolishPrompt(bool $hasImagePlaceholders = false): string
@@ -741,6 +813,11 @@ PROMPT;
                 $submission->intakeUploads
                     ->where('upload_type', $uploadType)
                     ->reject(fn (IntakeUpload $upload) => $completedUploadIds->contains($upload->id))
+                    // An encounter list isn't a policy document to review 1:1 — it feeds the
+                    // Advanced tier's Coding & Documentation Mini Audit report instead (see
+                    // GenerateComplianceDocument::generateAiSynthesizedReport()), dispatched
+                    // separately per-order via the package's included_document_types.
+                    ->reject(fn (IntakeUpload $upload) => $upload->document_category === 'encounter_list')
                     ->each(fn (IntakeUpload $upload) => GenerateComplianceDocument::dispatch($order, $docType, null, $upload));
 
                 continue;

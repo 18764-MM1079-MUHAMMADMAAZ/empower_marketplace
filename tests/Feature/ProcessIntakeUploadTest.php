@@ -750,6 +750,78 @@ class ProcessIntakeUploadTest extends TestCase
         Queue::assertNotPushed(GenerateComplianceDocument::class, fn ($job) => $job->intakeUpload?->id === $earlierUpload->id);
     }
 
+    // ── Encounter list (Advanced tier Mini Audit report source) ─────────────
+
+    public function test_encounter_list_upload_uses_the_encounter_extraction_prompt_not_the_polish_prompt(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('uploads/13/encounters.pdf', 'fake pdf');
+
+        $upload = IntakeUpload::factory()->create([
+            'storage_path' => 'uploads/13/encounters.pdf',
+            'mime_type' => 'application/pdf',
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => 'encounter_list',
+            'ai_extraction_status' => AiExtractionStatus::Pending,
+        ]);
+
+        Http::fake([
+            'https://api.openai.com/*' => Http::response($this->openaiResponse(json_encode([
+                'raw_text' => '2026-01-05 | Dr. Lee | 99213 | Z00.00',
+            ]))),
+        ]);
+
+        ProcessIntakeUpload::dispatchSync($upload);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request) {
+            $content = $request['messages'][0]['content'];
+            $text = is_array($content) ? ($content[1]['text'] ?? '') : $content;
+
+            return str_contains($text, 'encounter list')
+                && ! str_contains($text, 'Compliance Document Reviewer');
+        });
+
+        $upload->refresh();
+        $this->assertEquals(AiExtractionStatus::Completed, $upload->ai_extraction_status);
+        $this->assertSame('2026-01-05 | Dr. Lee | 99213 | Z00.00', $upload->ai_extracted_data['raw_text']);
+    }
+
+    public function test_encounter_list_upload_does_not_dispatch_a_polished_client_document(): void
+    {
+        Queue::fake([GenerateComplianceDocument::class]);
+        Storage::fake('local');
+        Storage::disk('local')->put('uploads/14/encounters.pdf', 'fake');
+
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'advanced', 'annual_price' => 1699, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+        $submission = IntakeSubmission::factory()->submitted()->create(['order_id' => $order->id]);
+
+        $upload = IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'storage_path' => 'uploads/14/encounters.pdf',
+            'mime_type' => 'application/pdf',
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => 'encounter_list',
+            'ai_extraction_status' => AiExtractionStatus::Pending,
+        ]);
+
+        Http::fake([
+            'https://api.openai.com/*' => Http::response($this->openaiResponse('{"raw_text":"encounter data"}')),
+        ]);
+
+        ProcessIntakeUpload::dispatchSync($upload);
+
+        Queue::assertNotPushed(GenerateComplianceDocument::class);
+    }
+
     // ── Image preservation (upload for review) ──────────────────────────────
 
     public function test_client_document_for_review_docx_preserves_embedded_images(): void

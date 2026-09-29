@@ -7,9 +7,11 @@ use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Models\ActivityLog;
+use App\Models\AiUsageLog;
 use App\Models\CompliancePolicy;
 use App\Models\GeneratedDocument;
 use App\Models\IntakeAnswer;
+use App\Models\IntakeSection;
 use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\OshaLocation;
@@ -19,6 +21,7 @@ use App\Support\ManualQuestionSets;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -77,6 +80,14 @@ class GenerateComplianceDocument implements ShouldQueue
             // branch below even though this type does have a linkedQuestionnaireType().
             if ($this->documentType->isPerUpload()) {
                 $this->generateFromPolishedUpload($doc, $pdfGenerator, $basePath, $slug);
+
+                return;
+            }
+
+            // Advanced tier only — a report AI synthesizes from the practice's own workflow
+            // answers or an uploaded encounter list, rather than merging into a fixed template.
+            if ($this->documentType->isAiSynthesizedReport()) {
+                $this->generateAiSynthesizedReport($doc, $pdfGenerator, $basePath, $slug);
 
                 return;
             }
@@ -227,6 +238,171 @@ class GenerateComplianceDocument implements ShouldQueue
             'failure_reason' => null,
             'generated_at' => now(),
         ]);
+    }
+
+    /** Advanced tier only — routes to the right AI-synthesis prompt for this document type,
+     *  renders the result straight to a protected PDF (no merge template exists for either). */
+    private function generateAiSynthesizedReport(
+        GeneratedDocument $doc,
+        CompliancePdfGenerator $pdfGenerator,
+        string $basePath,
+        string $slug,
+    ): void {
+        $html = match ($this->documentType) {
+            DocumentType::SecurityRiskAssessment => $this->synthesizeSecurityRiskAssessment(),
+            DocumentType::CodingMiniAuditReport => $this->synthesizeMiniAuditReport(),
+            default => throw new \RuntimeException("No AI synthesis defined for {$this->documentType->value}"),
+        };
+
+        $ownerPassword = Str::random(32);
+        $pdfContent = $pdfGenerator->generate($html, $ownerPassword);
+
+        $pdfPath = "{$basePath}/{$slug}.pdf";
+        Storage::disk('local')->put($pdfPath, $pdfContent);
+
+        $this->finalizeGeneration($doc, [
+            'status' => DocumentStatus::Completed,
+            'pdf_storage_path' => $pdfPath,
+            'docx_storage_path' => null,
+            'pdf_owner_password' => $ownerPassword,
+            'is_stale' => false,
+            'failure_reason' => null,
+            'generated_at' => now(),
+        ]);
+    }
+
+    /**
+     * Synthesizes a Security Risk Assessment from the practice's own answers to the 23
+     * Security-section workflow questions — an actual risk analysis (findings, ratings,
+     * remediation recommendations) rather than a restatement of their answers.
+     */
+    private function synthesizeSecurityRiskAssessment(): string
+    {
+        $practice = $this->order->user->practice;
+        $submission = $this->order->intakeSubmission;
+
+        $securitySectionKeys = ['security_people_access', 'security_offices_devices', 'security_systems_network'];
+
+        $answersByQuestionId = $submission?->intakeAnswers()->get()->keyBy('intake_question_id') ?? collect();
+
+        $sections = IntakeSection::whereIn('key', $securitySectionKeys)
+            ->orderBy('sort_order')
+            ->with('questions')
+            ->get();
+
+        $context = '';
+
+        foreach ($sections as $section) {
+            $context .= "## {$section->label}\n";
+
+            foreach ($section->questions as $question) {
+                $answer = $answersByQuestionId->get($question->id);
+                $response = match (true) {
+                    $answer === null => 'Not yet answered.',
+                    (bool) $answer->has_documented_process => (string) $answer->response,
+                    default => 'No documented process — the policy default language applies.',
+                };
+
+                $context .= "- {$question->title}: {$question->prompt_summary}\n  Practice's answer: {$response}\n";
+            }
+        }
+
+        $prompt = <<<PROMPT
+You are a HIPAA Security Risk Assessment (SRA) consultant. Using ONLY the practice's own answers below, write a Security Risk Assessment report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li>, <table> — do not include <html>, <head> or <body> tags, and do not use markdown).
+
+Structure the report with these sections:
+<h2>Security Risk Assessment</h2>
+<h3>Executive Summary</h3> — a brief overview of the practice's overall security posture based on their answers.
+<h3>Findings by Area</h3> — one subsection per area below (People & Access, Offices & Devices, Systems & Network), each summarizing what the practice has in place and identifying specific gaps or risks where an answer indicates "Not yet answered" or "No documented process."
+<h3>Risk Ratings</h3> — a table with columns Area, Risk Level (Low/Medium/High), and Basis, rating each of the 3 areas based only on what was or wasn't answered.
+<h3>Recommendations</h3> — a numbered list of concrete remediation steps for the identified gaps.
+
+Rules:
+- Base every statement strictly on the practice's own answers below. Do not invent facts, systems, vendors, or figures not present in the answers.
+- Where an answer is missing or says "No documented process," treat that specific item as a finding/gap — do not soften it into a strength.
+- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
+
+Practice's Security answers:
+{$context}
+PROMPT;
+
+        return $this->callOpenAiForHtmlReport($prompt, 'security_risk_assessment');
+    }
+
+    /**
+     * Synthesizes a Coding & Documentation Mini Audit report from the practice's uploaded
+     * encounter list(s) — an actual audit (findings, risk areas, recommendations) rather than
+     * a restatement of the encounters.
+     */
+    private function synthesizeMiniAuditReport(): string
+    {
+        $practice = $this->order->user->practice;
+        $submission = $this->order->intakeSubmission;
+
+        $encounterText = $submission?->intakeUploads
+            ->where('document_category', 'encounter_list')
+            ->map(fn (IntakeUpload $u) => $u->ai_extracted_data['raw_text'] ?? null)
+            ->filter()
+            ->implode("\n\n") ?? '';
+
+        if (trim($encounterText) === '') {
+            throw new \RuntimeException('No encounter list content available for the Mini Audit report.');
+        }
+
+        $providers = $practice?->billable_providers_count ?? 1;
+
+        $prompt = <<<PROMPT
+You are a medical coding and documentation compliance auditor performing a Coding & Documentation Mini Audit (10 encounters per provider) for a healthcare practice. Using ONLY the encounter data below, write an audit report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li>, <table> — do not include <html>, <head> or <body> tags, and do not use markdown).
+
+Structure the report with these sections:
+<h2>Coding & Documentation Mini Audit Report</h2>
+<h3>Scope</h3> — state how many encounters were reviewed and for how many providers ({$providers} billable provider(s) expected).
+<h3>Findings</h3> — identify specific coding or documentation risk patterns actually present in the data below (e.g. code/documentation mismatches, missing documentation elements, upcoding/downcoding risk indicators, unspecified codes). Reference specific encounters where relevant.
+<h3>Risk Summary</h3> — a table with columns Risk Area, Occurrences, Severity (Low/Medium/High).
+<h3>Recommendations</h3> — a numbered list of concrete corrective actions.
+
+Rules:
+- Base every finding strictly on the encounter data below. Do not invent encounters, codes, or patterns not present in the data.
+- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
+
+Encounter data:
+{$encounterText}
+PROMPT;
+
+        return $this->callOpenAiForHtmlReport($prompt, 'coding_mini_audit_report');
+    }
+
+    private function callOpenAiForHtmlReport(string $prompt, string $usagePurpose): string
+    {
+        $response = Http::withToken(config('services.openai.key'))->timeout(180)->post(
+            'https://api.openai.com/v1/chat/completions',
+            [
+                'model' => config('services.openai.model'),
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+            ]
+        );
+
+        AiUsageLog::record(
+            purpose: $usagePurpose,
+            success: $response->successful(),
+            model: $response->json('model'),
+            promptTokens: $response->json('usage.prompt_tokens'),
+            completionTokens: $response->json('usage.completion_tokens'),
+            totalTokens: $response->json('usage.total_tokens'),
+            message: $response->failed() ? 'OpenAI API error: '.$response->status() : null,
+        );
+
+        if ($response->failed()) {
+            throw new \RuntimeException('OpenAI API error: '.$response->status());
+        }
+
+        $html = trim((string) $response->json('choices.0.message.content', ''));
+
+        if ($html === '') {
+            throw new \RuntimeException('OpenAI returned an empty report.');
+        }
+
+        return $html;
     }
 
     /** @param array<string, mixed> $viewData */

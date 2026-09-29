@@ -123,12 +123,23 @@ class IntakeAnswersDownloadController extends Controller
     {
         $this->heading($lines, 'Your team');
 
+        $lines[] = 'Legal practice name';
+        $lines[] = collect([$practice?->legal_practice_name, $practice?->dba_name ? "DBA {$practice->dba_name}" : null])->filter()->implode(' ') ?: '(not yet provided)';
+        $lines[] = '';
+
+        $lines[] = 'Main phone / email';
+        $lines[] = collect([$practice?->main_phone, $practice?->main_email])->filter()->implode(' · ') ?: '(not yet provided)';
+        $lines[] = '';
+
+        $lines[] = 'Locations';
+        $lines[] = collect($practice?->practice_locations ?? [])->filter()->implode(' | ') ?: '(not yet provided)';
+        $lines[] = '';
+
         $officers = [
-            ['Compliance Officer', $practice?->compliance_officer_name],
             ['HIPAA Privacy Officer', $practice?->hipaa_privacy_officer_name],
             ['HIPAA Security Officer', $practice?->hipaa_security_officer_name],
             ['Release of Information Officer', $practice?->release_of_info_officer_name],
-            ['IT Vendor', $practice?->it_vendor_name],
+            ['Compliance Officer', $practice?->compliance_officer_name],
         ];
 
         foreach ($officers as [$label, $value]) {
@@ -136,6 +147,24 @@ class IntakeAnswersDownloadController extends Controller
             $lines[] = $value ?: '(not yet provided)';
             $lines[] = '';
         }
+
+        $lines[] = 'IT';
+        $lines[] = ($practice?->it_mode === 'vendor' ? $practice?->it_vendor_name : $practice?->it_contact_name) ?: '(not yet provided)';
+        $lines[] = '';
+
+        $lines[] = 'Compliance hotline';
+        $lines[] = $practice?->uses_ehcp_hotline ? "Empower's shared hotline" : ($practice?->compliance_hotline_number ?: '(not yet provided)');
+        $lines[] = '';
+
+        $lines[] = 'Compliance Committee';
+        $lines[] = $practice?->committee_none
+            ? 'No committee yet'
+            : (collect($practice?->compliance_committee_members ?? [])->pluck('name')->filter()->implode(', ') ?: '(not yet provided)');
+        $lines[] = '';
+
+        $lines[] = $practice?->board_mode === 'board' ? 'Governing board' : 'Owners overseeing compliance';
+        $lines[] = collect($practice?->compliance_governing_board_members ?? [])->pluck('name')->filter()->implode(', ') ?: '(not yet provided)';
+        $lines[] = '';
     }
 
     /** @param  array<int, string>  $lines */

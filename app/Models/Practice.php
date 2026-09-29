@@ -20,6 +20,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'it_vendor_name', 'compliance_hotline_number', 'compliance_hotline_email',
     'uses_ehcp_hotline', 'hotline_poster_count',
     'compliance_committee_members', 'compliance_governing_board_members',
+    'legal_practice_name', 'dba_name', 'other_entities', 'main_phone', 'main_email', 'practice_locations',
+    'it_mode', 'it_contact_name', 'it_contact_phone', 'it_contact_email',
+    'committee_none', 'board_mode',
 ])]
 class Practice extends Model
 {
@@ -47,6 +50,8 @@ class Practice extends Model
             'hotline_poster_count' => 'integer',
             'compliance_committee_members' => 'array',
             'compliance_governing_board_members' => 'array',
+            'practice_locations' => 'array',
+            'committee_none' => 'boolean',
         ];
     }
 

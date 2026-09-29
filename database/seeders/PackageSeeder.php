@@ -72,6 +72,8 @@ class PackageSeeder extends Seeder
                     'compliance_ethics_manual',
                     'hipaa_privacy_policy',
                     'hipaa_security_manual',
+                    'security_risk_assessment',
+                    'coding_mini_audit_report',
                 ],
                 'is_active' => true,
                 'sort_order' => 3,

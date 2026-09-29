@@ -124,6 +124,16 @@ new class extends Component
 
     public ?string $additionalDocumentNotice = null;
 
+    // Step 3 "Upload & Confirm" — lets the client add or mark off documents inline, matching
+    // the reference prototype's uploadsHTML() widget, instead of forcing a trip back to Step 2.
+    public $step3DocumentFile = null;
+
+    public string $step3DocumentCategory = '';
+
+    /** Which wizard screen to land on next time <livewire:portal.practice-intake-wizard> mounts —
+     *  set by a "Your answers" row's Edit link just before switching back to Step 2. */
+    public ?string $editIntakeScreen = null;
+
     // Step 3 — certification fields for the "Upload & Confirm" step.
     public string $certifiedByName = '';
 
@@ -229,8 +239,9 @@ new class extends Component
     }
 
     // Step 3 "Upload & Confirm" review — matches the client prototype's BASE_DOCS list (same as
-    // <livewire:portal.practice-intake-wizard>'s DOCUMENT_CATEGORIES; kept read-only here since
-    // Step 3 only reviews what was captured on Step 2, edited via the "Edit" links back to it).
+    // <livewire:portal.practice-intake-wizard>'s DOCUMENT_CATEGORIES). Editable directly here,
+    // same as the prototype's "Anything you already have. You can add more here." — see
+    // toggleStep3DocumentMissing()/uploadStep3Document() below.
     private const REVIEW_DOCUMENT_CATEGORIES = [
         'compliance_ethics' => 'Compliance & Ethics Program',
         'hipaa_privacy' => 'HIPAA Privacy policies',
@@ -238,7 +249,16 @@ new class extends Component
         'training_materials' => 'Training materials',
     ];
 
+    // Advanced-only — mirrors <livewire:portal.practice-intake-wizard>'s
+    // ADVANCED_DOCUMENT_CATEGORIES, appended via reviewDocumentCategories() below.
+    private const ADVANCED_REVIEW_DOCUMENT_CATEGORIES = [
+        'employee_manual' => 'Employee manual',
+        'encounter_list' => 'Encounter list (10 per provider)',
+    ];
+
     private const BASICS_SUB_SCREENS = ['b_profile', 'b_providers', 'b_address', 'b_logo'];
+
+    private const TEAM_SUB_SCREENS = ['t_practice', 't_officers', 't_it', 't_hotline', 't_leadership'];
 
     #[Computed]
     public function basicsCompletedCount(): int
@@ -252,7 +272,9 @@ new class extends Component
     #[Computed]
     public function reviewDocumentCategories(): array
     {
-        return self::REVIEW_DOCUMENT_CATEGORIES;
+        return $this->batchOrders->contains(fn (Order $o) => $o->package?->includesAdvancedDocumentCategories())
+            ? [...self::REVIEW_DOCUMENT_CATEGORIES, ...self::ADVANCED_REVIEW_DOCUMENT_CATEGORIES]
+            : self::REVIEW_DOCUMENT_CATEGORIES;
     }
 
     public function reviewDocumentCategoryStatus(string $key): string
@@ -266,6 +288,61 @@ new class extends Component
         $missing = $this->primarySubmission?->wizard_missing_document_categories ?? [];
 
         return in_array($key, $missing, true) ? 'declined' : 'needed';
+    }
+
+    /** Step 3's "I don't have this" / "Undo" toggle — writes the same
+     *  wizard_missing_document_categories column <livewire:portal.practice-intake-wizard> uses,
+     *  so the two screens always agree on what's still missing. */
+    public function toggleStep3DocumentMissing(string $key): void
+    {
+        $submission = $this->primarySubmission;
+
+        if (! $submission || $submission->status !== IntakeSubmissionStatus::Draft) {
+            return;
+        }
+
+        $missing = $submission->wizard_missing_document_categories ?? [];
+
+        $missing = in_array($key, $missing, true)
+            ? array_values(array_diff($missing, [$key]))
+            : [...$missing, $key];
+
+        $submission->update(['wizard_missing_document_categories' => $missing]);
+        unset($this->primarySubmission);
+    }
+
+    /** Step 3's "Click to upload files or drag them here" dropzone — same deferred-processing
+     *  pattern as the wizard's own documents screen: left at NotApplicable while still a Draft, so
+     *  finalizeIntake() is what actually queues it for AI review once the intake is submitted. */
+    public function uploadStep3Document(): void
+    {
+        abort_unless(auth()->check(), 403);
+
+        $submission = $this->primarySubmission;
+
+        if (! $submission || $submission->status !== IntakeSubmissionStatus::Draft) {
+            return;
+        }
+
+        $this->validate([
+            'step3DocumentFile' => 'required|file|mimes:pdf,jpg,jpeg,png,docx|max:20480',
+        ]);
+
+        $file = $this->step3DocumentFile;
+
+        IntakeUpload::create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => $this->step3DocumentCategory ?: null,
+            'original_filename' => $file->getClientOriginalName(),
+            'storage_path' => $file->store('uploads/batch/'.(string) Str::ulid()),
+            'mime_type' => $file->getMimeType(),
+            'file_size' => $file->getSize(),
+            'ai_extraction_status' => AiExtractionStatus::NotApplicable,
+        ]);
+
+        $this->reset('step3DocumentFile', 'step3DocumentCategory');
+        unset($this->primarySubmission);
     }
 
     /** One row per chapter of the practice intake — "Practice basics" always, plus "Your team"
@@ -283,55 +360,140 @@ new class extends Component
                 'label' => "Let's start with your practice",
                 'value' => collect([$practice?->name, $practice?->specialty])->filter()->implode(' · ') ?: '—',
                 'done' => in_array('b_profile', $reached, true),
+                'screen' => 'b_profile',
             ],
             [
                 'label' => 'How many billable providers do you have?',
                 'value' => $providers.' billable provider'.($providers === 1 ? '' : 's'),
                 'done' => in_array('b_providers', $reached, true),
+                'screen' => 'b_providers',
             ],
             [
                 'label' => 'Where is your practice located?',
                 'value' => $practice?->address ?: '—',
                 'done' => in_array('b_address', $reached, true),
+                'screen' => 'b_address',
             ],
             [
                 'label' => 'Add your practice logo',
                 'value' => $practice?->logo_path ? 'Logo uploaded' : 'No logo added',
                 'done' => in_array('b_logo', $reached, true),
+                'screen' => 'b_logo',
             ],
         ];
     }
 
-    /** @return array<int, array{label: string, value: string, done: bool}> */
+    /** One row per Team screen (not per field) — merges each screen's several fields into one
+     *  summary line, matching the client's reference "Your team · 5/5" review layout. */
+    /** @return array<int, array{label: string, value: string, done: bool, screen: string}> */
     private function teamDetailRows(): array
     {
         $practice = $this->practice;
+        $reached = $this->primarySubmission?->wizard_reached_screens ?? [];
 
-        $officers = [
-            ['Compliance Officer', $practice?->compliance_officer_name],
-            ['HIPAA Privacy Officer', $practice?->hipaa_privacy_officer_name],
-            ['HIPAA Security Officer', $practice?->hipaa_security_officer_name],
-            ['Release of Information Officer', $practice?->release_of_info_officer_name],
-            ['IT Vendor', $practice?->it_vendor_name],
+        $locations = collect($practice?->practice_locations ?? [])->filter()->implode('; ');
+
+        $hotlineValue = match (true) {
+            $practice?->uses_ehcp_hotline === true => "Empower's shared hotline",
+            filled($practice?->compliance_hotline_number) => $practice->compliance_hotline_number,
+            filled($practice?->compliance_hotline_email) => $practice->compliance_hotline_email,
+            default => '—',
+        };
+
+        $officerRoles = [
+            'Privacy Officer' => $practice?->hipaa_privacy_officer_name,
+            'Security Officer' => $practice?->hipaa_security_officer_name,
+            'Release of Information Officer' => $practice?->release_of_info_officer_name,
+            'Compliance Officer' => $practice?->compliance_officer_name,
         ];
 
-        return collect($officers)
-            ->map(fn ($o) => ['label' => $o[0], 'value' => $o[1] ?: '—', 'done' => filled($o[1])])
-            ->all();
+        $itValue = match (true) {
+            $practice?->it_mode === 'vendor' => collect(['Vendor: '.($practice?->it_vendor_name ?: '—')])->implode(' · '),
+            filled($practice?->it_contact_name) => collect([
+                'In-house: '.$practice->it_contact_name,
+                $practice?->it_contact_phone,
+                $practice?->it_contact_email,
+            ])->filter()->implode(' · '),
+            default => '—',
+        };
+
+        $committeeValue = $practice?->committee_none
+            ? 'No committee yet'
+            : collect($practice?->compliance_committee_members ?? [])
+                ->filter(fn ($m) => filled($m['name'] ?? null))
+                ->map(fn ($m) => trim($m['name'].(filled($m['title'] ?? null) ? ' ('.$m['title'].')' : '')))
+                ->implode(', ');
+
+        $boardValue = collect($practice?->compliance_governing_board_members ?? [])
+            ->filter(fn ($m) => filled($m['name'] ?? null))
+            ->map(fn ($m) => trim($m['name'].(filled($m['title'] ?? null) ? ' ('.$m['title'].')' : '')))
+            ->implode(', ');
+
+        return [
+            [
+                'label' => "Your practice's legal details",
+                'value' => collect([
+                    $practice?->legal_practice_name,
+                    $practice?->main_phone,
+                    $practice?->main_email,
+                    $locations !== '' ? 'Locations: '.$locations : null,
+                ])->filter()->implode(' · ') ?: '—',
+                'done' => in_array('t_practice', $reached, true),
+                'screen' => 't_practice',
+            ],
+            [
+                'label' => 'Who fills your compliance roles?',
+                'value' => collect($officerRoles)
+                    ->filter(fn ($name) => filled($name))
+                    ->map(fn ($name, $role) => "{$role}: {$name}")
+                    ->implode(' · ') ?: '—',
+                'done' => in_array('t_officers', $reached, true),
+                'screen' => 't_officers',
+            ],
+            [
+                'label' => 'Who handles your IT?',
+                'value' => $itValue,
+                'done' => in_array('t_it', $reached, true),
+                'screen' => 't_it',
+            ],
+            [
+                'label' => 'How can staff reach a compliance hotline?',
+                'value' => collect([$hotlineValue, filled($practice?->hotline_poster_count) ? $practice->hotline_poster_count.' poster'.((int) $practice->hotline_poster_count === 1 ? '' : 's') : null])->filter()->implode(' · ') ?: '—',
+                'done' => in_array('t_hotline', $reached, true),
+                'screen' => 't_hotline',
+            ],
+            [
+                'label' => 'Who leads compliance oversight?',
+                'value' => collect([
+                    $committeeValue !== '' ? 'Committee: '.$committeeValue : null,
+                    $boardValue !== '' ? 'Board: '.$boardValue : null,
+                ])->filter()->implode(' · ') ?: '—',
+                'done' => in_array('t_leadership', $reached, true),
+                'screen' => 't_leadership',
+            ],
+        ];
     }
 
-    /** @return array<int, array{label: string, value: string, done: bool}> */
+    /** @return array<int, array{label: string, value: string, done: bool, badge: array{label: string, class: string}, meta: ?string, screen: string}> */
     private function sectionDetailRows(IntakeSection $section, array $answersByQuestionId): array
     {
         return $section->questions->map(function (IntakeQuestion $question) use ($answersByQuestionId) {
             $answer = $answersByQuestionId[$question->id] ?? null;
-            $value = match (true) {
-                $answer === null => 'Not yet answered',
-                (bool) $answer->has_documented_process => Str::limit((string) $answer->response, 80),
-                default => 'No documented process — best-practice language used.',
+
+            [$value, $badge] = match (true) {
+                $answer === null => ['Not yet answered', ['label' => 'Open', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]']],
+                (bool) $answer->has_documented_process => [(string) $answer->response, ['label' => 'Practice response', 'class' => 'bg-[#d7f3ea] text-[#117a51]']],
+                default => ['No documented answer · policy default language applies', ['label' => 'Policy default', 'class' => 'bg-[#eaf5fb] text-[#1a7aad]']],
             };
 
-            return ['label' => $question->title, 'value' => $value, 'done' => $answer !== null];
+            return [
+                'label' => $question->title,
+                'value' => $value,
+                'done' => $answer !== null,
+                'badge' => $badge,
+                'meta' => $question->policies->pluck('code')->implode(' · ') ?: null,
+                'screen' => 'question:'.$question->id,
+            ];
         })->all();
     }
 
@@ -356,14 +518,14 @@ new class extends Component
         $reached = $this->primarySubmission?->wizard_reached_screens ?? [];
         $rows[] = [
             'label' => 'Your team',
-            'done' => in_array('team', $reached, true) ? 1 : 0,
-            'total' => 1,
+            'done' => count(array_intersect(self::TEAM_SUB_SCREENS, $reached)),
+            'total' => count(self::TEAM_SUB_SCREENS),
             'details' => $this->teamDetailRows(),
         ];
 
         $answersByQuestionId = $this->primarySubmission?->intakeAnswers()->get()->keyBy('intake_question_id')->all() ?? [];
 
-        foreach (IntakeSection::with('questions')->orderBy('sort_order')->get() as $section) {
+        foreach (IntakeSection::with('questions.policies')->orderBy('sort_order')->get() as $section) {
             $questionIds = $section->questions->pluck('id')->all();
             $rows[] = [
                 'label' => $section->label,
@@ -374,6 +536,24 @@ new class extends Component
         }
 
         return $rows;
+    }
+
+    /** Step 3's Pro/Advanced summary boxes: how many workflow questions were answered with a
+     *  documented process vs. left to the policy default, and how many are still unanswered. */
+    #[Computed]
+    public function workflowAnswerCounts(): array
+    {
+        $total = IntakeQuestion::count();
+        $answers = $this->primarySubmission?->intakeAnswers ?? collect();
+
+        $answered = $answers->where('has_documented_process', true)->count();
+        $policyDefault = $answers->where('has_documented_process', false)->count();
+
+        return [
+            'answered' => $answered,
+            'policyDefault' => $policyDefault,
+            'open' => max(0, $total - $answered - $policyDefault),
+        ];
     }
 
     private function intakeSubmissionStatusLabel(?IntakeSubmissionStatus $status): string
@@ -676,6 +856,10 @@ new class extends Component
             ? $user->orders()->where('checkout_batch_id', $latestOrder->checkout_batch_id)->pluck('id')->all()
             : [$latestOrder->id];
 
+        // Step 3's "Completed by (print name)" defaults to the logged-in account holder, or
+        // restores whatever name was typed on a prior certification (e.g. before a rejection).
+        $this->certifiedByName = $this->primarySubmission?->certified_by_name ?: $user->name;
+
         $this->dashboardOrderId = $user->orders()->whereIn('payment_status', Order::PAID_STATUSES)->latest()->value('id');
         $this->selectedPackageId = $latestOrder->package_id;
 
@@ -732,6 +916,30 @@ new class extends Component
     {
         unset($this->completedMilestone, $this->batchOrders);
         $this->step = 3;
+    }
+
+    /** "Review all answers" from the child wizard's section-jump dropdown — lets the client
+     *  preview Step 3 at any point, not just once every question is answered. finalizeIntake()
+     *  still refuses to certify/submit until the wizard actually reports 'done'. */
+    #[On('intake-wizard-review-requested')]
+    public function onIntakeWizardReviewRequested(): void
+    {
+        $this->step = 3;
+    }
+
+    /** Step 3 "Your answers" row Edit link — reopens the wizard on that exact screen. */
+    public function editIntakeAnswer(string $screenKey): void
+    {
+        $this->editIntakeScreen = $screenKey;
+        $this->goToStep(2);
+    }
+
+    /** The wizard confirms it applied editIntakeScreen on mount — clears it so a later plain
+     *  "Back to intake" (which remounts the same component fresh) doesn't replay the same jump. */
+    #[On('intake-edit-screen-consumed')]
+    public function onIntakeEditScreenConsumed(): void
+    {
+        $this->editIntakeScreen = null;
     }
 
     /** The child wizard's "Back" button on its very first screen — it can't call goToStep()
@@ -1708,6 +1916,12 @@ new class extends Component
             return;
         }
 
+        if ($primarySubmission->wizard_screen !== 'done') {
+            $this->addError('certifiedSignature', 'Please finish the intake questionnaire before submitting for review.');
+
+            return;
+        }
+
         $certifiedAt = now();
 
         $primarySubmission->update([
@@ -2453,7 +2667,7 @@ $progressPct = ($milestone / 4) * 100;
         </div>
     </div>
     @else
-    <livewire:portal.practice-intake-wizard :orderIds="$orderIds" :key="'intake-wizard-'.implode('-', $orderIds)" />
+    <livewire:portal.practice-intake-wizard :orderIds="$orderIds" :editScreen="$this->editIntakeScreen" :key="'intake-wizard-'.implode('-', $orderIds)" />
     @endif
 
     <livewire:portal.osha-location-modal :practiceId="$this->practice?->id ?? 0" />
@@ -2496,6 +2710,23 @@ $progressPct = ($milestone / 4) * 100;
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Files</p>
                 <p class="text-base font-bold text-[#173045]">{{ $primarySub?->intakeUploads->count() ?? 0 }}</p>
             </div>
+            @if($includesWorkflowQuestionnaire)
+            @php
+                $workflowCounts = $this->workflowAnswerCounts;
+            @endphp
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Answered</p>
+                <p class="text-base font-bold text-[#173045]">{{ $workflowCounts['answered'] }}</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Policy default</p>
+                <p class="text-base font-bold text-[#173045]">{{ $workflowCounts['policyDefault'] }}</p>
+            </div>
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Open</p>
+                <p class="text-base font-bold text-[#173045]">{{ $workflowCounts['open'] }}</p>
+            </div>
+            @else
             <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Basics</p>
                 <p class="text-base font-bold text-[#173045]">{{ $this->basicsCompletedCount }} / 4</p>
@@ -2508,12 +2739,15 @@ $progressPct = ($milestone / 4) * 100;
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Status</p>
                 <p class="text-base font-bold text-[#173045]">{{ $this->intakeSubmissionStatusLabel($primarySub?->status) }}</p>
             </div>
+            @endif
         </div>
 
         {{-- Documents --}}
         <div class="border-t border-[#eef2f6] pt-5 mb-5">
             <h3 class="text-base font-semibold text-[#12304f] mb-1">Documents</h3>
-            <p class="text-sm text-[#5d6e7f] mb-3">Your existing documents for review and update.</p>
+            <p class="text-sm text-[#5d6e7f] mb-3">
+                {{ $includesWorkflowQuestionnaire ? 'Anything you already have. You can add more here.' : 'Your existing documents for review and update.' }}
+            </p>
 
             <ul class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl mb-3">
                 @foreach($this->reviewDocumentCategories as $key => $label)
@@ -2521,11 +2755,24 @@ $progressPct = ($milestone / 4) * 100;
                     $status = $this->reviewDocumentCategoryStatus($key);
                 @endphp
                 <li class="flex items-center justify-between gap-3 px-4 py-3">
-                    <span class="text-sm font-semibold text-[#173045]">{{ $label }}</span>
-                    <span
-                        class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
-                        {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
-                        {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" : 'Needed') }}
+                    <span class="text-sm font-semibold text-[#173045]">
+                        {{ $label }}
+                        @if($includesWorkflowQuestionnaire)
+                        <span class="text-xs font-normal text-[#8592a1]">(if you have it)</span>
+                        @endif
+                    </span>
+                    <span class="flex items-center gap-3">
+                        <span
+                            class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
+                            {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
+                            {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" : ($includesWorkflowQuestionnaire ? 'Optional' : 'Needed')) }}
+                        </span>
+                        @if($status !== 'uploaded' && ! $isSubmitted)
+                        <button type="button" wire:click="toggleStep3DocumentMissing('{{ $key }}')"
+                            class="text-xs font-semibold text-[#1a7aad] hover:underline">
+                            {{ $status === 'declined' ? 'Undo' : "I don't have this" }}
+                        </button>
+                        @endif
                     </span>
                 </li>
                 @endforeach
@@ -2541,7 +2788,7 @@ $progressPct = ($milestone / 4) * 100;
             @endif
 
             @if($primarySub?->intakeUploads->isNotEmpty())
-            <ul class="space-y-2">
+            <ul class="space-y-2 mb-3">
                 @foreach($primarySub->intakeUploads as $upload)
                 <li class="flex items-center gap-2 text-sm border border-[#eef2f6] rounded-lg px-3 py-2">
                     <span class="flex-1 truncate text-[#173045] font-medium">{{ $upload->original_filename }}</span>
@@ -2553,6 +2800,36 @@ $progressPct = ($milestone / 4) * 100;
                 </li>
                 @endforeach
             </ul>
+            @endif
+
+            @if(! $isSubmitted)
+            <div class="rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
+                <div class="flex flex-wrap items-start gap-2">
+                    <div class="flex-1 min-w-[10rem]">
+                        <input wire:model="step3DocumentFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.docx"
+                            wire:loading.attr="disabled" wire:target="step3DocumentFile,uploadStep3Document"
+                            class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
+                        @error('step3DocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <select wire:model="step3DocumentCategory"
+                        class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
+                        <option value="">Document type&hellip;</option>
+                        @foreach($this->reviewDocumentCategories as $key => $label)
+                        <option value="{{ $key }}">{{ $label }}</option>
+                        @endforeach
+                        <option value="other">Other</option>
+                    </select>
+                    <button type="button" wire:click="uploadStep3Document" wire:target="uploadStep3Document"
+                        wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                        class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
+                        <span wire:loading.remove wire:target="uploadStep3Document">Upload</span>
+                        <span wire:loading.inline-flex wire:target="uploadStep3Document" class="inline-flex items-center gap-1.5">
+                            <x-spinner class="h-3.5 w-3.5" /> Uploading&hellip;
+                        </span>
+                    </button>
+                </div>
+                <p class="text-xs text-[#8592a1] mt-2">PDF, JPG, PNG or DOCX &middot; up to 20MB</p>
+            </div>
             @endif
         </div>
 
@@ -2587,15 +2864,27 @@ $progressPct = ($milestone / 4) * 100;
                     @if(! empty($row['details']))
                     <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-2.5">
                         @foreach($row['details'] as $detail)
+                        @php
+                            $badge = $detail['badge'] ?? ($detail['done'] ? ['label' => 'Done', 'class' => 'bg-[#d7f3ea] text-[#117a51]'] : ['label' => 'Pending', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]']);
+                        @endphp
                         <div class="flex items-center justify-between gap-3">
                             <div>
                                 <p class="text-xs font-semibold text-[#173045]">{{ $detail['label'] }}</p>
                                 <p class="text-xs text-[#5d6e7f]">{{ $detail['value'] }}</p>
+                                @if(! empty($detail['meta']))
+                                <p class="text-[11px] text-[#8592a1] mt-0.5">{{ $detail['meta'] }}</p>
+                                @endif
                             </div>
-                            <span
-                                class="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $detail['done'] ? 'bg-[#d7f3ea] text-[#117a51]' : 'bg-[#eef1f5] text-[#5d6e7f]' }}">
-                                {{ $detail['done'] ? 'Done' : 'Pending' }}
-                            </span>
+                            <div class="flex-shrink-0 flex items-center gap-2">
+                                <span
+                                    class="rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $badge['class'] }}">
+                                    {{ $badge['label'] }}
+                                </span>
+                                @if(! $isSubmitted && ! empty($detail['screen']))
+                                <button type="button" wire:click="editIntakeAnswer('{{ $detail['screen'] }}')" wire:target="editIntakeAnswer"
+                                    class="text-xs font-bold text-[#1a7aad] hover:underline">Edit</button>
+                                @endif
+                            </div>
                         </div>
                         @endforeach
                     </div>
@@ -2960,8 +3249,9 @@ $progressPct = ($milestone / 4) * 100;
             $location = $row['location'];
             $doc = $row['document'];
             $sourceUpload = $row['sourceUpload'] ?? null;
-            $title = $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' —
-            '.$sourceUpload->original_filename : '');
+            $title = $sourceUpload?->document_category === 'employee_manual'
+                ? 'Employee manual (reviewed)'
+                : $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' — '.$sourceUpload->original_filename : '');
             [$badgeClass, $badgeLabel] = match(true) {
                 ! $doc => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
                 (bool) $doc->is_stale => ['bg-[#fde2e2] text-[#a53b3b]', 'Outdated'],

@@ -12,6 +12,7 @@ use App\Models\Package;
 use App\Models\Practice;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -26,9 +27,7 @@ new class extends Component
 
     // ── Documents screen ──────────────────────────────────────────────────
     // Matches the client prototype's BASE_DOCS list — the same 4 categories are shown (as
-    // required for Essential, optional for Professional/Advanced) regardless of tier. Advanced's
-    // extra "Employee manual"/"Encounter list" categories from the prototype aren't wired up here
-    // since nothing in this codebase generates or reviews them through this screen yet.
+    // required for Essential, optional for Professional/Advanced) regardless of tier.
     private const DOCUMENT_CATEGORIES = [
         'compliance_ethics' => 'Compliance & Ethics Program',
         'hipaa_privacy' => 'HIPAA Privacy policies',
@@ -36,11 +35,20 @@ new class extends Component
         'training_materials' => 'Training materials',
     ];
 
+    // Advanced-only, for its Coding & Documentation Mini Audit and Employee Manual Creation
+    // features — appended to DOCUMENT_CATEGORIES via requiredDocumentCategories() below.
+    private const ADVANCED_DOCUMENT_CATEGORIES = [
+        'employee_manual' => 'Employee manual',
+        'encounter_list' => 'Encounter list (10 per provider)',
+    ];
+
     private const DOCUMENT_CATEGORY_KEYWORDS = [
         'hipaa_privacy' => ['privacy'],
         'hipaa_security' => ['security'],
         'compliance_ethics' => ['compliance', 'ethics', 'conduct'],
         'training_materials' => ['training'],
+        'employee_manual' => ['employee', 'handbook'],
+        'encounter_list' => ['encounter'],
     ];
 
     public array $documentFiles = [];
@@ -61,7 +69,21 @@ new class extends Component
 
     public bool $sameAsBillingAddress = true;
 
-    // ── Team screen (Professional/Advanced/Complete only) ────────────────
+    // ── Team screens (Professional/Advanced/Complete only; 5 sub-screens: t_practice/
+    // t_officers/t_it/t_hotline/t_leadership) ────────────────────────────
+    public string $legalPracticeName = '';
+
+    public string $dbaName = '';
+
+    public string $otherEntities = '';
+
+    public string $mainPhone = '';
+
+    public string $mainEmail = '';
+
+    /** @var array<int, string> */
+    public array $practiceLocations = [''];
+
     public string $complianceOfficerName = '';
 
     public string $complianceOfficerPhone = '';
@@ -86,35 +108,56 @@ new class extends Component
 
     public string $releaseOfInfoOfficerEmail = '';
 
+    /** '' (unanswered) | 'vendor' | 'inhouse' */
+    public string $itMode = '';
+
+    /** The outside company's name for itMode='vendor' — itContact* below covers both modes'
+     *  individual contact (the vendor's rep, or the in-house staff member). */
     public string $itVendorName = '';
 
-    public string $complianceHotlineNumber = '';
+    public string $itContactName = '';
 
-    public string $complianceHotlineEmail = '';
+    public string $itContactPhone = '';
 
-    public bool $usesEhcpHotline = false;
+    public string $itContactEmail = '';
+
+    /** null = unanswered, true = Empower's shared hotline, false = the practice's own. */
+    public ?bool $usesEhcpHotline = null;
+
+    /** The practice's own hotline number and/or email, combined into one field to match the
+     *  prototype — stored in Practice::compliance_hotline_number (compliance_hotline_email is
+     *  left for the admin user-edit form's own separate fields, not populated from here). */
+    public string $hotlineContact = '';
 
     public ?int $hotlinePosterCount = null;
 
+    public bool $committeeNone = false;
+
     /** @var array<int, array{name: string, title: string}> */
     public array $complianceCommitteeMembers = [];
+
+    /** '' (unanswered) | 'owners' | 'board' */
+    public string $boardMode = '';
 
     /** @var array<int, array{name: string, title: string}> */
     public array $complianceGoverningBoardMembers = [];
 
     // ── Navigation ────────────────────────────────────────────────────────
-    /** 'documents' | 'basics' | 'team' | 'question' | 'done' */
+    /** 'documents' | 'b_profile' | 'b_providers' | 'b_address' | 'b_logo' | 't_practice' |
+     *  't_officers' | 't_it' | 't_hotline' | 't_leadership' | 'question' | 'done' */
     public string $screen = 'documents';
 
     public ?int $currentQuestionId = null;
 
     public string $currentResponse = '';
 
-    public bool $currentHasDocumentedProcess = true;
+    /** null = neither option chosen yet — a fresh question must show no pre-selected radio
+     *  and no requirements/textarea, matching the prototype's "hidden until you choose" state. */
+    public ?bool $currentHasDocumentedProcess = null;
 
     public bool $justSaved = false;
 
-    public function mount(array $orderIds): void
+    public function mount(array $orderIds, ?string $editScreen = null): void
     {
         $this->orderIds = $orderIds;
 
@@ -128,6 +171,18 @@ new class extends Component
         // equals the current billing address line is treated as "same as billing" on resume.
         $this->sameAsBillingAddress = empty($practice?->address) || $practice->address === $this->billingAddressLine;
 
+        $submission = $this->currentSubmission;
+        $reached = $submission->wizard_reached_screens ?? [];
+
+        // Falls back to the practice name already captured on the "Let's start with your
+        // practice" basics screen, so the client isn't asked for the same name twice.
+        $this->legalPracticeName = $practice?->legal_practice_name ?: ($practice?->name ?? '');
+        $this->dbaName = $practice?->dba_name ?? '';
+        $this->otherEntities = $practice?->other_entities ?? '';
+        $this->mainPhone = $practice?->main_phone ?? '';
+        $this->mainEmail = $practice?->main_email ?? '';
+        $this->practiceLocations = ($practice?->practice_locations ?: null) ?? [$practice?->address ?: $this->billingAddressLine];
+
         $this->complianceOfficerName = $practice?->compliance_officer_name ?? '';
         $this->complianceOfficerPhone = $practice?->compliance_officer_phone ?? '';
         $this->complianceOfficerEmail = $practice?->compliance_officer_email ?? '';
@@ -140,25 +195,44 @@ new class extends Component
         $this->releaseOfInfoOfficerName = $practice?->release_of_info_officer_name ?? '';
         $this->releaseOfInfoOfficerPhone = $practice?->release_of_info_officer_phone ?? '';
         $this->releaseOfInfoOfficerEmail = $practice?->release_of_info_officer_email ?? '';
-        $this->itVendorName = $practice?->it_vendor_name ?? '';
-        $this->complianceHotlineNumber = $practice?->compliance_hotline_number ?? '';
-        $this->complianceHotlineEmail = $practice?->compliance_hotline_email ?? '';
-        $this->usesEhcpHotline = (bool) ($practice?->uses_ehcp_hotline ?? false);
-        $this->hotlinePosterCount = $practice?->hotline_poster_count;
-        $this->complianceCommitteeMembers = $practice?->compliance_committee_members ?? [];
-        $this->complianceGoverningBoardMembers = $practice?->compliance_governing_board_members ?? [];
 
-        $submission = $this->currentSubmission;
-        $this->screen = in_array($submission->wizard_screen, ['documents', 'b_profile', 'b_providers', 'b_address', 'b_logo', 'team', 'question', 'done'], true)
+        $this->itMode = $practice?->it_mode ?? '';
+        $this->itVendorName = $practice?->it_vendor_name ?? '';
+        $this->itContactName = $practice?->it_contact_name ?? '';
+        $this->itContactPhone = $practice?->it_contact_phone ?? '';
+        $this->itContactEmail = $practice?->it_contact_email ?? '';
+
+        // uses_ehcp_hotline defaults to false at the DB level, which would otherwise look
+        // identical to a deliberate "we have our own" answer — only trust it once this screen
+        // has actually been reached; before that, the radio starts genuinely unanswered.
+        $this->usesEhcpHotline = in_array('t_hotline', $reached, true) ? (bool) $practice?->uses_ehcp_hotline : null;
+        $this->hotlineContact = $practice?->compliance_hotline_number ?: ($practice?->compliance_hotline_email ?? '');
+        $this->hotlinePosterCount = $practice?->hotline_poster_count;
+
+        $this->committeeNone = (bool) ($practice?->committee_none ?? false);
+        $this->complianceCommitteeMembers = $practice?->compliance_committee_members ?: [['name' => '', 'title' => '']];
+        $this->boardMode = $practice?->board_mode ?? '';
+        $this->complianceGoverningBoardMembers = $practice?->compliance_governing_board_members ?: [['name' => '', 'title' => '']];
+
+        $this->screen = in_array($submission->wizard_screen, ['documents', 'b_profile', 'b_providers', 'b_address', 'b_logo', 't_practice', 't_officers', 't_it', 't_hotline', 't_leadership', 'question', 'done'], true)
             ? $submission->wizard_screen
             : 'documents';
 
-        if (! $this->includesWorkflowQuestionnaire && in_array($this->screen, ['team', 'question'], true)) {
+        if (! $this->includesWorkflowQuestionnaire && in_array($this->screen, [...self::TEAM_SUB_SCREENS, 'question'], true)) {
             $this->screen = 'done';
         }
 
         if ($this->screen === 'question') {
             $this->loadQuestion($this->remainingQueue[0] ?? null);
+        }
+
+        // Step 3's "Your answers" review passes this when the client clicks "Edit" on a
+        // specific answer — lands directly on that screen instead of wherever they left off.
+        // Tells the parent to clear it once consumed, so a later plain "Back to intake" (which
+        // also remounts this component fresh) doesn't replay the same stale jump.
+        if ($editScreen !== null) {
+            $this->jumpToScreen($editScreen);
+            $this->dispatch('intake-edit-screen-consumed');
         }
     }
 
@@ -183,6 +257,12 @@ new class extends Component
     public function includesWorkflowQuestionnaire(): bool
     {
         return $this->batchOrders->contains(fn (Order $o) => $o->package?->includesWorkflowQuestionnaire());
+    }
+
+    #[Computed]
+    public function includesAdvancedDocumentCategories(): bool
+    {
+        return $this->batchOrders->contains(fn (Order $o) => $o->package?->includesAdvancedDocumentCategories());
     }
 
     #[Computed]
@@ -243,7 +323,9 @@ new class extends Component
     #[Computed]
     public function requiredDocumentCategories(): array
     {
-        return self::DOCUMENT_CATEGORIES;
+        return $this->includesAdvancedDocumentCategories
+            ? [...self::DOCUMENT_CATEGORIES, ...self::ADVANCED_DOCUMENT_CATEGORIES]
+            : self::DOCUMENT_CATEGORIES;
     }
 
     #[Computed]
@@ -395,6 +477,8 @@ new class extends Component
 
     private const BASICS_SUB_SCREENS = ['b_profile', 'b_providers', 'b_address', 'b_logo'];
 
+    private const TEAM_SUB_SCREENS = ['t_practice', 't_officers', 't_it', 't_hotline', 't_leadership'];
+
     /** The chapter list for the "Section X of Y" header dropdown — screen-level chapters for
      *  documents/team (worth one "done" item each), "Practice basics" worth one item per sub-
      *  screen, then one chapter per workflow section (worth as many items as it has questions) —
@@ -418,7 +502,12 @@ new class extends Component
             return $chapters;
         }
 
-        $chapters[] = ['key' => 'team', 'label' => 'Your team', 'total' => 1, 'done' => $screenDone('team')];
+        $chapters[] = [
+            'key' => 'team',
+            'label' => 'Your team',
+            'total' => count(self::TEAM_SUB_SCREENS),
+            'done' => collect(self::TEAM_SUB_SCREENS)->sum($screenDone),
+        ];
 
         foreach ($this->sections as $section) {
             $questionIds = $section->questions->pluck('id')->all();
@@ -453,11 +542,16 @@ new class extends Component
     {
         $reached = $this->currentSubmission->wizard_reached_screens ?? ['documents'];
 
-        // The "Practice basics" chapter row is keyed as 'basics' in the dropdown, but the
-        // individual screens it groups are tracked under their own b_* keys — surface the
-        // grouping key too once any of them has been reached, so the row becomes navigable.
+        // The "Practice basics"/"Your team" chapter rows are keyed as 'basics'/'team' in the
+        // dropdown, but the individual screens each groups are tracked under their own b_*/t_*
+        // keys — surface the grouping key too once any of them has been reached, so the row
+        // becomes navigable.
         if (array_intersect(self::BASICS_SUB_SCREENS, $reached) !== [] && ! in_array('basics', $reached, true)) {
             $reached[] = 'basics';
+        }
+
+        if (array_intersect(self::TEAM_SUB_SCREENS, $reached) !== [] && ! in_array('team', $reached, true)) {
+            $reached[] = 'team';
         }
 
         return $reached;
@@ -487,6 +581,7 @@ new class extends Component
         return match (true) {
             $this->screen === 'question' => 'section:'.($this->currentQuestion?->intake_section_id ?? ''),
             in_array($this->screen, self::BASICS_SUB_SCREENS, true) => 'basics',
+            in_array($this->screen, self::TEAM_SUB_SCREENS, true) => 'team',
             default => $this->screen,
         };
     }
@@ -495,6 +590,21 @@ new class extends Component
      *  sections are clickable" behavior. */
     public function jumpToScreen(string $key): void
     {
+        if (str_starts_with($key, 'question:')) {
+            $questionId = (int) substr($key, strlen('question:'));
+            $sectionId = IntakeQuestion::find($questionId)?->intake_section_id;
+
+            if ($sectionId === null || ! in_array('section:'.$sectionId, $this->reachedScreens, true)) {
+                return;
+            }
+
+            $this->loadQuestion($questionId);
+            $this->screen = 'question';
+            $this->setWizardScreen('question');
+
+            return;
+        }
+
         if (! in_array($key, $this->reachedScreens, true) && $key !== $this->currentNavKey()) {
             return;
         }
@@ -511,6 +621,9 @@ new class extends Component
         } elseif ($key === 'basics') {
             $this->screen = collect(self::BASICS_SUB_SCREENS)
                 ->first(fn (string $s) => ! in_array($s, $this->reachedScreens, true)) ?? self::BASICS_SUB_SCREENS[0];
+        } elseif ($key === 'team') {
+            $this->screen = collect(self::TEAM_SUB_SCREENS)
+                ->first(fn (string $s) => ! in_array($s, $this->reachedScreens, true)) ?? self::TEAM_SUB_SCREENS[0];
         } else {
             $this->screen = $key;
         }
@@ -796,62 +909,30 @@ new class extends Component
         $this->markReached('b_logo');
 
         if ($this->includesWorkflowQuestionnaire) {
-            $this->screen = 'team';
-            $this->markReached('team');
-            $this->setWizardScreen('team');
+            $this->screen = 't_practice';
+            $this->markReached('t_practice');
+            $this->setWizardScreen('t_practice');
         } else {
             $this->finishWizard();
         }
     }
 
-    // ── Team ──────────────────────────────────────────────────────────────
+    // ── Team: 1/5 — Your practice's legal details ───────────────────────────
 
-    private function teamRules(): array
+    private function filterMembers(array $members): array
     {
-        return [
-            'complianceOfficerName' => 'required|string|max:150',
-            'complianceOfficerPhone' => 'required|string|max:30',
-            'complianceOfficerEmail' => 'required|email|max:150',
-            'hipaaPrivacyOfficerName' => 'required|string|max:150',
-            'hipaaPrivacyOfficerPhone' => 'required|string|max:30',
-            'hipaaPrivacyOfficerEmail' => 'required|email|max:150',
-            'hipaaSecurityOfficerName' => 'required|string|max:150',
-            'hipaaSecurityOfficerPhone' => 'required|string|max:30',
-            'hipaaSecurityOfficerEmail' => 'required|email|max:150',
-            'releaseOfInfoOfficerName' => 'required|string|max:150',
-            'releaseOfInfoOfficerPhone' => 'required|string|max:30',
-            'releaseOfInfoOfficerEmail' => 'required|email|max:150',
-            'itVendorName' => 'required|string|max:150',
-            'complianceHotlineNumber' => $this->usesEhcpHotline ? 'nullable|string|max:30' : 'required|string|max:30',
-            'complianceHotlineEmail' => $this->usesEhcpHotline ? 'nullable|email|max:150' : 'required|email|max:150',
-            'hotlinePosterCount' => 'required|integer|min:0|max:999',
-            'complianceCommitteeMembers.*.name' => 'nullable|string|max:150',
-            'complianceCommitteeMembers.*.title' => 'nullable|string|max:150',
-            'complianceGoverningBoardMembers.*.name' => 'nullable|string|max:150',
-            'complianceGoverningBoardMembers.*.title' => 'nullable|string|max:150',
-        ];
+        return collect($members)->filter(fn ($m) => trim($m['name'] ?? '') !== '')->values()->all();
     }
 
-    public function addCommitteeMember(): void
+    public function addLocation(): void
     {
-        $this->complianceCommitteeMembers[] = ['name' => '', 'title' => ''];
+        $this->practiceLocations[] = '';
     }
 
-    public function removeCommitteeMember(int $index): void
+    public function removeLocation(int $index): void
     {
-        unset($this->complianceCommitteeMembers[$index]);
-        $this->complianceCommitteeMembers = array_values($this->complianceCommitteeMembers);
-    }
-
-    public function addBoardMember(): void
-    {
-        $this->complianceGoverningBoardMembers[] = ['name' => '', 'title' => ''];
-    }
-
-    public function removeBoardMember(int $index): void
-    {
-        unset($this->complianceGoverningBoardMembers[$index]);
-        $this->complianceGoverningBoardMembers = array_values($this->complianceGoverningBoardMembers);
+        unset($this->practiceLocations[$index]);
+        $this->practiceLocations = array_values($this->practiceLocations) ?: [''];
     }
 
     public function backToBasics(): void
@@ -860,18 +941,198 @@ new class extends Component
         $this->setWizardScreen('b_logo');
     }
 
-    public function continueFromTeam(bool $skipValidation = false, bool $stayOnScreen = false): void
+    public function continueFromPractice(bool $skipValidation = false, bool $stayOnScreen = false): void
     {
         $this->justSaved = false;
 
         if (! $skipValidation) {
-            $this->validate($this->teamRules());
+            $validator = Validator::make(
+                [
+                    'legalPracticeName' => $this->legalPracticeName,
+                    'mainPhone' => $this->mainPhone,
+                    'mainEmail' => $this->mainEmail,
+                    'practiceLocations' => $this->practiceLocations,
+                ],
+                [
+                    'legalPracticeName' => 'required|string|max:200',
+                    'mainPhone' => 'required|string|max:30',
+                    'mainEmail' => 'required|email|max:150',
+                    'practiceLocations' => 'required|array|min:1',
+                    'practiceLocations.*' => 'nullable|string|max:255',
+                ],
+                ['practiceLocations.required' => 'Add at least one location.'],
+            );
+
+            $validator->after(function ($validator) {
+                if (collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->isEmpty()) {
+                    $validator->errors()->add('practiceLocations', 'Add at least one location.');
+                }
+            });
+
+            $validator->validate();
         }
 
-        $filterMembers = fn (array $members) => collect($members)
-            ->filter(fn ($m) => trim($m['name'] ?? '') !== '')
+        $this->practice?->update([
+            'legal_practice_name' => $this->legalPracticeName,
+            'dba_name' => $this->dbaName ?: null,
+            'other_entities' => $this->otherEntities ?: null,
+            'main_phone' => $this->mainPhone,
+            'main_email' => $this->mainEmail,
+            'practice_locations' => collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->values()->all(),
+        ]);
+        unset($this->practice);
+
+        if ($stayOnScreen) {
+            $this->justSaved = true;
+
+            return;
+        }
+
+        $this->markReached('t_practice');
+        $this->screen = 't_officers';
+        $this->setWizardScreen('t_officers');
+    }
+
+    // ── Team: 2/5 — Who fills your compliance roles? ────────────────────────
+
+    private const OFFICER_PREFIXES = [
+        'hipaaPrivacyOfficer' => 'HIPAA Privacy Officer',
+        'hipaaSecurityOfficer' => 'HIPAA Security Officer',
+        'releaseOfInfoOfficer' => 'Release of Information Officer',
+        'complianceOfficer' => 'Compliance Officer',
+    ];
+
+    /** @return array<string, string> */
+    #[Computed]
+    public function officerPrefixes(): array
+    {
+        return self::OFFICER_PREFIXES;
+    }
+
+    /** People already known by this screen — the account holder plus any other officer that
+     *  already has a name — offered as "Same person as…" options for each officer card. */
+    #[Computed]
+    public function knownTeamPeople(): array
+    {
+        $people = ['you' => 'You ('.(auth()->user()?->name ?: 'you').')'];
+
+        foreach (self::OFFICER_PREFIXES as $prefix => $label) {
+            $name = $this->{$prefix.'Name'};
+
+            if (trim((string) $name) !== '') {
+                $people[$prefix] = "{$label} ({$name})";
+            }
+        }
+
+        return $people;
+    }
+
+    /** Quick-add roster for the Compliance Committee / governing board lists — deduplicated by
+     *  name, so a person holding several officer roles (or matching the account holder) gets
+     *  exactly one pill instead of one per role, and their title pre-fills as every role they
+     *  hold, comma-separated. A name with no officer role at all (just the account holder, with
+     *  nothing else matching) gets an empty role string.
+     *
+     * @return array<int, array{name: string, roles: string}>
+     */
+    #[Computed]
+    public function knownTeamRoster(): array
+    {
+        $entries = collect();
+
+        $accountName = trim((string) (auth()->user()?->name ?? ''));
+
+        if ($accountName !== '') {
+            $entries->push(['name' => $accountName, 'role' => null]);
+        }
+
+        foreach (self::OFFICER_PREFIXES as $prefix => $label) {
+            $name = trim((string) $this->{$prefix.'Name'});
+
+            if ($name !== '') {
+                $entries->push(['name' => $name, 'role' => $label]);
+            }
+        }
+
+        return $entries->groupBy('name')
+            ->map(fn ($group, $name) => [
+                'name' => $name,
+                'roles' => $group->pluck('role')->filter()->unique()->implode(', '),
+            ])
             ->values()
             ->all();
+    }
+
+    /** Copies a name/phone/email from the account holder or another officer onto $toPrefix,
+     *  mirroring the prototype's "Same person as…" dropdown. */
+    public function copyOfficerContact(string $toPrefix, string $source): void
+    {
+        if ($source === '' || ! array_key_exists($toPrefix, self::OFFICER_PREFIXES)) {
+            return;
+        }
+
+        if ($source === 'you') {
+            $this->{$toPrefix.'Name'} = auth()->user()?->name ?? '';
+            $this->{$toPrefix.'Email'} = auth()->user()?->email ?? '';
+
+            return;
+        }
+
+        if (! array_key_exists($source, self::OFFICER_PREFIXES)) {
+            return;
+        }
+
+        $this->{$toPrefix.'Name'} = $this->{$source.'Name'};
+        $this->{$toPrefix.'Phone'} = $this->{$source.'Phone'};
+        $this->{$toPrefix.'Email'} = $this->{$source.'Email'};
+    }
+
+    /** Same "Same person as…" copy behavior as copyOfficerContact(), for the in-house IT
+     *  contact — a plain property trio, not one of the 4 named officer roles. */
+    public function copyItContact(string $source): void
+    {
+        if ($source === 'you') {
+            $this->itContactName = auth()->user()?->name ?? '';
+            $this->itContactEmail = auth()->user()?->email ?? '';
+
+            return;
+        }
+
+        if (! array_key_exists($source, self::OFFICER_PREFIXES)) {
+            return;
+        }
+
+        $this->itContactName = $this->{$source.'Name'};
+        $this->itContactPhone = $this->{$source.'Phone'};
+        $this->itContactEmail = $this->{$source.'Email'};
+    }
+
+    public function backToPractice(): void
+    {
+        $this->screen = 't_practice';
+        $this->setWizardScreen('t_practice');
+    }
+
+    public function continueFromOfficers(bool $skipValidation = false, bool $stayOnScreen = false): void
+    {
+        $this->justSaved = false;
+
+        if (! $skipValidation) {
+            $this->validate([
+                'complianceOfficerName' => 'required|string|max:150',
+                'complianceOfficerPhone' => 'required|string|max:30',
+                'complianceOfficerEmail' => 'required|email|max:150',
+                'hipaaPrivacyOfficerName' => 'required|string|max:150',
+                'hipaaPrivacyOfficerPhone' => 'required|string|max:30',
+                'hipaaPrivacyOfficerEmail' => 'required|email|max:150',
+                'hipaaSecurityOfficerName' => 'required|string|max:150',
+                'hipaaSecurityOfficerPhone' => 'required|string|max:30',
+                'hipaaSecurityOfficerEmail' => 'required|email|max:150',
+                'releaseOfInfoOfficerName' => 'required|string|max:150',
+                'releaseOfInfoOfficerPhone' => 'required|string|max:30',
+                'releaseOfInfoOfficerEmail' => 'required|email|max:150',
+            ]);
+        }
 
         $this->practice?->update([
             'compliance_officer_name' => $this->complianceOfficerName,
@@ -886,13 +1147,6 @@ new class extends Component
             'release_of_info_officer_name' => $this->releaseOfInfoOfficerName,
             'release_of_info_officer_phone' => $this->releaseOfInfoOfficerPhone,
             'release_of_info_officer_email' => $this->releaseOfInfoOfficerEmail,
-            'it_vendor_name' => $this->itVendorName,
-            'compliance_hotline_number' => $this->usesEhcpHotline ? null : $this->complianceHotlineNumber,
-            'compliance_hotline_email' => $this->usesEhcpHotline ? null : $this->complianceHotlineEmail,
-            'uses_ehcp_hotline' => $this->usesEhcpHotline,
-            'hotline_poster_count' => $this->hotlinePosterCount,
-            'compliance_committee_members' => $filterMembers($this->complianceCommitteeMembers),
-            'compliance_governing_board_members' => $filterMembers($this->complianceGoverningBoardMembers),
         ]);
         unset($this->practice);
 
@@ -902,7 +1156,194 @@ new class extends Component
             return;
         }
 
-        $this->markReached('team');
+        $this->markReached('t_officers');
+        $this->screen = 't_it';
+        $this->setWizardScreen('t_it');
+    }
+
+    // ── Team: 3/5 — Who handles your IT? ─────────────────────────────────────
+
+    public function backToOfficers(): void
+    {
+        $this->screen = 't_officers';
+        $this->setWizardScreen('t_officers');
+    }
+
+    public function continueFromIt(bool $skipValidation = false, bool $stayOnScreen = false): void
+    {
+        $this->justSaved = false;
+
+        if (! $skipValidation) {
+            $rules = ['itMode' => 'required|in:vendor,inhouse'];
+
+            if ($this->itMode === 'vendor') {
+                $rules['itVendorName'] = 'required|string|max:150';
+                $rules['itContactPhone'] = 'required|string|max:30';
+                $rules['itContactEmail'] = 'required|email|max:150';
+            } elseif ($this->itMode === 'inhouse') {
+                $rules['itContactName'] = 'required|string|max:150';
+                $rules['itContactPhone'] = 'required|string|max:30';
+                $rules['itContactEmail'] = 'required|email|max:150';
+            }
+
+            $this->validate($rules);
+        }
+
+        $this->practice?->update([
+            'it_mode' => $this->itMode ?: null,
+            'it_vendor_name' => $this->itMode === 'vendor' ? $this->itVendorName : null,
+            'it_contact_name' => $this->itContactName ?: null,
+            'it_contact_phone' => $this->itContactPhone ?: null,
+            'it_contact_email' => $this->itContactEmail ?: null,
+        ]);
+        unset($this->practice);
+
+        if ($stayOnScreen) {
+            $this->justSaved = true;
+
+            return;
+        }
+
+        $this->markReached('t_it');
+        $this->screen = 't_hotline';
+        $this->setWizardScreen('t_hotline');
+    }
+
+    // ── Team: 4/5 — How can staff reach a compliance hotline? ────────────────
+
+    public function backToIt(): void
+    {
+        $this->screen = 't_it';
+        $this->setWizardScreen('t_it');
+    }
+
+    public function continueFromHotline(bool $skipValidation = false, bool $stayOnScreen = false): void
+    {
+        $this->justSaved = false;
+
+        if (! $skipValidation) {
+            $rules = ['usesEhcpHotline' => 'required'];
+
+            if ($this->usesEhcpHotline === false) {
+                $rules['hotlineContact'] = 'required|string|max:200';
+            }
+
+            $this->validate($rules, ['usesEhcpHotline.required' => 'Choose one option.']);
+        }
+
+        $locationCount = max(1, collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->count());
+        $posterCount = $this->hotlinePosterCount ?? ($locationCount * 2);
+
+        $this->practice?->update([
+            'uses_ehcp_hotline' => (bool) $this->usesEhcpHotline,
+            'compliance_hotline_number' => $this->usesEhcpHotline === false ? $this->hotlineContact : null,
+            'hotline_poster_count' => $posterCount,
+        ]);
+        unset($this->practice);
+        $this->hotlinePosterCount = $posterCount;
+
+        if ($stayOnScreen) {
+            $this->justSaved = true;
+
+            return;
+        }
+
+        $this->markReached('t_hotline');
+        $this->screen = 't_leadership';
+        $this->setWizardScreen('t_leadership');
+    }
+
+    // ── Team: 5/5 — Who leads compliance oversight? ──────────────────────────
+
+    public function addCommitteeMember(): void
+    {
+        $this->complianceCommitteeMembers[] = ['name' => '', 'title' => ''];
+    }
+
+    public function removeCommitteeMember(int $index): void
+    {
+        unset($this->complianceCommitteeMembers[$index]);
+        $this->complianceCommitteeMembers = array_values($this->complianceCommitteeMembers) ?: [['name' => '', 'title' => '']];
+    }
+
+    public function addBoardMember(): void
+    {
+        $this->complianceGoverningBoardMembers[] = ['name' => '', 'title' => ''];
+    }
+
+    public function removeBoardMember(int $index): void
+    {
+        unset($this->complianceGoverningBoardMembers[$index]);
+        $this->complianceGoverningBoardMembers = array_values($this->complianceGoverningBoardMembers) ?: [['name' => '', 'title' => '']];
+    }
+
+    /** One-click add for the Compliance Committee / governing board lists, from the account
+     *  holder's name or any officer already named on the previous screen. */
+    public function quickAddMember(string $group, string $name, string $roles = ''): void
+    {
+        if (trim($name) === '') {
+            return;
+        }
+
+        $property = $group === 'board' ? 'complianceGoverningBoardMembers' : 'complianceCommitteeMembers';
+        $members = $this->{$property};
+
+        if (collect($members)->contains(fn ($m) => ($m['name'] ?? '') === $name)) {
+            return;
+        }
+
+        $members = collect($members)->filter(fn ($m) => trim($m['name'] ?? '') !== '')->values()->all();
+        $members[] = ['name' => $name, 'title' => $roles];
+        $this->{$property} = $members;
+    }
+
+    public function backToHotline(): void
+    {
+        $this->screen = 't_hotline';
+        $this->setWizardScreen('t_hotline');
+    }
+
+    public function continueFromLeadership(bool $skipValidation = false, bool $stayOnScreen = false): void
+    {
+        $this->justSaved = false;
+
+        if (! $skipValidation) {
+            $this->validate([
+                'boardMode' => 'required|in:owners,board',
+                'complianceCommitteeMembers.*.name' => 'nullable|string|max:150',
+                'complianceCommitteeMembers.*.title' => 'nullable|string|max:150',
+                'complianceGoverningBoardMembers.*.name' => 'nullable|string|max:150',
+                'complianceGoverningBoardMembers.*.title' => 'nullable|string|max:150',
+            ], ['boardMode.required' => 'Choose one option.']);
+
+            if (! $this->committeeNone && collect($this->complianceCommitteeMembers)->every(fn ($m) => trim($m['name'] ?? '') === '')) {
+                $this->addError('complianceCommitteeMembers', 'Add a committee member, or tick "We don\'t have a committee yet."');
+
+                return;
+            }
+
+            if (collect($this->complianceGoverningBoardMembers)->every(fn ($m) => trim($m['name'] ?? '') === '')) {
+                $this->addError('complianceGoverningBoardMembers', $this->boardMode === 'board' ? 'List each board member.' : 'List the owners or partners who oversee compliance.');
+
+                return;
+            }
+        }
+
+        $this->practice?->update([
+            'committee_none' => $this->committeeNone,
+            'compliance_committee_members' => $this->committeeNone ? [] : $this->filterMembers($this->complianceCommitteeMembers),
+            'board_mode' => $this->boardMode ?: null,
+            'compliance_governing_board_members' => $this->filterMembers($this->complianceGoverningBoardMembers),
+        ]);
+        unset($this->practice);
+
+        if ($stayOnScreen) {
+            $this->justSaved = true;
+
+            return;
+        }
+
+        $this->markReached('t_leadership');
 
         $first = $this->remainingQueue[0] ?? null;
 
@@ -927,7 +1368,7 @@ new class extends Component
 
         if ($questionId === null) {
             $this->currentResponse = '';
-            $this->currentHasDocumentedProcess = true;
+            $this->currentHasDocumentedProcess = null;
 
             return;
         }
@@ -935,7 +1376,7 @@ new class extends Component
         $existing = $this->currentSubmission->intakeAnswers()->where('intake_question_id', $questionId)->first();
 
         $this->currentResponse = $existing?->response ?? '';
-        $this->currentHasDocumentedProcess = $existing ? (bool) $existing->has_documented_process : true;
+        $this->currentHasDocumentedProcess = $existing ? (bool) $existing->has_documented_process : null;
     }
 
     public function chooseNoDocumentedProcess(): void
@@ -948,7 +1389,13 @@ new class extends Component
     {
         $response = $response ?? $this->currentResponse;
 
-        if ($this->currentHasDocumentedProcess && trim((string) $response) === '') {
+        if ($this->currentHasDocumentedProcess === null) {
+            $this->addError('currentResponse', 'Choose one of the two options above.');
+
+            return;
+        }
+
+        if ($this->currentHasDocumentedProcess === true && trim((string) $response) === '') {
             $this->addError('currentResponse', 'Please describe your practice\'s process, or choose "We don\'t have a documented answer" instead.');
 
             return;
@@ -959,7 +1406,7 @@ new class extends Component
         $submission->intakeAnswers()->updateOrCreate(
             ['intake_question_id' => $this->currentQuestionId],
             [
-                'response' => $this->currentHasDocumentedProcess ? $response : null,
+                'response' => $this->currentHasDocumentedProcess === true ? $response : null,
                 'has_documented_process' => $this->currentHasDocumentedProcess,
                 'skipped' => false,
                 'answered_at' => now(),
@@ -1012,8 +1459,8 @@ new class extends Component
         $position = array_search($this->currentQuestionId, $master, true);
 
         if ($position === false || $position === 0) {
-            $this->screen = 'team';
-            $this->setWizardScreen('team');
+            $this->screen = 't_leadership';
+            $this->setWizardScreen('t_leadership');
 
             return;
         }
@@ -1023,7 +1470,22 @@ new class extends Component
 
     private function finishWizard(): void
     {
+        $this->screen = 'done';
         $this->setWizardScreen('done');
+    }
+
+    /** "Review all answers" in the section-jump dropdown — lets the client preview Step 3's
+     *  summary at any point in the questionnaire, matching the reference prototype. */
+    public function requestReview(): void
+    {
+        $this->dispatch('intake-wizard-review-requested');
+    }
+
+    /** The "done" screen's "Continue to Upload & Confirm" button — only now does the parent
+     *  portal actually advance to Step 3, so the client sees the intake-complete confirmation
+     *  screen first, matching the reference prototype. */
+    public function continueToConfirm(): void
+    {
         $this->dispatch('intake-wizard-complete');
     }
 };
@@ -1487,112 +1949,80 @@ new class extends Component
     @endif
 
     {{-- ── Team ── --}}
-    @if($screen === 'team')
+    @php
+        $teamAside = function (string $why) {
+            return '<aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
+                <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
+                <p class="text-sm text-[#173045] leading-relaxed mb-4">'.$why.' Asked once, and used in all three manuals.</p>
+                <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
+                <div class="flex flex-wrap gap-1.5">
+                    <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">Compliance &amp; Ethics &middot; &sect;1</span>
+                    <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Privacy &middot; &sect;1</span>
+                    <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Security &middot; &sect;1</span>
+                </div>
+            </aside>';
+        };
+    @endphp
+
+    {{-- ── Team 1/5: Your practice's legal details ── --}}
+    @if($screen === 't_practice')
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full space-y-5">
         <div>
-            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Your team</h2>
-            <p class="text-sm text-[#5d6e7f]">These contacts and details are shared across all of your compliance manuals.</p>
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 1 of 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Your practice's legal details</h2>
+            <p class="text-sm text-[#5d6e7f]">Legal name, main phone and email, and every location.</p>
         </div>
 
-        @foreach([
-            ['prefix' => 'complianceOfficer', 'label' => 'Compliance Officer'],
-            ['prefix' => 'hipaaPrivacyOfficer', 'label' => 'HIPAA Privacy Officer'],
-            ['prefix' => 'hipaaSecurityOfficer', 'label' => 'HIPAA Security Officer'],
-            ['prefix' => 'releaseOfInfoOfficer', 'label' => 'Release of Information Officer'],
-        ] as $officer)
-        <div class="border-t border-[#eef2f6] pt-4">
-            <p class="text-sm font-semibold text-[#12304f] mb-2">{{ $officer['label'] }}</p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                    <input wire:model="{{ $officer['prefix'] }}Name" type="text" placeholder="Name"
-                        class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Name') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    @error($officer['prefix'].'Name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-                <div>
-                    <input wire:model="{{ $officer['prefix'] }}Phone" type="text" placeholder="Phone"
-                        class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Phone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    @error($officer['prefix'].'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-                <div>
-                    <input wire:model="{{ $officer['prefix'] }}Email" type="email" placeholder="Email"
-                        class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Email') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    @error($officer['prefix'].'Email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-            </div>
+        <div>
+            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Legal practice name <span class="text-red-500">*</span></label>
+            <input wire:model="legalPracticeName" type="text"
+                class="w-full rounded-xl border {{ $errors->has('legalPracticeName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            @error('legalPracticeName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
-        @endforeach
 
-        <div class="border-t border-[#eef2f6] pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">IT Vendor <span class="text-red-500">*</span></label>
-                <input wire:model="itVendorName" type="text"
-                    class="w-full rounded-xl border {{ $errors->has('itVendorName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                @error('itVendorName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">DBA <span class="text-xs font-normal text-[#8592a1]">(if any)</span></label>
+                <input wire:model="dbaName" type="text"
+                    class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
             </div>
             <div>
-                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Hotline posters needed</label>
-                <input wire:model="hotlinePosterCount" type="number" min="0"
-                    class="w-full rounded-xl border {{ $errors->has('hotlinePosterCount') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                @error('hotlinePosterCount') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Other entities <span class="text-xs font-normal text-[#8592a1]">(if any)</span></label>
+                <input wire:model="otherEntities" type="text"
+                    class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main phone <span class="text-red-500">*</span></label>
+                <input wire:model="mainPhone" type="text"
+                    class="w-full rounded-xl border {{ $errors->has('mainPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('mainPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main email <span class="text-red-500">*</span></label>
+                <input wire:model="mainEmail" type="email"
+                    class="w-full rounded-xl border {{ $errors->has('mainEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('mainEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
 
         <div class="border-t border-[#eef2f6] pt-4">
-            <label class="inline-flex items-center gap-2 text-sm text-[#173045] cursor-pointer mb-3">
-                <input type="checkbox" wire:model.live="usesEhcpHotline" class="rounded text-[#0b9ed0] focus:ring-[#0b9ed0]">
-                We'll use Empower's shared compliance hotline instead of our own
-            </label>
-            @unless($usesEhcpHotline)
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Compliance hotline number <span class="text-red-500">*</span></label>
-                    <input wire:model="complianceHotlineNumber" type="text"
-                        class="w-full rounded-xl border {{ $errors->has('complianceHotlineNumber') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    @error('complianceHotlineNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Compliance hotline email <span class="text-red-500">*</span></label>
-                    <input wire:model="complianceHotlineEmail" type="email"
-                        class="w-full rounded-xl border {{ $errors->has('complianceHotlineEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    @error('complianceHotlineEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-            </div>
-            @endunless
-        </div>
-
-        <div class="border-t border-[#eef2f6] pt-4">
-            <div class="flex items-center justify-between mb-2">
-                <p class="text-sm font-semibold text-[#31465b]">Compliance committee members</p>
-                <button type="button" wire:click="addCommitteeMember" class="text-xs font-bold text-[#1a7aad] hover:underline">+ Add member</button>
-            </div>
-            @foreach($complianceCommitteeMembers as $i => $member)
+            <label class="block text-sm font-semibold text-[#31465b] mb-0.5">Locations <span class="text-red-500">*</span></label>
+            <p class="text-xs text-[#8592a1] mb-2">Legal address first, then each additional site.</p>
+            @foreach($practiceLocations as $i => $location)
             <div class="flex gap-2 mb-2">
-                <input wire:model="complianceCommitteeMembers.{{ $i }}.name" type="text" placeholder="Name"
+                <input wire:model="practiceLocations.{{ $i }}" type="text" placeholder="{{ $i ? 'Location '.($i + 1).' address' : 'Legal / main address' }}"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <input wire:model="complianceCommitteeMembers.{{ $i }}.title" type="text" placeholder="Title"
-                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <button type="button" wire:click="removeCommitteeMember({{ $i }})" class="text-xs font-bold text-red-600 hover:underline flex-shrink-0">Remove</button>
+                <button type="button" wire:click="removeLocation({{ $i }})" @disabled(count($practiceLocations) < 2)
+                    class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-40">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+                </button>
             </div>
             @endforeach
-        </div>
-
-        <div class="border-t border-[#eef2f6] pt-4">
-            <div class="flex items-center justify-between mb-2">
-                <p class="text-sm font-semibold text-[#31465b]">Governing board members</p>
-                <button type="button" wire:click="addBoardMember" class="text-xs font-bold text-[#1a7aad] hover:underline">+ Add member</button>
-            </div>
-            @foreach($complianceGoverningBoardMembers as $i => $member)
-            <div class="flex gap-2 mb-2">
-                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.name" type="text" placeholder="Name"
-                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.title" type="text" placeholder="Title"
-                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <button type="button" wire:click="removeBoardMember({{ $i }})" class="text-xs font-bold text-red-600 hover:underline flex-shrink-0">Remove</button>
-            </div>
-            @endforeach
+            @error('practiceLocations') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <button type="button" wire:click="addLocation" class="text-xs font-bold text-[#1a7aad] hover:underline">+ Add another location</button>
         </div>
 
         @if($justSaved)
@@ -1603,29 +2033,397 @@ new class extends Component
         <div class="flex justify-between items-center pt-2">
             <button wire:click="backToBasics" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromTeam(true)" wire:target="continueFromTeam"
+                <button wire:click="continueFromPractice(true)" wire:target="continueFromPractice"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromTeam(true, true)" wire:target="continueFromTeam"
+                <button wire:click="continueFromPractice(true, true)" wire:target="continueFromPractice"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromTeam" wire:target="continueFromTeam" wire:loading.attr="disabled"
+                <button wire:click="continueFromPractice" wire:target="continueFromPractice" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
-                    <span wire:loading.remove wire:target="continueFromTeam">Continue &rarr;</span>
-                    <span wire:loading.inline-flex wire:target="continueFromTeam" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                    <span wire:loading.remove wire:target="continueFromPractice">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromPractice" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
         </div>
+        {!! $teamAside("Section 1 starts with your legal name and addresses. Facility security policies and hotline poster counts depend on your locations.") !!}
+        </div>
+    </div>
+    @endif
 
-        <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
-            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Asked once, and used in all three manuals.</p>
-            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
-            <div class="flex flex-wrap gap-1.5">
-                <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">Compliance &amp; Ethics &middot; &sect;1</span>
-                <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Privacy &middot; &sect;1</span>
-                <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Security &middot; &sect;1</span>
+    {{-- ── Team 2/5: Who fills your compliance roles? ── --}}
+    @if($screen === 't_officers')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full space-y-5">
+        <div>
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 2 of 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who fills your compliance roles?</h2>
+            <p class="text-sm text-[#5d6e7f]">One person can hold more than one role. Use "Same person as" to copy details.</p>
+        </div>
+
+        @foreach($this->officerPrefixes as $prefix => $label)
+        <div class="border-t border-[#eef2f6] pt-4">
+            <div class="flex items-center justify-between gap-3 mb-2">
+                <p class="text-sm font-semibold text-[#12304f]">{{ $label }}</p>
+                <select wire:change="copyOfficerContact('{{ $prefix }}', $event.target.value)"
+                    class="rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
+                    <option value="">Same person as&hellip;</option>
+                    @foreach($this->knownTeamPeople as $key => $personLabel)
+                        @if($key !== $prefix)
+                        <option value="{{ $key }}">{{ $personLabel }}</option>
+                        @endif
+                    @endforeach
+                </select>
             </div>
-        </aside>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                    <input wire:model="{{ $prefix }}Name" type="text" placeholder="Full name"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Name') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error($prefix.'Name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <input wire:model="{{ $prefix }}Phone" type="text" placeholder="Phone"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Phone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error($prefix.'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <input wire:model="{{ $prefix }}Email" type="email" placeholder="Email"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Email') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    @error($prefix.'Email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
+            </div>
+        </div>
+        @endforeach
+
+        @if($justSaved)
+        <p class="text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up where
+            you left off.</p>
+        @endif
+
+        <div class="flex justify-between items-center pt-2">
+            <button wire:click="backToPractice" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <div class="flex items-center gap-4">
+                <button wire:click="continueFromOfficers(true)" wire:target="continueFromOfficers"
+                    class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
+                <button wire:click="continueFromOfficers(true, true)" wire:target="continueFromOfficers"
+                    class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
+                <button wire:click="continueFromOfficers" wire:target="continueFromOfficers" wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="continueFromOfficers">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromOfficers" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+        </div>
+        </div>
+        {!! $teamAside("HIPAA requires designated Privacy and Security Officers, and OIG guidance calls for a Compliance Officer. They are named throughout all three manuals.") !!}
+        </div>
+    </div>
+    @endif
+
+    {{-- ── Team 3/5: Who handles your IT? ── --}}
+    @if($screen === 't_it')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full space-y-5">
+        <div>
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 3 of 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who handles your IT?</h2>
+            <p class="text-sm text-[#5d6e7f]">An outside IT company or someone in-house.</p>
+        </div>
+
+        <div class="space-y-2">
+            <label class="flex items-start gap-3 rounded-xl border {{ $itMode === 'vendor' ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-3 cursor-pointer">
+                <input type="radio" wire:model.live="itMode" value="vendor" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                <span>
+                    <span class="block text-sm font-semibold text-[#173045]">An outside IT company</span>
+                    <span class="block text-xs text-[#5d6e7f]">A managed service provider or IT consultant.</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-xl border {{ $itMode === 'inhouse' ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-3 cursor-pointer">
+                <input type="radio" wire:model.live="itMode" value="inhouse" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                <span>
+                    <span class="block text-sm font-semibold text-[#173045]">We handle IT in-house</span>
+                    <span class="block text-xs text-[#5d6e7f]">A staff member manages computers and systems.</span>
+                </span>
+            </label>
+            @error('itMode') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        </div>
+
+        @if($itMode === 'vendor')
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Company name <span class="text-red-500">*</span></label>
+                <input wire:model="itVendorName" type="text"
+                    class="w-full rounded-xl border {{ $errors->has('itVendorName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itVendorName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Contact name</label>
+                <input wire:model="itContactName" type="text"
+                    class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span class="text-red-500">*</span></label>
+                <input wire:model="itContactPhone" type="text"
+                    class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span class="text-red-500">*</span></label>
+                <input wire:model="itContactEmail" type="email"
+                    class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itContactEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+        </div>
+        @elseif($itMode === 'inhouse')
+        <div class="border border-[#eef2f6] rounded-xl p-4">
+            <div class="flex items-center justify-between gap-3 mb-2">
+                <p class="text-sm font-semibold text-[#12304f]">Who handles IT?</p>
+                <select wire:change="copyItContact($event.target.value)"
+                    class="rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
+                    <option value="">Same person as&hellip;</option>
+                    @foreach($this->knownTeamPeople as $key => $personLabel)
+                    <option value="{{ $key }}">{{ $personLabel }}</option>
+                    @endforeach
+                </select>
+            </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Full name <span class="text-red-500">*</span></label>
+                <input wire:model="itContactName" type="text"
+                    class="w-full rounded-xl border {{ $errors->has('itContactName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itContactName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span class="text-red-500">*</span></label>
+                <input wire:model="itContactPhone" type="text"
+                    class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span class="text-red-500">*</span></label>
+                <input wire:model="itContactEmail" type="email"
+                    class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                @error('itContactEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+        </div>
+        </div>
+        @endif
+
+        @if($justSaved)
+        <p class="text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up where
+            you left off.</p>
+        @endif
+
+        <div class="flex justify-between items-center pt-2">
+            <button wire:click="backToOfficers" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <div class="flex items-center gap-4">
+                <button wire:click="continueFromIt(true)" wire:target="continueFromIt"
+                    class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
+                <button wire:click="continueFromIt(true, true)" wire:target="continueFromIt"
+                    class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
+                <button wire:click="continueFromIt" wire:target="continueFromIt" wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="continueFromIt">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromIt" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+        </div>
+        </div>
+        {!! $teamAside("Your IT contact is named in most HIPAA Security policies.") !!}
+        </div>
+    </div>
+    @endif
+
+    {{-- ── Team 4/5: How can staff reach a compliance hotline? ── --}}
+    @if($screen === 't_hotline')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full space-y-5">
+        <div>
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 4 of 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">How can staff reach a compliance hotline?</h2>
+            <p class="text-sm text-[#5d6e7f]">Staff need a way to report concerns anonymously.</p>
+        </div>
+
+        <div class="space-y-2">
+            <label class="flex items-start gap-3 rounded-xl border {{ $usesEhcpHotline === true ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-3 cursor-pointer">
+                <input type="radio" wire:model.live="usesEhcpHotline" value="1" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                <span>
+                    <span class="block text-sm font-semibold text-[#173045]">Use the Empower compliance hotline</span>
+                    <span class="block text-xs text-[#5d6e7f]">Included in your package. Anonymous phone and web reporting.</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-xl border {{ $usesEhcpHotline === false ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-3 cursor-pointer">
+                <input type="radio" wire:model.live="usesEhcpHotline" value="0" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                <span>
+                    <span class="block text-sm font-semibold text-[#173045]">We have our own hotline</span>
+                    <span class="block text-xs text-[#5d6e7f]">Tell us the number and/or email.</span>
+                </span>
+            </label>
+            @error('usesEhcpHotline') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        </div>
+
+        @if($usesEhcpHotline === false)
+        <div>
+            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Hotline number and/or email <span class="text-red-500">*</span></label>
+            <input wire:model="hotlineContact" type="text"
+                class="w-full rounded-xl border {{ $errors->has('hotlineContact') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            @error('hotlineContact') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        </div>
+        @endif
+
+        @if($usesEhcpHotline !== null)
+        @php $locationCount = max(1, collect($practiceLocations)->filter(fn ($l) => trim($l) !== '')->count()); @endphp
+        <div>
+            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Hotline posters needed</label>
+            <input wire:model="hotlinePosterCount" type="number" min="0" placeholder="{{ $locationCount * 2 }}"
+                class="w-full max-w-[10rem] rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            <p class="text-xs text-[#8592a1] mt-1">2 per location recommended ({{ $locationCount }} location{{ $locationCount > 1 ? 's' : '' }}).</p>
+        </div>
+        @endif
+
+        @if($justSaved)
+        <p class="text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up where
+            you left off.</p>
+        @endif
+
+        <div class="flex justify-between items-center pt-2">
+            <button wire:click="backToIt" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <div class="flex items-center gap-4">
+                <button wire:click="continueFromHotline(true)" wire:target="continueFromHotline"
+                    class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
+                <button wire:click="continueFromHotline(true, true)" wire:target="continueFromHotline"
+                    class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
+                <button wire:click="continueFromHotline" wire:target="continueFromHotline" wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="continueFromHotline">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromHotline" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+        </div>
+        </div>
+        {!! $teamAside("A hotline is part of the reporting element. Section 1 recommends 2 posters per location.") !!}
+        </div>
+    </div>
+    @endif
+
+    {{-- ── Team 5/5: Who leads compliance oversight? ── --}}
+    @if($screen === 't_leadership')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full space-y-5">
+        <div>
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 5 of 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who leads compliance oversight?</h2>
+            <p class="text-sm text-[#5d6e7f]">Your Compliance Committee, and your owners or governing board.</p>
+        </div>
+
+        <div class="border border-[#eef2f6] rounded-xl p-4">
+            <p class="text-sm font-semibold text-[#12304f] mb-2">Compliance Committee</p>
+            <label class="inline-flex items-center gap-2 text-sm text-[#173045] cursor-pointer mb-3">
+                <input type="checkbox" wire:model.live="committeeNone" class="rounded text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                We don't have a committee yet
+            </label>
+            @unless($committeeNone)
+            @foreach($complianceCommitteeMembers as $i => $member)
+            <div class="flex gap-2 mb-2">
+                <input wire:model="complianceCommitteeMembers.{{ $i }}.name" type="text" placeholder="Name"
+                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                <input wire:model="complianceCommitteeMembers.{{ $i }}.title" type="text" placeholder="Title or role"
+                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                <button type="button" wire:click="removeCommitteeMember({{ $i }})" @disabled(count($complianceCommitteeMembers) < 2)
+                    class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-white transition-colors disabled:opacity-40">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+                </button>
+            </div>
+            @endforeach
+            @error('complianceCommitteeMembers') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <button type="button" wire:click="addCommitteeMember" class="text-xs font-bold text-[#1a7aad] hover:underline">+ Add member</button>
+            @if($this->knownTeamRoster !== [])
+            <p class="text-xs text-[#8592a1] mt-2">Quick add:
+                @foreach($this->knownTeamRoster as $person)
+                    <button type="button" wire:click="quickAddMember('committee', '{{ addslashes($person['name']) }}', '{{ addslashes($person['roles']) }}')"
+                        title="{{ $person['roles'] ?: 'No role assigned yet' }}"
+                        class="inline-flex items-center rounded-full border border-[#dbe4ee] bg-white px-2 py-0.5 text-[0.7rem] font-semibold text-[#173045] hover:bg-[#f4f7fb] mr-1">+ {{ $person['name'] }}</button>
+                @endforeach
+            </p>
+            @endif
+            @endunless
+        </div>
+
+        <div class="border border-[#eef2f6] rounded-xl p-4">
+            <p class="text-sm font-semibold text-[#12304f] mb-2">Owners or governing board</p>
+            <div class="space-y-2 mb-3">
+                <label class="flex items-start gap-3 rounded-xl border {{ $boardMode === 'owners' ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-white px-4 py-3 cursor-pointer">
+                    <input type="radio" wire:model.live="boardMode" value="owners" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                    <span>
+                        <span class="block text-sm font-semibold text-[#173045]">Our owners or partners oversee compliance</span>
+                        <span class="block text-xs text-[#5d6e7f]">No formal governing board.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-3 rounded-xl border {{ $boardMode === 'board' ? 'border-[#0b9ed0] ring-1 ring-[#0b9ed0]' : 'border-[#dbe4ee]' }} bg-white px-4 py-3 cursor-pointer">
+                    <input type="radio" wire:model.live="boardMode" value="board" class="mt-1 text-[#0b9ed0] focus:ring-[#0b9ed0]">
+                    <span>
+                        <span class="block text-sm font-semibold text-[#173045]">We have a governing board</span>
+                        <span class="block text-xs text-[#5d6e7f]">List each board member.</span>
+                    </span>
+                </label>
+                @error('boardMode') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+
+            @if($boardMode !== '')
+            @foreach($complianceGoverningBoardMembers as $i => $member)
+            <div class="flex gap-2 mb-2">
+                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.name" type="text" placeholder="Name"
+                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.title" type="text" placeholder="Title or role"
+                    class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                <button type="button" wire:click="removeBoardMember({{ $i }})" @disabled(count($complianceGoverningBoardMembers) < 2)
+                    class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-white transition-colors disabled:opacity-40">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+                </button>
+            </div>
+            @endforeach
+            @error('complianceGoverningBoardMembers') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <button type="button" wire:click="addBoardMember" class="text-xs font-bold text-[#1a7aad] hover:underline">+ Add {{ $boardMode === 'owners' ? 'owner' : 'board member' }}</button>
+            @if($this->knownTeamRoster !== [])
+            <p class="text-xs text-[#8592a1] mt-2">Quick add:
+                @foreach($this->knownTeamRoster as $person)
+                    <button type="button" wire:click="quickAddMember('board', '{{ addslashes($person['name']) }}', '{{ addslashes($person['roles']) }}')"
+                        title="{{ $person['roles'] ?: 'No role assigned yet' }}"
+                        class="inline-flex items-center rounded-full border border-[#dbe4ee] bg-white px-2 py-0.5 text-[0.7rem] font-semibold text-[#173045] hover:bg-[#f4f7fb] mr-1">+ {{ $person['name'] }}</button>
+                @endforeach
+            </p>
+            @endif
+            @endif
+        </div>
+
+        @if($justSaved)
+        <p class="text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up where
+            you left off.</p>
+        @endif
+
+        <div class="flex justify-between items-center pt-2">
+            <button wire:click="backToHotline" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <div class="flex items-center gap-4">
+                <button wire:click="continueFromLeadership(true)" wire:target="continueFromLeadership"
+                    class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
+                <button wire:click="continueFromLeadership(true, true)" wire:target="continueFromLeadership"
+                    class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
+                <button wire:click="continueFromLeadership" wire:target="continueFromLeadership" wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                    <span wire:loading.remove wire:target="continueFromLeadership">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromLeadership" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+        </div>
+        </div>
+        {!! $teamAside("Committee and board members are listed in the Compliance & Ethics Manual. OIG guidance expects leadership to oversee the program.") !!}
         </div>
     </div>
     @endif
@@ -1653,21 +2451,21 @@ new class extends Component
             <span class="text-[10.5px] font-bold tracking-normal normal-case bg-[#e6f6ef] text-[#1f9d6b] px-2 py-0.5 rounded-full">Answered</span>
             @endif
         </p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">{{ $question->title }}</h2>
+        <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-1">{{ $question->title }}</h2>
         @if($question->prompt_summary)
         <p class="text-sm text-[#5d6e7f] mb-4">{{ $question->prompt_summary }}</p>
         @endif
 
         <div class="space-y-2.5 mb-4">
-            <label class="flex items-start gap-2.5 rounded-xl border {{ $currentHasDocumentedProcess ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
-                <input type="radio" wire:click="$set('currentHasDocumentedProcess', true)" @checked($currentHasDocumentedProcess) class="mt-0.5 accent-[#12304f]">
+            <label class="flex items-start gap-2.5 rounded-xl border {{ $currentHasDocumentedProcess === true ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
+                <input type="radio" wire:key="has-documented-process-yes-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="$set('currentHasDocumentedProcess', true)" @checked($currentHasDocumentedProcess === true) class="mt-0.5 accent-[#12304f]">
                 <span>
                     <span class="block text-sm font-bold text-[#173045]">We have a documented process</span>
                     <span class="block text-xs text-[#5d6e7f] mt-0.5">Describe it in your own words. Your response is used exactly as you write it.</span>
                 </span>
             </label>
-            <label class="flex items-start gap-2.5 rounded-xl border {{ ! $currentHasDocumentedProcess ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
-                <input type="radio" wire:click="chooseNoDocumentedProcess" @checked(!$currentHasDocumentedProcess) class="mt-0.5 accent-[#12304f]">
+            <label class="flex items-start gap-2.5 rounded-xl border {{ $currentHasDocumentedProcess === false ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
+                <input type="radio" wire:key="has-documented-process-no-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="chooseNoDocumentedProcess" @checked($currentHasDocumentedProcess === false) class="mt-0.5 accent-[#12304f]">
                 <span>
                     <span class="block text-sm font-bold text-[#173045]">We don't have a documented answer</span>
                     <span class="block text-xs text-[#5d6e7f] mt-0.5">The policy's best-practice language becomes your default, and we move you to the next question.</span>
@@ -1675,28 +2473,38 @@ new class extends Component
             </label>
         </div>
 
-        @if($currentHasDocumentedProcess)
+        @if($currentHasDocumentedProcess === true)
         @if($question->policies->isNotEmpty())
-        <div class="rounded-xl bg-white border-l-[3px] border-l-[#0b9ed0] border-y border-r border-y-[#e6edf4] border-r-[#e6edf4] p-4 mb-3">
+        <div class="rounded-xl bg-[#f8fbfd] border-l-[3px] border-l-[#0b9ed0] border-y border-r border-y-[#e6edf4] border-r-[#e6edf4] p-4 mb-3">
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#12304f] mb-2">Your response should cover{{ $question->policies->count() > 1 ? ' all '.$question->policies->count().' policies' : '' }}</p>
             @foreach($question->policies as $policy)
             <div class="{{ ! $loop->last ? 'border-b border-[#eef2f6] mb-2.5 pb-2.5' : '' }}">
                 @if($question->policies->count() > 1)
                 <p class="text-xs text-[#12304f] mb-1.5"><strong class="text-[11.5px] bg-[#eaf5fb] text-[#1a7aad] rounded-full px-1.5 py-0.5 mr-1">{{ $policy->code }}</strong> {{ $policy->title }}</p>
                 @endif
-                <ul class="list-disc list-inside text-[13.5px] text-[#173045] space-y-1">
+                <ul class="list-disc list-inside text-xs text-[#173045] space-y-1">
                     @foreach(($policy->requirements['bullets'] ?? []) as $bullet)
                     <li>{{ $bullet }}</li>
                     @endforeach
                 </ul>
+                @if($policy->requirements['full_question'] ?? null)
+                <details class="group mt-1.5">
+                    <summary class="list-none [&::-webkit-details-marker]:hidden text-xs font-bold text-[#1a7aad] cursor-pointer before:content-['▸_'] group-open:before:content-['▾_']">Full question{{ $question->policies->count() > 1 ? ' for '.$policy->code : '' }}</summary>
+                    <p class="text-xs text-[#5d6e7f] leading-relaxed mt-1.5">{{ $policy->requirements['full_question'] }}</p>
+                </details>
+                @endif
             </div>
             @endforeach
         </div>
         @endif
 
-        <textarea wire:model="currentResponse" rows="8" placeholder="Describe your practice's process&hellip;"
-            class="w-full rounded-xl border {{ $errors->has('currentResponse') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"></textarea>
-        @error('currentResponse') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        <div x-data="{ text: @js($currentResponse), get wordCount() { return this.text.trim() === '' ? 0 : this.text.trim().split(/\s+/).filter(Boolean).length } }" wire:key="response-field-{{ $currentQuestionId }}">
+            <label for="qText" class="block text-sm font-semibold text-[#173045] mb-1.5">Practice response <span class="text-red-500">*</span></label>
+            <textarea wire:model="currentResponse" x-on:input="text = $event.target.value" id="qText" rows="8" placeholder="Describe your practice's process&hellip;"
+                class="w-full rounded-xl border {{ $errors->has('currentResponse') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"></textarea>
+            @error('currentResponse') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <p class="mt-1.5 text-xs text-[#5d6e7f]"><span x-text="wordCount"></span> <span x-text="wordCount === 1 ? 'word' : 'words'"></span> &middot; Name real roles, real systems, real vendors, and real timeframes &mdash; not &ldquo;as required by policy.&rdquo; Empower does not edit practice responses.</p>
+        </div>
         @endif
 
         <div class="flex items-center justify-between mt-5">
@@ -1709,7 +2517,7 @@ new class extends Component
                 <button wire:click="skipCurrentQuestion" wire:target="skipCurrentQuestion"
                     class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">Skip for now</button>
                 @endif
-                @if($currentHasDocumentedProcess)
+                @if($currentHasDocumentedProcess === true)
                 <button wire:click="saveCurrentAnswer" wire:target="saveCurrentAnswer" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="saveCurrentAnswer">Save &amp; Continue &rarr;</span>
@@ -1722,17 +2530,46 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">{{ $question->why_we_ask ?: 'This answer feeds directly into your compliance manuals.' }}</p>
+            <p class="text-xs text-[#173045] leading-snug mb-4">{{ $question->why_we_ask ?: 'This answer feeds directly into your compliance manuals.' }}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">No documented answer?</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Choose "We don't have a documented answer." The policy's best-practice language becomes your default and you move to the next question. If you do respond, your response is used as written.</p>
+            <p class="text-xs text-[#173045] leading-snug mb-4">Choose "We don't have a documented answer." The policy's best-practice language becomes your default and you move to the next question. If you do respond, your response is used as written.</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Fills these policies</h4>
+            @php($policyManualCount = $question->policies->pluck('manual')->unique()->count())
+            @if($question->policies->count() > 1)
+            <p class="text-[12.5px] text-[#135f41] bg-[#e6f6ef] rounded-lg px-2.5 py-1.5 mb-2">One answer fills <strong>{{ $question->policies->count() }} policies</strong>{{ $policyManualCount > 1 ? ' across '.$policyManualCount.' manuals' : '' }}.</p>
+            @endif
             <div class="flex flex-wrap gap-1.5">
                 @foreach($question->policies as $policy)
                 <span title="{{ $policy->title }}"
                     class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">{{ $policy->code }}</span>
                 @endforeach
             </div>
+            <ul class="list-none mt-2 text-xs text-[#5d6e7f] leading-relaxed space-y-0.5">
+                @foreach($question->policies as $policy)
+                <li>&middot; {{ $policy->title }}</li>
+                @endforeach
+            </ul>
         </aside>
+        </div>
+    </div>
+    @endif
+
+    {{-- ── Done ── --}}
+    @if($screen === 'done')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="flex flex-col items-center text-center px-6 py-14 lg:py-20 max-w-xl mx-auto">
+            <div class="w-14 h-14 rounded-full flex items-center justify-center mb-5 bg-[#e6f6ef] text-[#1f9d6b]">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-1.5">You're through the intake</h2>
+            <p class="text-sm text-[#5d6e7f] mb-6">Next, review your answers and documents, then certify and submit.</p>
+
+            <button type="button" wire:click="continueToConfirm" wire:target="continueToConfirm" wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-6 py-2.5 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                <span wire:loading.remove wire:target="continueToConfirm">Continue to Upload &amp; Confirm &rarr;</span>
+                <span wire:loading.inline-flex wire:target="continueToConfirm" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Continuing&hellip;</span>
+            </button>
         </div>
     </div>
     @endif

@@ -27,6 +27,12 @@ enum DocumentType: string
     // than merged into one of the fixed manual templates above.
     case PolishedClientDocument = 'polished_client_document';
 
+    // Advanced tier only — synthesized by AI from the practice's own data (workflow answers or
+    // an uploaded encounter list) rather than merged into a fixed template. See
+    // isAiSynthesizedReport() and GenerateComplianceDocument::generateAiSynthesizedReport().
+    case SecurityRiskAssessment = 'security_risk_assessment';
+    case CodingMiniAuditReport = 'coding_mini_audit_report';
+
     public function label(): string
     {
         return match ($this) {
@@ -43,6 +49,18 @@ enum DocumentType: string
             self::HipaaBusinessAssociateManual => 'HIPAA Business Associate Manual',
             self::HipaaSecurityManual => 'HIPAA Security Manual',
             self::PolishedClientDocument => 'Reviewed & Polished Document',
+            self::SecurityRiskAssessment => 'Security Risk Assessment (SRA)',
+            self::CodingMiniAuditReport => 'Coding & Documentation Mini Audit Report',
+        };
+    }
+
+    /** Whether this document's content is synthesized by AI from the practice's own data
+     *  (workflow answers or an uploaded file) rather than merged into a fixed .docx template. */
+    public function isAiSynthesizedReport(): bool
+    {
+        return match ($this) {
+            self::SecurityRiskAssessment, self::CodingMiniAuditReport => true,
+            default => false,
         };
     }
 

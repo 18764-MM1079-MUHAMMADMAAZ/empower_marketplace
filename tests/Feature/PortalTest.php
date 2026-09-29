@@ -1855,10 +1855,12 @@ class PortalTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal')
             ->assertSet('step', 3)
+            ->assertSet('certifiedByName', $user->name)
             ->assertSee('Sunrise Family Medicine')
             ->assertSee('employee-handbook.pdf')
             ->call('finalizeIntake')
-            ->assertHasErrors(['certifiedByName', 'certifiedByTitle', 'certifiedSignature', 'certifyChecked']);
+            ->assertHasErrors(['certifiedByTitle', 'certifiedSignature', 'certifyChecked'])
+            ->assertHasNoErrors(['certifiedByName']);
     }
 
     public function test_finalize_intake_certifies_submits_and_notifies_admins(): void
@@ -2188,6 +2190,32 @@ class PortalTest extends TestCase
             ->set('step', 5)
             ->assertSee('Compliance & Ethics Manual')
             ->assertDontSee('HIPAA Business Associate Manual');
+    }
+
+    public function test_dashboard_labels_a_polished_employee_manual_upload_distinctly(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = $this->makeApprovedOrder($user);
+
+        $upload = IntakeUpload::factory()->create([
+            'intake_submission_id' => $order->intakeSubmission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => 'employee_manual',
+            'original_filename' => 'staff-handbook.pdf',
+        ]);
+        GeneratedDocument::factory()->completed()->approved()->create([
+            'order_id' => $order->id,
+            'document_type' => DocumentType::PolishedClientDocument,
+            'intake_upload_id' => $upload->id,
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('Employee manual (reviewed)')
+            ->assertDontSee('Reviewed & Polished Document')
+            ->assertDontSee('staff-handbook.pdf');
     }
 
     /** Regression: the new practice intake wizard generates Professional/Advanced's manuals

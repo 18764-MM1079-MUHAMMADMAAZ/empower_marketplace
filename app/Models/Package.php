@@ -59,6 +59,11 @@ class Package extends Model
         return $this->tier()->includesWorkflowQuestionnaire();
     }
 
+    public function includesAdvancedDocumentCategories(): bool
+    {
+        return $this->tier()->includesAdvancedDocumentCategories();
+    }
+
     /** Null for Monthly means this package has no monthly price set — see hasMonthlyPricing(). */
     public function priceForCycle(BillingCycle $cycle): ?float
     {
