@@ -2078,7 +2078,7 @@ $milestone = $this->completedMilestone;
 $progressPct = ($milestone / 4) * 100;
 @endphp
 
-<div class="space-y-4">
+<div class="space-y-4 xl:space-y-0 xl:grid xl:grid-cols-[1fr_320px] xl:gap-6 xl:items-start">
 
     {{-- ── Portal preview hero ── --}}
     @php
@@ -2094,14 +2094,18 @@ $progressPct = ($milestone / 4) * 100;
     ? $this->batchOrders->sum('original_price')
     : $heroPackages->sum(fn ($p) => $p->priceForCycle($heroCycle) ?? 0.0);
     @endphp
-    <div class="rounded-[1.25rem] p-4 sm:p-4"
+    {{-- On desktop widths (xl, ≥1280px) this becomes the right-hand column of a shared grid with
+        the main content — same container, same margins, just a second track — and sticks in place
+        as that (taller) main column scrolls. Below xl there isn't room for a second column, so it
+        stays exactly as it's always been: a static banner at the top of the page. --}}
+    <div class="rounded-[1.25rem] p-4 sm:p-4 xl:col-start-2 xl:row-start-1 xl:sticky xl:top-24"
         style="background: radial-gradient(circle at top right, rgba(118,200,192,0.2), transparent 32%), linear-gradient(145deg, #12304f 0%, #1c416a 100%);">
-        <div class="flex flex-col lg:flex-row lg:items-center gap-5">
+        <div class="flex flex-col lg:flex-row xl:flex-col lg:items-center xl:items-stretch gap-5">
             <div class="flex-1">
                 <span
                     class="inline-flex items-center rounded-full px-3 py-1 text-[0.7rem] font-extrabold tracking-[0.08em] uppercase bg-accent/16 text-[#dff7f3] mb-2">Portal
                     preview</span>
-                <h1 class="text-xl sm:text-2xl font-bold text-white mb-1">
+                <h1 class="text-xl sm:text-2xl xl:text-lg font-bold text-white mb-1 xl:mb-2">
                     @if($heroPackages->isEmpty())
                     Choose a package
                     @elseif($heroPackages->count() === 1)
@@ -2110,12 +2114,14 @@ $progressPct = ($milestone / 4) * 100;
                     {{ $heroPackages->count() }} packages selected
                     @endif
                 </h1>
-                <p class="text-white/60 text-sm">Payment, practice intake, review, and document generation.</p>
-                <p class="text-white text-sm mt-1.5">Need help? <a href="mailto:support@empowerhci.com"
+                <p class="text-white/60 text-sm xl:text-xs xl:mb-2">Payment, practice intake, review, and document
+                    generation.</p>
+                <p class="text-white text-sm xl:text-xs mt-1.5 xl:mt-0">Need help? <a
+                        href="mailto:support@empowerhci.com"
                         class="font-bold text-white underline hover:text-[#dff7f3]">support@empowerhci.com</a></p>
             </div>
             @if($heroPackages->isNotEmpty())
-            <div class="bg-white/92 rounded-[1.25rem] p-4 min-w-48">
+            <div class="bg-white/92 rounded-[1.25rem] p-4 min-w-48 xl:min-w-0 xl:w-full">
                 <div class="text-empower-muted text-xs uppercase tracking-wider font-semibold mb-1">Summary</div>
                 <div class="text-xl font-extrabold text-navy mb-0.5">${{ number_format($heroTotal, $heroTotal ==
                     floor($heroTotal) ? 0 : 2) }}</div>
@@ -2127,6 +2133,9 @@ $progressPct = ($milestone / 4) * 100;
             @endif
         </div>
     </div>
+
+    {{-- ── Main column (everything but the hero) — its own track in the xl grid above ── --}}
+    <div class="xl:col-start-1 xl:row-start-1 min-w-0 space-y-4">
 
     {{-- ── Stepper ── --}}
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
@@ -3614,4 +3623,5 @@ $progressPct = ($milestone / 4) * 100;
 </div>
 @endif
 
+    </div>
 </div>
