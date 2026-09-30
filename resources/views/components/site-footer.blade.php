@@ -1,8 +1,8 @@
-@props(['footerClass' => 'py-6'])
+@props(['footerClass' => 'py-6', 'containerClass' => 'max-w-7xl'])
 
 <footer class="bg-white border-t border-[#d4e5f1] {{ $footerClass }}">
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <p class="text-[0.65rem] leading-relaxed text-[#8598ab] max-w-7xl mx-auto">
+    <div class="mx-auto {{ $containerClass }} px-4 sm:px-6 lg:px-8">
+        <p class="text-[0.65rem] leading-relaxed text-[#8598ab] {{ $containerClass }} mx-auto">
             Empower Healthcare &amp; Compliance Inc. and CareCloud, Inc. are not a law firm, do not practice law, and do
             not provide legal advice; nothing on this site creates an attorney-client relationship. Participation in a
             Proactive Compliance package does not guarantee regulatory compliance and does not protect against audit,

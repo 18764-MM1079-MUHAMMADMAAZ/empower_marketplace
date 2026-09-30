@@ -15,7 +15,11 @@
 </head>
 @php
 $isAdmin = request()->routeIs('admin.*');
-$containerClass = $isAdmin ? 'max-w-full' : 'max-w-7xl';
+// The portal page's Step 1 grid gives its right-hand sidebar a fixed 320px column — on the
+// standard max-w-7xl container that leaves the main content (forms, cards) visibly squeezed, so
+// this route alone gets a wider container to compensate; every other client page is unaffected.
+$isPortal = request()->routeIs('portal');
+$containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-w-7xl');
 @endphp
 
 <body class="min-h-screen flex flex-col bg-page font-sans antialiased @unless($isAdmin) client-portal @endunless"
@@ -84,7 +88,7 @@ $containerClass = $isAdmin ? 'max-w-full' : 'max-w-7xl';
     </main>
     @endif
 
-    <x-site-footer footer-class="py-4" />
+    <x-site-footer footer-class="py-4" :container-class="$containerClass" />
 
     @if($isAdmin)
     {{-- Global admin toast — any admin Livewire component can trigger this from anywhere with
