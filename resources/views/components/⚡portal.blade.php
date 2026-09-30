@@ -2088,11 +2088,11 @@ $progressPct = ($milestone / 4) * 100;
     // package's live price — otherwise this display would silently drift if an admin edits a
     // package's price after checkout, and it wouldn't reflect the cycle actually billed.
     $heroCycle = $milestone >= 1
-        ? ($this->batchOrders->first()?->billing_cycle ?? BillingCycle::Annual)
-        : $this->currentBillingCycle();
+    ? ($this->batchOrders->first()?->billing_cycle ?? BillingCycle::Annual)
+    : $this->currentBillingCycle();
     $heroTotal = $milestone >= 1
-        ? $this->batchOrders->sum('original_price')
-        : $heroPackages->sum(fn ($p) => $p->priceForCycle($heroCycle) ?? 0.0);
+    ? $this->batchOrders->sum('original_price')
+    : $heroPackages->sum(fn ($p) => $p->priceForCycle($heroCycle) ?? 0.0);
     @endphp
     <div class="rounded-[1.25rem] p-4 sm:p-4"
         style="background: radial-gradient(circle at top right, rgba(118,200,192,0.2), transparent 32%), linear-gradient(145deg, #12304f 0%, #1c416a 100%);">
@@ -2111,7 +2111,8 @@ $progressPct = ($milestone / 4) * 100;
                     @endif
                 </h1>
                 <p class="text-white/60 text-sm">Payment, practice intake, review, and document generation.</p>
-                <p class="text-white text-sm mt-1.5">Need help? <a href="mailto:support@empowerhci.com" class="font-bold text-white underline hover:text-[#dff7f3]">support@empowerhci.com</a></p>
+                <p class="text-white text-sm mt-1.5">Need help? <a href="mailto:support@empowerhci.com"
+                        class="font-bold text-white underline hover:text-[#dff7f3]">support@empowerhci.com</a></p>
             </div>
             @if($heroPackages->isNotEmpty())
             <div class="bg-white/92 rounded-[1.25rem] p-4 min-w-48">
@@ -2193,9 +2194,9 @@ $progressPct = ($milestone / 4) * 100;
 
             @foreach($this->batchOrders as $order)
             @php
-                $orderIsTrial = $order->payment_status === PaymentStatus::Trialing;
-                $orderPrice = (float) $order->original_price;
-                $orderPaid = (float) $order->amount_paid;
+            $orderIsTrial = $order->payment_status === PaymentStatus::Trialing;
+            $orderPrice = (float) $order->original_price;
+            $orderPaid = (float) $order->amount_paid;
             @endphp
             <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] mb-2">
                 <div>
@@ -2218,14 +2219,16 @@ $progressPct = ($milestone / 4) * 100;
                 @if($order->discount_code)
                 <div class="flex items-center justify-between gap-2">
                     <span class="text-sm font-semibold text-[#0f7a4f]">Discount ({{ $order->discount_code }})</span>
-                    <span class="text-sm font-semibold text-[#0f7a4f]">-${{ number_format((float) $order->discount_amount, 2) }}</span>
+                    <span class="text-sm font-semibold text-[#0f7a4f]">-${{ number_format((float)
+                        $order->discount_amount, 2) }}</span>
                 </div>
                 @else
                 <p class="text-sm text-empower-muted">No discount applied</p>
                 @endif
             </div>
 
-            <div class="flex items-center justify-between pt-2 {{ !$loop->last ? 'border-b border-[#eef2f6] mb-2 pb-2.5' : '' }}">
+            <div
+                class="flex items-center justify-between pt-2 {{ !$loop->last ? 'border-b border-[#eef2f6] mb-2 pb-2.5' : '' }}">
                 <span class="text-sm font-semibold text-[#173045]">{{ $orderIsTrial ? 'Due Today' : 'Paid' }}</span>
                 <span class="text-lg font-extrabold text-navy">${{ number_format($orderPaid, $orderPaid ==
                     floor($orderPaid) ? 0 : 2) }}</span>
@@ -2234,10 +2237,10 @@ $progressPct = ($milestone / 4) * 100;
         </div>
 
         @php
-            $firstBatchOrder = $this->batchOrders->first();
-            $isTrialBatch = $firstBatchOrder?->payment_status === PaymentStatus::Trialing;
-            $totalPaidAmount = (float) $this->batchOrders->sum('amount_paid');
-            $cardEnding = $firstBatchOrder?->card_last_four;
+        $firstBatchOrder = $this->batchOrders->first();
+        $isTrialBatch = $firstBatchOrder?->payment_status === PaymentStatus::Trialing;
+        $totalPaidAmount = (float) $this->batchOrders->sum('amount_paid');
+        $cardEnding = $firstBatchOrder?->card_last_four;
         @endphp
         <div
             class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
@@ -2245,130 +2248,146 @@ $progressPct = ($milestone / 4) * 100;
                 <span class="text-[#117a51]">&#10003;</span>
                 <p class="text-sm font-semibold text-[#0f7a4f]">
                     @if($isTrialBatch)
-                        Your free trial has started{{ $firstBatchOrder?->paid_at ? ' on '.$firstBatchOrder->paid_at->format('M j, Y') : '' }}{{ $cardEnding ? " (card ending {$cardEnding})" : '' }}.
+                    Your free trial has started{{ $firstBatchOrder?->paid_at ? ' on
+                    '.$firstBatchOrder->paid_at->format('M j, Y') : '' }}{{ $cardEnding ? " (card ending {$cardEnding})"
+                    : '' }}.
                     @else
-                        Payment of ${{ number_format($totalPaidAmount, $totalPaidAmount == floor($totalPaidAmount) ? 0 : 2) }} received{{ $firstBatchOrder?->paid_at ? ' on '.$firstBatchOrder->paid_at->format('M j, Y') : '' }}{{ $cardEnding ? " (card ending {$cardEnding})" : '' }}.
+                    Payment of ${{ number_format($totalPaidAmount, $totalPaidAmount == floor($totalPaidAmount) ? 0 : 2)
+                    }} received{{ $firstBatchOrder?->paid_at ? ' on '.$firstBatchOrder->paid_at->format('M j, Y') : ''
+                    }}{{ $cardEnding ? " (card ending {$cardEnding})" : '' }}.
                     @endif
                     @if($newAccountEmail)
-                        Account created for {{ $newAccountEmail }}; a login password would be emailed there.
+                    Account created for {{ $newAccountEmail }}; a login password would be emailed there.
                     @endif
                 </p>
             </div>
         </div>
         @else
-        <div
-            class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-            <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1</p>
-            <h2 class="text-lg font-semibold text-navy mb-1">Selected Package</h2>
-            <p class="text-sm text-empower-muted">
-                Complete payment first to unlock your practice intake form. Your documents are generated automatically
-                once intake is submitted and reviewed.
-            </p>
-            <p class="text-sm text-empower-muted mt-1 mb-2">Your final invoice reflects the provider count you confirm
-                during intake in the next step.</p>
-            @if(! $this->selectedPackage)
-            <p class="text-sm text-empower-muted italic mb-2">No package selected.</p>
-            <a href="{{ route('home') }}#pricing" class="text-xs font-bold text-[#1a7aad] hover:underline">Browse
-                packages &rarr;</a>
-            @else
-            <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] mb-2">
-                <div>
-                    <p class="text-sm font-semibold text-[#173045]">{{ $this->selectedPackage->name }}</p>
-                    @php $displayPrice = $this->selectedPackage->priceForCycle($this->currentBillingCycle()) ?? 0.0; @endphp
-                    <p class="text-xs text-empower-muted">${{ number_format($displayPrice, $displayPrice ==
-                        floor($displayPrice) ? 0 : 2) }} /
-                        {{ $this->currentBillingCycle()->period() }}</p>
-                </div>
-                <a href="{{ route('home') }}#pricing"
-                    class="text-xs font-semibold text-[#1a7aad] hover:underline">Change package</a>
-            </div>
-
-            <div class="py-2.5 border-b border-[#eef2f6] mb-2">
-                @if(! $this->appliedDiscountCode)
-                <div class="flex gap-2">
-                    <input wire:model="discountCodeInput" type="text" placeholder="Discount code"
-                        class="flex-1 min-w-0 rounded-lg border border-empower-border bg-[#f8fbfd] px-3 py-2 text-sm uppercase text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    <button type="button" wire:click="applyDiscountCode" wire:target="applyDiscountCode"
-                        wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                        wire:target="applyDiscountCode"
-                        class="rounded-lg border border-empower-border px-3.5 py-2 text-xs font-bold text-[#173045] hover:bg-page transition-colors">
-                        <span wire:loading.remove wire:target="applyDiscountCode">Apply</span>
-                        <span wire:loading wire:target="applyDiscountCode">
-                            <x-spinner class="h-3.5 w-3.5" />
-                        </span>
-                    </button>
-                </div>
-                @error('discountCodeInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @elseif($this->isFreeTrialCheckout)
-                <div class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-semibold text-[#0f7a4f]">Free Trial ({{ $this->appliedDiscountCode->code
-                        }}) — {{ $this->appliedDiscountCode->trial_days }} days</span>
-                    <button type="button" wire:click="removeDiscountCode"
-                        class="text-xs text-empower-muted hover:underline">Remove</button>
-                </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+            <div
+                class="{{ auth()->check() ? 'lg:col-span-2' : '' }} bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
+                <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1</p>
+                <h2 class="text-lg font-semibold text-navy mb-1">Selected Package</h2>
+                <p class="text-xs text-empower-muted">
+                    Complete payment first to unlock your practice intake form. Your documents are generated
+                    automatically
+                    once intake is submitted and reviewed.
+                </p>
+                <p class="text-xs text-empower-muted mt-1 mb-2">Your final invoice reflects the provider count you
+                    confirm
+                    during intake in the next step.</p>
+                @if(! $this->selectedPackage)
+                <p class="text-sm text-empower-muted italic mb-2">No package selected.</p>
+                <a href="{{ route('home') }}#pricing" class="text-xs font-bold text-[#1a7aad] hover:underline">Browse
+                    packages &rarr;</a>
                 @else
-                <div class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-semibold text-[#0f7a4f]">Discount ({{ $this->appliedDiscountCode->code
-                        }})</span>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-semibold text-[#0f7a4f]">-${{ number_format($this->discountAmount, 2)
-                            }}</span>
+                <div class="flex items-center justify-between gap-3 py-2.5 border-b border-[#eef2f6] mb-2">
+                    <div>
+                        <p class="text-sm font-semibold text-[#173045]">{{ $this->selectedPackage->name }}</p>
+                        @php $displayPrice = $this->selectedPackage->priceForCycle($this->currentBillingCycle()) ?? 0.0;
+                        @endphp
+                        <p class="text-xs text-empower-muted">${{ number_format($displayPrice, $displayPrice ==
+                            floor($displayPrice) ? 0 : 2) }} /
+                            {{ $this->currentBillingCycle()->period() }}</p>
+                    </div>
+                    <a href="{{ route('home') }}#pricing"
+                        class="text-xs font-semibold text-[#1a7aad] hover:underline">Change package</a>
+                </div>
+
+                <div class="py-2.5 border-b border-[#eef2f6] mb-2">
+                    @if(! $this->appliedDiscountCode)
+                    <div class="flex gap-2">
+                        <input wire:model="discountCodeInput" type="text" placeholder="Discount code"
+                            class="flex-1 min-w-0 rounded-lg border border-empower-border bg-[#f8fbfd] px-3 py-2 text-sm uppercase text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        <button type="button" wire:click="applyDiscountCode" wire:target="applyDiscountCode"
+                            wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                            wire:target="applyDiscountCode"
+                            class="rounded-lg border border-empower-border px-3.5 py-2 text-xs font-bold text-[#173045] hover:bg-page transition-colors">
+                            <span wire:loading.remove wire:target="applyDiscountCode">Apply</span>
+                            <span wire:loading wire:target="applyDiscountCode">
+                                <x-spinner class="h-3.5 w-3.5" />
+                            </span>
+                        </button>
+                    </div>
+                    @error('discountCodeInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @elseif($this->isFreeTrialCheckout)
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-semibold text-[#0f7a4f]">Free Trial ({{
+                            $this->appliedDiscountCode->code
+                            }}) — {{ $this->appliedDiscountCode->trial_days }} days</span>
                         <button type="button" wire:click="removeDiscountCode"
                             class="text-xs text-empower-muted hover:underline">Remove</button>
                     </div>
+                    @else
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-semibold text-[#0f7a4f]">Discount ({{ $this->appliedDiscountCode->code
+                            }})</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-semibold text-[#0f7a4f]">-${{ number_format($this->discountAmount,
+                                2)
+                                }}</span>
+                            <button type="button" wire:click="removeDiscountCode"
+                                class="text-xs text-empower-muted hover:underline">Remove</button>
+                        </div>
+                    </div>
+                    @endif
                 </div>
+
+                @if($this->isFreeTrialCheckout)
+                <div class="flex items-center justify-between pt-2 border-t border-[#eef2f6]">
+                    <span class="text-sm font-semibold text-[#173045]">Due Today</span>
+                    <span class="text-lg font-extrabold text-navy">$0.00</span>
+                </div>
+                <p class="text-xs text-empower-muted mt-1">Then ${{
+                    number_format($this->selectedPackage->priceForCycle($this->currentBillingCycle()) ?? 0.0, 2) }}/{{
+                    $this->currentBillingCycle()->period() }} once your free trial ends, unless you cancel first.</p>
+                @else
+                <div class="flex items-center justify-between pt-2 border-t border-[#eef2f6]">
+                    <span class="text-sm font-semibold text-[#173045]">Total</span>
+                    <span class="text-lg font-extrabold text-navy">${{ number_format($this->discountedTotal, 2)
+                        }}</span>
+                </div>
+                @endif
                 @endif
             </div>
 
-            @if($this->isFreeTrialCheckout)
-            <div class="flex items-center justify-between pt-2 border-t border-[#eef2f6]">
-                <span class="text-sm font-semibold text-[#173045]">Due Today</span>
-                <span class="text-lg font-extrabold text-navy">$0.00</span>
-            </div>
-            <p class="text-xs text-empower-muted mt-1">Then ${{ number_format($this->selectedPackage->priceForCycle($this->currentBillingCycle()) ?? 0.0, 2) }}/{{ $this->currentBillingCycle()->period() }} once your free trial ends, unless you cancel first.</p>
+            @auth
             @else
-            <div class="flex items-center justify-between pt-2 border-t border-[#eef2f6]">
-                <span class="text-sm font-semibold text-[#173045]">Total</span>
-                <span class="text-lg font-extrabold text-navy">${{ number_format($this->discountedTotal, 2)
-                    }}</span>
-            </div>
-            @endif
-            @endif
-        </div>
-
-        @auth
-        @else
-        <div
-            class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-            <h3 class="text-sm font-semibold text-navy mb-1">Account Information</h3>
-            <p class="text-xs text-empower-muted mb-3">Create the account that will manage this practice's Empower
-                portal.</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Your name <span
-                            class="text-red-500">*</span></label>
-                    <input wire:model.live="accountName" type="text" placeholder="Jane Provider"
-                        class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('accountName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <div
+                class="h-full bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
+                <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.1</p>
+                <h3 class="text-lg font-semibold text-navy mb-1">Account Information</h3>
+                <p class="text-xs text-empower-muted mb-3">Create the account that will manage this practice's Empower
+                    portal.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-1 gap-3">
+                    <div>
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Your name <span
+                                class="text-red-500">*</span></label>
+                        <input wire:model.live="accountName" type="text" placeholder="Jane Provider"
+                            class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('accountName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email address <span
+                                class="text-red-500">*</span></label>
+                        <input wire:model.live="accountEmail" type="email" placeholder="jane@practice.com"
+                            class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('accountEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email address <span
-                            class="text-red-500">*</span></label>
-                    <input wire:model.live="accountEmail" type="email" placeholder="jane@practice.com"
-                        class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('accountEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
+                <p class="text-xs text-empower-muted mt-2">We'll email you a secure, auto-generated password to log in
+                    with.
+                </p>
             </div>
-            <p class="text-xs text-empower-muted mt-2">We'll email you a secure, auto-generated password to log in with.
-            </p>
+            @endauth
         </div>
-        @endauth
 
         <div x-data="{
                 cardNameValid: false, cardNumberValid: false, cardExpiryError: '', cardCvcValid: false, showTerms: false, termsAccepted: false,
             }"
             class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-            <h3 class="text-sm font-semibold text-navy mb-1">Payment Details</h3>
+            <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.2</p>
+            <h3 class="text-lg font-semibold text-navy mb-1">Payment Details</h3>
             <p class="text-xs text-empower-muted mb-3">Your card is charged securely — these fields are never saved or
                 logged by this form.</p>
             @error('payment') <p
@@ -2517,8 +2536,10 @@ $progressPct = ($milestone / 4) * 100;
                             class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
                             wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
                             wire:target="payFreeTrial">
-                            <span wire:loading.remove wire:target="payFreeTrial">I Agree — Start Free Trial &rarr;</span>
-                            <span wire:loading.inline-flex wire:target="payFreeTrial" class="inline-flex items-center gap-1.5">
+                            <span wire:loading.remove wire:target="payFreeTrial">I Agree — Start Free Trial
+                                &rarr;</span>
+                            <span wire:loading.inline-flex wire:target="payFreeTrial"
+                                class="inline-flex items-center gap-1.5">
                                 <x-spinner class="h-3.5 w-3.5" /> Processing…
                             </span>
                         </button>
@@ -2667,7 +2688,8 @@ $progressPct = ($milestone / 4) * 100;
         </div>
     </div>
     @else
-    <livewire:portal.practice-intake-wizard :orderIds="$orderIds" :editScreen="$this->editIntakeScreen" :key="'intake-wizard-'.implode('-', $orderIds)" />
+    <livewire:portal.practice-intake-wizard :orderIds="$orderIds" :editScreen="$this->editIntakeScreen"
+        :key="'intake-wizard-'.implode('-', $orderIds)" />
     @endif
 
     <livewire:portal.osha-location-modal :practiceId="$this->practice?->id ?? 0" />
@@ -2678,7 +2700,8 @@ $progressPct = ($milestone / 4) * 100;
     @php
     $primarySub = $this->primarySubmission;
     $primaryOrder = $this->batchOrders->firstWhere('id', min($this->orderIds ?: [0]));
-    $includesWorkflowQuestionnaire = $this->batchOrders->contains(fn ($o) => $o->package?->includesWorkflowQuestionnaire());
+    $includesWorkflowQuestionnaire = $this->batchOrders->contains(fn ($o) =>
+    $o->package?->includesWorkflowQuestionnaire());
     $isSubmitted = $primarySub && $primarySub->status !== IntakeSubmissionStatus::Draft;
     $practiceLabel = $this->practice?->name ?: 'this organization';
     @endphp
@@ -2712,7 +2735,7 @@ $progressPct = ($milestone / 4) * 100;
             </div>
             @if($includesWorkflowQuestionnaire)
             @php
-                $workflowCounts = $this->workflowAnswerCounts;
+            $workflowCounts = $this->workflowAnswerCounts;
             @endphp
             <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Answered</p>
@@ -2733,11 +2756,13 @@ $progressPct = ($milestone / 4) * 100;
             </div>
             <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Package</p>
-                <p class="text-base font-bold text-[#173045]">{{ $primaryOrder?->package ? ucfirst($primaryOrder->package->tier()->value) : '—' }}</p>
+                <p class="text-base font-bold text-[#173045]">{{ $primaryOrder?->package ?
+                    ucfirst($primaryOrder->package->tier()->value) : '—' }}</p>
             </div>
             <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
                 <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Status</p>
-                <p class="text-base font-bold text-[#173045]">{{ $this->intakeSubmissionStatusLabel($primarySub?->status) }}</p>
+                <p class="text-base font-bold text-[#173045]">{{
+                    $this->intakeSubmissionStatusLabel($primarySub?->status) }}</p>
             </div>
             @endif
         </div>
@@ -2746,13 +2771,14 @@ $progressPct = ($milestone / 4) * 100;
         <div class="border-t border-[#eef2f6] pt-5 mb-5">
             <h3 class="text-base font-semibold text-[#12304f] mb-1">Documents</h3>
             <p class="text-sm text-[#5d6e7f] mb-3">
-                {{ $includesWorkflowQuestionnaire ? 'Anything you already have. You can add more here.' : 'Your existing documents for review and update.' }}
+                {{ $includesWorkflowQuestionnaire ? 'Anything you already have. You can add more here.' : 'Your existing
+                documents for review and update.' }}
             </p>
 
             <ul class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl mb-3">
                 @foreach($this->reviewDocumentCategories as $key => $label)
                 @php
-                    $status = $this->reviewDocumentCategoryStatus($key);
+                $status = $this->reviewDocumentCategoryStatus($key);
                 @endphp
                 <li class="flex items-center justify-between gap-3 px-4 py-3">
                     <span class="text-sm font-semibold text-[#173045]">
@@ -2765,7 +2791,8 @@ $progressPct = ($milestone / 4) * 100;
                         <span
                             class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
                             {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
-                            {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" : ($includesWorkflowQuestionnaire ? 'Optional' : 'Needed')) }}
+                            {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" :
+                            ($includesWorkflowQuestionnaire ? 'Optional' : 'Needed')) }}
                         </span>
                         @if($status !== 'uploaded' && ! $isSubmitted)
                         <button type="button" wire:click="toggleStep3DocumentMissing('{{ $key }}')"
@@ -2778,7 +2805,8 @@ $progressPct = ($milestone / 4) * 100;
                 @endforeach
             </ul>
 
-            @if(! $includesWorkflowQuestionnaire && collect($this->reviewDocumentCategories)->keys()->contains(fn ($key) => $this->reviewDocumentCategoryStatus($key) === 'declined'))
+            @if(! $includesWorkflowQuestionnaire && collect($this->reviewDocumentCategories)->keys()->contains(fn ($key)
+            => $this->reviewDocumentCategoryStatus($key) === 'declined'))
             <div class="rounded-xl bg-[#fdf3e0] px-3.5 py-2.5 mb-3 text-xs text-[#8a5a0f] leading-relaxed">
                 Missing a document? Essential updates what you have. <strong class="font-bold">Professional</strong>
                 creates missing documents for you.
@@ -2823,7 +2851,8 @@ $progressPct = ($milestone / 4) * 100;
                         wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
                         class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
                         <span wire:loading.remove wire:target="uploadStep3Document">Upload</span>
-                        <span wire:loading.inline-flex wire:target="uploadStep3Document" class="inline-flex items-center gap-1.5">
+                        <span wire:loading.inline-flex wire:target="uploadStep3Document"
+                            class="inline-flex items-center gap-1.5">
                             <x-spinner class="h-3.5 w-3.5" /> Uploading&hellip;
                         </span>
                     </button>
@@ -2852,20 +2881,22 @@ $progressPct = ($milestone / 4) * 100;
                         <span class="text-sm font-semibold text-[#173045] flex items-center gap-1.5">
                             {{ $row['label'] }}
                             @if(! empty($row['details']))
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" x-bind:class="open ? 'rotate-180' : ''"
-                                class="text-[#8592a1] transition-transform">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                x-bind:class="open ? 'rotate-180' : ''" class="text-[#8592a1] transition-transform">
                                 <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
                                     stroke-linejoin="round" />
                             </svg>
                             @endif
                         </span>
-                        <span class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $row['done'] }}/{{ $row['total'] }} {{ $row['done'] === $row['total'] ? '✓' : '' }}</span>
+                        <span class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $row['done'] }}/{{ $row['total'] }} {{
+                            $row['done'] === $row['total'] ? '✓' : '' }}</span>
                     </button>
                     @if(! empty($row['details']))
                     <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-2.5">
                         @foreach($row['details'] as $detail)
                         @php
-                            $badge = $detail['badge'] ?? ($detail['done'] ? ['label' => 'Done', 'class' => 'bg-[#d7f3ea] text-[#117a51]'] : ['label' => 'Pending', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]']);
+                        $badge = $detail['badge'] ?? ($detail['done'] ? ['label' => 'Done', 'class' => 'bg-[#d7f3ea]
+                        text-[#117a51]'] : ['label' => 'Pending', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]']);
                         @endphp
                         <div class="flex items-center justify-between gap-3">
                             <div>
@@ -2881,7 +2912,8 @@ $progressPct = ($milestone / 4) * 100;
                                     {{ $badge['label'] }}
                                 </span>
                                 @if(! $isSubmitted && ! empty($detail['screen']))
-                                <button type="button" wire:click="editIntakeAnswer('{{ $detail['screen'] }}')" wire:target="editIntakeAnswer"
+                                <button type="button" wire:click="editIntakeAnswer('{{ $detail['screen'] }}')"
+                                    wire:target="editIntakeAnswer"
                                     class="text-xs font-bold text-[#1a7aad] hover:underline">Edit</button>
                                 @endif
                             </div>
@@ -2917,8 +2949,8 @@ $progressPct = ($milestone / 4) * 100;
                 <div>
                     <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Signature (type your full name)
                         <span class="text-red-500">*</span></label>
-                    <input wire:model="certifiedSignature" type="text" placeholder="Type your full name to sign"
-                        {{ $isSubmitted ? 'disabled' : '' }}
+                    <input wire:model="certifiedSignature" type="text" placeholder="Type your full name to sign" {{
+                        $isSubmitted ? 'disabled' : '' }}
                         class="w-full rounded-xl border {{ $errors->has('certifiedSignature') ? 'border-red-400' : 'border-[#dbe4ee]' }} {{ $isSubmitted ? 'bg-[#f0f4f8] cursor-not-allowed' : 'bg-[#f8fbfd]' }} px-4 py-2.5 text-sm italic text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                     @error('certifiedSignature') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
@@ -2932,7 +2964,8 @@ $progressPct = ($milestone / 4) * 100;
             <label class="flex items-start gap-2.5 mb-2 {{ $isSubmitted ? '' : 'cursor-pointer' }}">
                 <input type="checkbox" wire:model="certifyChecked" {{ $isSubmitted ? 'disabled' : '' }}
                     class="mt-0.5 rounded text-[#0b9ed0] focus:ring-[#0b9ed0]">
-                <span class="text-sm text-[#173045]">I certify these responses are accurate for {{ $practiceLabel }}.</span>
+                <span class="text-sm text-[#173045]">I certify these responses are accurate for {{ $practiceLabel
+                    }}.</span>
             </label>
             @error('certifyChecked') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
             @error('payment') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -2941,13 +2974,17 @@ $progressPct = ($milestone / 4) * 100;
                 <button wire:click="goToStep(2)" wire:target="goToStep(2)" wire:loading.attr="disabled"
                     class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
                     <span wire:loading.remove wire:target="goToStep(2)">&larr; Back to intake</span>
-                    <span wire:loading wire:target="goToStep(2)"><x-spinner class="h-3.5 w-3.5" /></span>
+                    <span wire:loading wire:target="goToStep(2)">
+                        <x-spinner class="h-3.5 w-3.5" />
+                    </span>
                 </button>
                 @if($isSubmitted)
                 <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="goToStep(4)">Continue &rarr;</span>
-                    <span wire:loading wire:target="goToStep(4)"><x-spinner class="h-3.5 w-3.5" /></span>
+                    <span wire:loading wire:target="goToStep(4)">
+                        <x-spinner class="h-3.5 w-3.5" />
+                    </span>
                 </button>
                 @else
                 <button wire:click="finalizeIntake" wire:target="finalizeIntake" wire:loading.attr="disabled"
@@ -2977,43 +3014,41 @@ $progressPct = ($milestone / 4) * 100;
         <div class="space-y-6">
             @forelse($this->batchOrders as $order)
             @php
-                $status = $order->intakeSubmission?->status;
-                $isRejected = $status === IntakeSubmissionStatus::Rejected;
-                $doneCount = match (true) {
-                    $status === IntakeSubmissionStatus::Approved => 4,
-                    $isRejected, $status === IntakeSubmissionStatus::UnderReview => 3,
-                    $status === IntakeSubmissionStatus::Submitted => 2,
-                    default => 0,
-                };
-                $milestones = [
-                    ['label' => 'Submitted', 'desc' => 'Intake received and queued.'],
-                    ['label' => 'AI extraction', 'desc' => 'Structured data pulled from your files and answers.'],
-                    ['label' => 'Under review', 'desc' => 'An Empower admin is reviewing your submission.'],
-                    $isRejected
-                        ? ['label' => 'Changes requested', 'desc' => $order->intakeSubmission?->reviewer_notes ?: 'Please review and resubmit.']
-                        : ['label' => 'Approved', 'desc' => 'Documents generated and delivered to your dashboard.'],
-                ];
+            $status = $order->intakeSubmission?->status;
+            $isRejected = $status === IntakeSubmissionStatus::Rejected;
+            $doneCount = match (true) {
+            $status === IntakeSubmissionStatus::Approved => 4,
+            $isRejected, $status === IntakeSubmissionStatus::UnderReview => 3,
+            $status === IntakeSubmissionStatus::Submitted => 2,
+            default => 0,
+            };
+            $milestones = [
+            ['label' => 'Submitted', 'desc' => 'Intake received and queued.'],
+            ['label' => 'AI extraction', 'desc' => 'Structured data pulled from your files and answers.'],
+            ['label' => 'Under review', 'desc' => 'An Empower admin is reviewing your submission.'],
+            $isRejected
+            ? ['label' => 'Changes requested', 'desc' => $order->intakeSubmission?->reviewer_notes ?: 'Please review and
+            resubmit.']
+            : ['label' => 'Approved', 'desc' => 'Documents generated and delivered to your dashboard.'],
+            ];
             @endphp
             <div>
                 <p class="text-sm font-semibold text-[#12304f] mb-3">{{ $order->package?->name }}</p>
 
                 @foreach($milestones as $mi => $m)
                 @php
-                    $isDone = $mi < $doneCount;
-                    $isLast = $mi === count($milestones) - 1;
-                    $isRejectedStep = $isRejected && $mi === 3;
-                @endphp
-                <div class="flex gap-3">
+                $isDone = $mi < $doneCount; $isLast=$mi===count($milestones) - 1; $isRejectedStep=$isRejected &&
+                    $mi===3; @endphp <div class="flex gap-3">
                     <div class="flex flex-col items-center flex-shrink-0">
                         <div
                             class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
                             {{ $isRejectedStep ? 'bg-[#fee2e2] text-[#9f1239]' : ($isDone ? 'bg-[#0b9ed0] text-white' : 'bg-[#edf2f7] text-[#5d6e7f]') }}">
                             @if($isRejectedStep)
-                                &times;
+                            &times;
                             @elseif($isDone)
-                                &#10003;
+                            &#10003;
                             @else
-                                {{ $mi + 1 }}
+                            {{ $mi + 1 }}
                             @endif
                         </div>
                         @if(! $isLast)
@@ -3024,454 +3059,506 @@ $progressPct = ($milestone / 4) * 100;
                     <div class="pb-4">
                         <p class="text-sm font-semibold {{ $isRejectedStep ? 'text-[#9f1239]' : 'text-[#173045]' }}">
                             {{ $m['label'] }}</p>
-                        <p class="text-xs {{ $isRejectedStep ? 'text-[#9f1239]' : 'text-[#5d6e7f]' }}">{{ $m['desc'] }}</p>
+                        <p class="text-xs {{ $isRejectedStep ? 'text-[#9f1239]' : 'text-[#5d6e7f]' }}">{{ $m['desc'] }}
+                        </p>
                     </div>
-                </div>
-                @endforeach
-
-                @if($status === IntakeSubmissionStatus::Approved)
-                <div class="flex items-center gap-2.5 rounded-xl bg-[#eef8f3] border border-[#bfe3d2] px-3.5 py-2.5">
-                    <span class="text-[#117a51]">&#10003;</span>
-                    <p class="text-sm font-semibold text-[#0f7a4f]">Approved. Your documents are ready on the
-                        dashboard.</p>
-                </div>
-                @elseif($isRejected)
-                <button wire:click="reuploadForOrder({{ $order->id }})" wire:target="reuploadForOrder({{ $order->id }})"
-                    wire:loading.attr="disabled"
-                    class="inline-flex items-center gap-1 rounded bg-[#9f1239] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#881337] transition-colors">
-                    <span wire:loading.remove wire:target="reuploadForOrder({{ $order->id }})">Update &amp; Resubmit
-                        &rarr;</span>
-                    <span wire:loading.inline-flex wire:target="reuploadForOrder({{ $order->id }})"
-                        class="inline-flex items-center gap-1.5">
-                        <x-spinner class="h-3.5 w-3.5" /> Loading…
-                    </span>
-                </button>
-                @elseif(! $status)
-                <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
-                @endif
             </div>
-            @empty
-            <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
-            @endforelse
-        </div>
+            @endforeach
 
-        <div class="flex justify-between items-center mt-5">
-            <button wire:click="goToStep(3)" wire:target="goToStep(3)" wire:loading.attr="disabled"
-                class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                <span wire:loading.remove wire:target="goToStep(3)">&larr; Back</span>
-                <span wire:loading wire:target="goToStep(3)"><x-spinner class="h-3.5 w-3.5" /></span>
-            </button>
-            @if($milestone >= 4)
-            <button wire:click="goToStep(5)" wire:target="goToStep(5)" wire:loading.attr="disabled"
-                class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
-                <span wire:loading.remove wire:target="goToStep(5)">Go to Dashboard &rarr;</span>
-                <span wire:loading.inline-flex wire:target="goToStep(5)" class="inline-flex items-center gap-1.5">
+            @if($status === IntakeSubmissionStatus::Approved)
+            <div class="flex items-center gap-2.5 rounded-xl bg-[#eef8f3] border border-[#bfe3d2] px-3.5 py-2.5">
+                <span class="text-[#117a51]">&#10003;</span>
+                <p class="text-sm font-semibold text-[#0f7a4f]">Approved. Your documents are ready on the
+                    dashboard.</p>
+            </div>
+            @elseif($isRejected)
+            <button wire:click="reuploadForOrder({{ $order->id }})" wire:target="reuploadForOrder({{ $order->id }})"
+                wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1 rounded bg-[#9f1239] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#881337] transition-colors">
+                <span wire:loading.remove wire:target="reuploadForOrder({{ $order->id }})">Update &amp; Resubmit
+                    &rarr;</span>
+                <span wire:loading.inline-flex wire:target="reuploadForOrder({{ $order->id }})"
+                    class="inline-flex items-center gap-1.5">
                     <x-spinner class="h-3.5 w-3.5" /> Loading…
                 </span>
             </button>
+            @elseif(! $status)
+            <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
             @endif
         </div>
+        @empty
+        <p class="text-sm text-[#5d6e7f] italic">No submission found.</p>
+        @endforelse
     </div>
-    @endif
 
-    {{-- ── Step 5: Dashboard ── --}}
-    @if($step === 5)
-    <div x-data="{
+    <div class="flex justify-between items-center mt-5">
+        <button wire:click="goToStep(3)" wire:target="goToStep(3)" wire:loading.attr="disabled"
+            class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+            <span wire:loading.remove wire:target="goToStep(3)">&larr; Back</span>
+            <span wire:loading wire:target="goToStep(3)">
+                <x-spinner class="h-3.5 w-3.5" />
+            </span>
+        </button>
+        @if($milestone >= 4)
+        <button wire:click="goToStep(5)" wire:target="goToStep(5)" wire:loading.attr="disabled"
+            class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+            <span wire:loading.remove wire:target="goToStep(5)">Go to Dashboard &rarr;</span>
+            <span wire:loading.inline-flex wire:target="goToStep(5)" class="inline-flex items-center gap-1.5">
+                <x-spinner class="h-3.5 w-3.5" /> Loading…
+            </span>
+        </button>
+        @endif
+    </div>
+</div>
+@endif
+
+{{-- ── Step 5: Dashboard ── --}}
+@if($step === 5)
+<div x-data="{
             confirmCancelOrderId: null,
             confirmCancelMessage: '',
             confirmCancel(orderId, message) { this.confirmCancelOrderId = orderId; this.confirmCancelMessage = message; },
         }">
     <div class="space-y-4">
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 5</p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Dashboard</h2>
-        <p class="text-sm text-[#5d6e7f] mb-5">Your history, payments and generated documents for
-            {{ $this->practice?->name ?: 'your practice' }}.</p>
+        <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+            <p class="text-xs font-extrabold uppercase tracking-widest text-[#5d6e7f] mb-1">Step 5</p>
+            <h2 class="text-lg font-semibold text-[#12304f] mb-1">Dashboard</h2>
+            <p class="text-sm text-[#5d6e7f] mb-5">Your history, payments and generated documents for
+                {{ $this->practice?->name ?: 'your practice' }}.</p>
 
-        @php
-            $dashOrderForCards = $this->currentOrder;
-            $invoiceLabel = $dashOrderForCards?->billing_cycle === \App\Enums\BillingCycle::Annual ? 'Invoice / Year' : 'Invoice / Month';
-            $invoiceAmount = (float) ($dashOrderForCards?->original_price ?? 0);
-        @endphp
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Package</p>
-                <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->package?->name ?? '—' }}</p>
-            </div>
-            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">{{ $invoiceLabel }}</p>
-                <p class="text-base font-bold text-[#173045]">${{ number_format($invoiceAmount, $invoiceAmount == floor($invoiceAmount) ? 0 : 2) }}</p>
-            </div>
-            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Renews</p>
-                <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->next_bill_date?->format('M j, Y') ?? '—' }}</p>
-            </div>
-        </div>
-    </div>
-
-    @php $dashOrder = $this->currentOrder; @endphp
-    @if($dashOrder && ! $dashOrder->blockedFromAiGeneration() && $dashOrder->payment_status === PaymentStatus::Trialing)
-    <div class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 flex flex-wrap items-center justify-between gap-3">
-        <span>
-            Free trial active — ends {{ $dashOrder->trial_ends_at?->format('M j, Y') }}. Card on file ending in
-            {{ $dashOrder->card_last_four ?? '····' }}.
-        </span>
-        <div class="flex items-center gap-2">
-            <button type="button" wire:click="convertTrialToPaid({{ $dashOrder->id }})"
-                wire:target="convertTrialToPaid({{ $dashOrder->id }})" wire:loading.attr="disabled"
-                wire:loading.class="opacity-70 cursor-not-allowed"
-                class="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-bold text-navy-dark hover:bg-accent-dark transition-colors">
-                <span wire:loading.remove wire:target="convertTrialToPaid({{ $dashOrder->id }})">Proceed with Payment</span>
-                <span wire:loading.inline-flex wire:target="convertTrialToPaid({{ $dashOrder->id }})"
-                    class="inline-flex items-center gap-1.5">
-                    <x-spinner class="h-3.5 w-3.5" /> Processing…
-                </span>
-            </button>
-            <button type="button"
-                x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your free trial? You'll lose access to AI document generation once it ends.`)"
-                class="rounded-lg border border-blue-300 px-3.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition-colors">
-                Cancel
-            </button>
-        </div>
-        <div x-data="{ showUpdateCard: false }" class="w-full">
-            <button type="button" x-on:click="showUpdateCard = ! showUpdateCard"
-                class="text-xs font-semibold text-blue-800 hover:underline">Update Card</button>
-            <div x-show="showUpdateCard" x-cloak class="mt-2 flex flex-wrap items-end gap-2">
-                <input x-ref="cardNumber" type="text" placeholder="Card number" inputmode="numeric" maxlength="19"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-40">
-                <input x-ref="cardExpiry" type="text" placeholder="MM/YY" maxlength="5"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-20">
-                <input x-ref="cardCvc" type="text" placeholder="CVC" inputmode="numeric" maxlength="4"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-16">
-                <button type="button"
-                    x-on:click="$wire.updateTrialCard({{ $dashOrder->id }}, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then(() => showUpdateCard = false)"
-                    wire:loading.attr="disabled" wire:target="updateTrialCard"
-                    class="rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-navy-dark transition-colors">
-                    Save Card
-                </button>
-            </div>
-            @error('cardNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-            @error('cardExpiry') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-            @error('cardCvc') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-        </div>
-    </div>
-    @error('payment') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-    @elseif($dashOrder && $dashOrder->payment_status === PaymentStatus::PastDue)
-    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-3">
-        <span>
-            We couldn't process your last renewal payment{{ $dashOrder->last_renewal_error ? ": {$dashOrder->last_renewal_error}" : '.' }}
-            We'll retry automatically — please update your card to avoid cancellation.
-        </span>
-        <button type="button"
-            x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel this subscription? This can't be undone.`)"
-            class="rounded-lg border border-amber-300 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors">
-            Cancel Subscription
-        </button>
-        <div x-data="{ showUpdateCard: false }" class="w-full">
-            <button type="button" x-on:click="showUpdateCard = ! showUpdateCard"
-                class="text-xs font-semibold text-amber-800 hover:underline">Update Card</button>
-            <div x-show="showUpdateCard" x-cloak class="mt-2 flex flex-wrap items-end gap-2">
-                <input x-ref="cardNumber" type="text" placeholder="Card number" inputmode="numeric" maxlength="19"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-40">
-                <input x-ref="cardExpiry" type="text" placeholder="MM/YY" maxlength="5"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-20">
-                <input x-ref="cardCvc" type="text" placeholder="CVC" inputmode="numeric" maxlength="4"
-                    class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-16">
-                <button type="button"
-                    x-on:click="$wire.updateTrialCard({{ $dashOrder->id }}, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then(() => showUpdateCard = false)"
-                    wire:loading.attr="disabled" wire:target="updateTrialCard"
-                    class="rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-navy-dark transition-colors">
-                    Save Card
-                </button>
-            </div>
-            @error('cardNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-            @error('cardExpiry') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-            @error('cardCvc') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-        </div>
-    </div>
-    @error('payment') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-    @elseif($dashOrder?->blockedFromAiGeneration())
-    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        @if($dashOrder->payment_status === PaymentStatus::Trialing)
-        Your free trial ended without a subscription — AI document generation is no longer available for this
-        practice. Contact us to resubscribe.
-        @else
-        This subscription has been cancelled — AI document generation is no longer available for this practice.
-        Contact us to resubscribe.
-        @endif
-    </div>
-    @elseif($dashOrder && $dashOrder->payment_status === PaymentStatus::Paid && $dashOrder->next_bill_date)
-    <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3 text-xs text-empower-muted flex items-center justify-between gap-3">
-        <span>Renews {{ $dashOrder->next_bill_date->format('M j, Y') }}</span>
-        <button type="button"
-            x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your subscription? You'll lose access to AI document generation once your current plan year ends.`)"
-            class="text-xs font-semibold text-empower-muted hover:underline">Cancel subscription</button>
-    </div>
-    @endif
-
-    {{-- Tabs --}}
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
-        <div class="flex gap-1 border-b border-[#eef2f6] px-2">
-            @foreach(['documents' => 'Documents', 'payments' => 'Payments', 'profile' => 'Practice Profile', 'history' => 'History'] as $tabKey => $tabLabel)
-            <button wire:click="$set('dashboardTab', '{{ $tabKey }}')" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
-                wire:loading.attr="disabled" wire:target="$set('dashboardTab', '{{ $tabKey }}')"
-                class="px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-colors {{ $dashboardTab === $tabKey ? 'border-[#12304f] text-[#12304f]' : 'border-transparent text-[#5d6e7f] hover:text-[#12304f]' }}">
-                <span wire:loading.remove wire:target="$set('dashboardTab', '{{ $tabKey }}')">{{ $tabLabel }}</span>
-                <span wire:loading wire:target="$set('dashboardTab', '{{ $tabKey }}')">
-                    <x-spinner class="h-3.5 w-3.5" />
-                </span>
-            </button>
-            @endforeach
-        </div>
-
-        <div class="p-5 space-y-5">
-    @if($dashboardTab === 'documents')
-    @if($this->userOrders->count() > 1)
-    <div class="flex flex-wrap gap-2">
-        @foreach($this->userOrders as $order)
-        <button type="button" wire:click="switchOrder({{ $order->id }})" wire:target="switchOrder({{ $order->id }})"
-            wire:loading.attr="disabled" wire:target="switchOrder({{ $order->id }})"
-            class="inline-flex items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors {{ $this->dashboardOrderId === $order->id ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted hover:border-navy/40' }}">
-            <span wire:loading.remove wire:target="switchOrder({{ $order->id }})">{{ $order->package?->name }}</span>
-            <span wire:loading wire:target="switchOrder({{ $order->id }})">
-                <x-spinner class="h-3 w-3" />
-            </span>
-        </button>
-        @endforeach
-    </div>
-    @endif
-
-    <div>
-        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
-            @foreach($this->expectedDocuments as $row)
             @php
-            $type = $row['type'];
-            $location = $row['location'];
-            $doc = $row['document'];
-            $sourceUpload = $row['sourceUpload'] ?? null;
-            $title = $sourceUpload?->document_category === 'employee_manual'
-                ? 'Employee manual (reviewed)'
-                : $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' — '.$sourceUpload->original_filename : '');
-            [$badgeClass, $badgeLabel] = match(true) {
-                ! $doc => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
-                (bool) $doc->is_stale => ['bg-[#fde2e2] text-[#a53b3b]', 'Outdated'],
-                $doc->isReady() => ['bg-[#d7f3ea] text-[#117a51]', 'Current'],
-                $doc->wasRevoked() => ['bg-[#fde8cc] text-[#9a5b0f]', 'Updated'],
-                $doc->status === DocumentStatus::Failed => ['bg-[#fde2e2] text-[#a53b3b]', 'Failed'],
-                $doc->status === DocumentStatus::Completed => ['bg-[#edf2f7] text-[#5d6e7f]', 'Pending Review'],
-                default => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
-            };
+            $dashOrderForCards = $this->currentOrder;
+            $invoiceLabel = $dashOrderForCards?->billing_cycle === \App\Enums\BillingCycle::Annual ? 'Invoice / Year' :
+            'Invoice / Month';
+            $invoiceAmount = (float) ($dashOrderForCards?->original_price ?? 0);
             @endphp
-            <div class="flex items-center gap-3 px-4 py-3">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-[#1a7aad] flex-shrink-0">
-                    <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                </svg>
-                <div class="flex-1 min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <p class="text-sm font-semibold text-[#173045] truncate">{{ $title }}</p>
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider {{ $badgeClass }}">{{ $badgeLabel }}</span>
-                    </div>
-                    @if($doc?->generated_at)
-                    <p class="text-xs text-[#5d6e7f]">
-                        {{ $doc->is_stale ? 'Last generated' : 'Generated' }} {{ $doc->generated_at->format('M j, Y')
-                        }}{{ $doc->is_stale ? ' — details changed since.' : ($doc->wasRevoked() ? ' — pulled back for
-                        changes, check back soon.' : '') }}
-                    </p>
-                    @else
-                    <p class="text-xs text-[#5d6e7f]">We'll notify you once this is ready.</p>
-                    @endif
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                    <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Package</p>
+                    <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->package?->name ?? '—' }}</p>
                 </div>
-                <div class="flex gap-2 flex-shrink-0">
-                    @if($doc?->is_stale)
-                    <button wire:click="regenerateDocument({{ $doc->id }})"
-                        wire:confirm="Regenerate this document with your latest details?"
-                        wire:target="regenerateDocument({{ $doc->id }})" wire:loading.attr="disabled"
-                        wire:target="regenerateDocument({{ $doc->id }})"
-                        class="text-xs font-bold rounded bg-[#12304f] text-white px-3 py-1.5 hover:bg-[#0a2037] transition-colors">
-                        <span wire:loading.remove wire:target="regenerateDocument({{ $doc->id }})">Regenerate</span>
-                        <span wire:loading.inline-flex wire:target="regenerateDocument({{ $doc->id }})"
-                            class="inline-flex items-center gap-1.5">
-                            <x-spinner class="h-3.5 w-3.5" /> Regenerating…
-                        </span>
-                    </button>
-                    @elseif($doc?->isReady() && $doc->delivery_source === \App\Enums\DocumentDeliverySource::Custom)
-                    <a href="{{ route('documents.download', $doc) }}"
-                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
-                        Download
-                    </a>
-                    @elseif($doc?->isReady() && $doc->pdf_storage_path)
-                    <a href="{{ route('documents.download', $doc) }}"
-                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
-                        Download
-                    </a>
-                    @elseif($doc?->isReady() && $doc->docx_storage_path)
-                    <a href="{{ route('documents.download', $doc) }}?format=docx"
-                        class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
-                        Download
-                    </a>
-                    @endif
+                <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                    <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">{{ $invoiceLabel
+                        }}</p>
+                    <p class="text-base font-bold text-[#173045]">${{ number_format($invoiceAmount, $invoiceAmount ==
+                        floor($invoiceAmount) ? 0 : 2) }}</p>
+                </div>
+                <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3">
+                    <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Renews</p>
+                    <p class="text-base font-bold text-[#173045]">{{ $dashOrderForCards?->next_bill_date?->format('M j,
+                        Y') ?? '—' }}</p>
                 </div>
             </div>
-            @endforeach
-
-            @if($this->primarySubmission)
-            <div class="flex items-center gap-3 px-4 py-3">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-[#8592a1] flex-shrink-0">
-                    <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                </svg>
-                <p class="flex-1 text-sm font-semibold text-[#173045]">Your intake answers</p>
-                <a href="{{ route('intake-submissions.answers', $this->primarySubmission) }}"
-                    class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors flex-shrink-0">Download</a>
-            </div>
-            @endif
         </div>
 
-        <div class="mt-4 rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
-            <p class="text-sm font-semibold text-[#173045] mb-1">Have another document you'd like reviewed?</p>
-            <p class="text-xs text-[#5d6e7f] mb-3">Upload it and our team will review and polish it, same as your other
-                documents — no need to redo your intake.</p>
-
-            @if($additionalDocumentNotice)
-            <p class="text-xs font-semibold text-[#117a51] mb-3">✓ {{ $additionalDocumentNotice }}</p>
-            @endif
-
-            <div class="flex flex-wrap items-start gap-2">
-                <div class="flex-1 min-w-[10rem]">
-                    <input wire:model="additionalDocumentFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.docx"
-                        wire:loading.attr="disabled" wire:target="additionalDocumentFile,uploadAdditionalDocument"
-                        class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
-                    @error('additionalDocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-                <select wire:model="additionalDocumentCategory"
-                    class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
-                    <option value="">Document type…</option>
-                    @foreach($this->reviewDocumentCategories as $key => $label)
-                    <option value="{{ $key }}">{{ $label }}</option>
-                    @endforeach
-                    <option value="other">Other</option>
-                </select>
-                <button type="button" wire:click="uploadAdditionalDocument" wire:target="uploadAdditionalDocument"
-                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                    class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
-                    <span wire:loading.remove wire:target="uploadAdditionalDocument">Upload for Review</span>
-                    <span wire:loading.inline-flex wire:target="uploadAdditionalDocument" class="inline-flex items-center gap-1.5">
-                        <x-spinner class="h-3.5 w-3.5" /> Uploading…
+        @php $dashOrder = $this->currentOrder; @endphp
+        @if($dashOrder && ! $dashOrder->blockedFromAiGeneration() && $dashOrder->payment_status ===
+        PaymentStatus::Trialing)
+        <div
+            class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 flex flex-wrap items-center justify-between gap-3">
+            <span>
+                Free trial active — ends {{ $dashOrder->trial_ends_at?->format('M j, Y') }}. Card on file ending in
+                {{ $dashOrder->card_last_four ?? '····' }}.
+            </span>
+            <div class="flex items-center gap-2">
+                <button type="button" wire:click="convertTrialToPaid({{ $dashOrder->id }})"
+                    wire:target="convertTrialToPaid({{ $dashOrder->id }})" wire:loading.attr="disabled"
+                    wire:loading.class="opacity-70 cursor-not-allowed"
+                    class="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-bold text-navy-dark hover:bg-accent-dark transition-colors">
+                    <span wire:loading.remove wire:target="convertTrialToPaid({{ $dashOrder->id }})">Proceed with
+                        Payment</span>
+                    <span wire:loading.inline-flex wire:target="convertTrialToPaid({{ $dashOrder->id }})"
+                        class="inline-flex items-center gap-1.5">
+                        <x-spinner class="h-3.5 w-3.5" /> Processing…
                     </span>
                 </button>
+                <button type="button"
+                    x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your free trial? You'll lose access to AI document generation once it ends.`)"
+                    class="rounded-lg border border-blue-300 px-3.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition-colors">
+                    Cancel
+                </button>
+            </div>
+            <div x-data="{ showUpdateCard: false }" class="w-full">
+                <button type="button" x-on:click="showUpdateCard = ! showUpdateCard"
+                    class="text-xs font-semibold text-blue-800 hover:underline">Update Card</button>
+                <div x-show="showUpdateCard" x-cloak class="mt-2 flex flex-wrap items-end gap-2">
+                    <input x-ref="cardNumber" type="text" placeholder="Card number" inputmode="numeric" maxlength="19"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-40">
+                    <input x-ref="cardExpiry" type="text" placeholder="MM/YY" maxlength="5"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-20">
+                    <input x-ref="cardCvc" type="text" placeholder="CVC" inputmode="numeric" maxlength="4"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-16">
+                    <button type="button"
+                        x-on:click="$wire.updateTrialCard({{ $dashOrder->id }}, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then(() => showUpdateCard = false)"
+                        wire:loading.attr="disabled" wire:target="updateTrialCard"
+                        class="rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-navy-dark transition-colors">
+                        Save Card
+                    </button>
+                </div>
+                @error('cardNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('cardExpiry') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('cardCvc') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
-
-        <p class="text-xs text-[#5d6e7f] mt-2">For any queries, <a href="{{ route('contact', ['package' => $this->currentOrder->package?->slug]) }}" wire:navigate
-                class="font-semibold text-[#1a7aad] hover:underline">contact us</a>.</p>
-    </div>
-    @elseif($dashboardTab === 'payments')
-    <div>
-        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
-            @forelse($this->userOrders as $order)
-            @php $amountPaid = (float) $order->amount_paid; @endphp
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <p class="text-sm font-semibold text-[#173045]">
-                    {{ $order->paid_at?->format('M j, Y') }} &middot; Initial payment{{ $order->card_last_four ? " (card ending {$order->card_last_four})" : '' }}
-                </p>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    <span class="text-sm font-semibold text-[#173045]">${{ number_format($amountPaid, $amountPaid == floor($amountPaid) ? 0 : 2) }}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#d7f3ea] text-[#117a51]">Paid</span>
-                    <a href="{{ route('orders.receipt', $order) }}" target="_blank"
-                        class="text-xs font-bold text-[#1a7aad] hover:underline">View Receipt</a>
+        @error('payment') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        @elseif($dashOrder && $dashOrder->payment_status === PaymentStatus::PastDue)
+        <div
+            class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-3">
+            <span>
+                We couldn't process your last renewal payment{{ $dashOrder->last_renewal_error ? ":
+                {$dashOrder->last_renewal_error}" : '.' }}
+                We'll retry automatically — please update your card to avoid cancellation.
+            </span>
+            <button type="button"
+                x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel this subscription? This can't be undone.`)"
+                class="rounded-lg border border-amber-300 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors">
+                Cancel Subscription
+            </button>
+            <div x-data="{ showUpdateCard: false }" class="w-full">
+                <button type="button" x-on:click="showUpdateCard = ! showUpdateCard"
+                    class="text-xs font-semibold text-amber-800 hover:underline">Update Card</button>
+                <div x-show="showUpdateCard" x-cloak class="mt-2 flex flex-wrap items-end gap-2">
+                    <input x-ref="cardNumber" type="text" placeholder="Card number" inputmode="numeric" maxlength="19"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-40">
+                    <input x-ref="cardExpiry" type="text" placeholder="MM/YY" maxlength="5"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-20">
+                    <input x-ref="cardCvc" type="text" placeholder="CVC" inputmode="numeric" maxlength="4"
+                        class="rounded-lg border border-empower-border bg-white px-3 py-1.5 text-sm w-16">
+                    <button type="button"
+                        x-on:click="$wire.updateTrialCard({{ $dashOrder->id }}, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then(() => showUpdateCard = false)"
+                        wire:loading.attr="disabled" wire:target="updateTrialCard"
+                        class="rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white hover:bg-navy-dark transition-colors">
+                        Save Card
+                    </button>
                 </div>
+                @error('cardNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('cardExpiry') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('cardCvc') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
-            @if($order->next_bill_date && $order->payment_status === PaymentStatus::Paid)
-            @php $nextAmount = (float) ($order->original_price ?? $order->amount_paid); @endphp
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <p class="text-sm font-semibold text-[#173045]">
-                    {{ $order->next_bill_date->format('M j, Y') }} &middot; Next {{ $order->billing_cycle?->period() ?? 'monthly' }} charge
-                </p>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    <span class="text-sm font-semibold text-[#173045]">${{ number_format($nextAmount, $nextAmount == floor($nextAmount) ? 0 : 2) }}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#edf2f7] text-[#5d6e7f]">Scheduled</span>
-                </div>
-            </div>
+        </div>
+        @error('payment') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        @elseif($dashOrder?->blockedFromAiGeneration())
+        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            @if($dashOrder->payment_status === PaymentStatus::Trialing)
+            Your free trial ended without a subscription — AI document generation is no longer available for this
+            practice. Contact us to resubscribe.
+            @else
+            This subscription has been cancelled — AI document generation is no longer available for this practice.
+            Contact us to resubscribe.
             @endif
-            @empty
-            <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No purchases yet.</p>
-            @endforelse
+        </div>
+        @elseif($dashOrder && $dashOrder->payment_status === PaymentStatus::Paid && $dashOrder->next_bill_date)
+        <div
+            class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-3 text-xs text-empower-muted flex items-center justify-between gap-3">
+            <span>Renews {{ $dashOrder->next_bill_date->format('M j, Y') }}</span>
+            <button type="button"
+                x-on:click="confirmCancel({{ $dashOrder->id }}, `Cancel your subscription? You'll lose access to AI document generation once your current plan year ends.`)"
+                class="text-xs font-semibold text-empower-muted hover:underline">Cancel subscription</button>
+        </div>
+        @endif
+
+        {{-- Tabs --}}
+        <div
+            class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
+            <div class="flex gap-1 border-b border-[#eef2f6] px-2">
+                @foreach(['documents' => 'Documents', 'payments' => 'Payments', 'profile' => 'Practice Profile',
+                'history' => 'History'] as $tabKey => $tabLabel)
+                <button wire:click="$set('dashboardTab', '{{ $tabKey }}')"
+                    wire:target="$set('dashboardTab', '{{ $tabKey }}')" wire:loading.attr="disabled"
+                    wire:target="$set('dashboardTab', '{{ $tabKey }}')"
+                    class="px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-colors {{ $dashboardTab === $tabKey ? 'border-[#12304f] text-[#12304f]' : 'border-transparent text-[#5d6e7f] hover:text-[#12304f]' }}">
+                    <span wire:loading.remove wire:target="$set('dashboardTab', '{{ $tabKey }}')">{{ $tabLabel }}</span>
+                    <span wire:loading wire:target="$set('dashboardTab', '{{ $tabKey }}')">
+                        <x-spinner class="h-3.5 w-3.5" />
+                    </span>
+                </button>
+                @endforeach
+            </div>
+
+            <div class="p-5 space-y-5">
+                @if($dashboardTab === 'documents')
+                @if($this->userOrders->count() > 1)
+                <div class="flex flex-wrap gap-2">
+                    @foreach($this->userOrders as $order)
+                    <button type="button" wire:click="switchOrder({{ $order->id }})"
+                        wire:target="switchOrder({{ $order->id }})" wire:loading.attr="disabled"
+                        wire:target="switchOrder({{ $order->id }})"
+                        class="inline-flex items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors {{ $this->dashboardOrderId === $order->id ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted hover:border-navy/40' }}">
+                        <span wire:loading.remove wire:target="switchOrder({{ $order->id }})">{{ $order->package?->name
+                            }}</span>
+                        <span wire:loading wire:target="switchOrder({{ $order->id }})">
+                            <x-spinner class="h-3 w-3" />
+                        </span>
+                    </button>
+                    @endforeach
+                </div>
+                @endif
+
+                <div>
+                    <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+                        @foreach($this->expectedDocuments as $row)
+                        @php
+                        $type = $row['type'];
+                        $location = $row['location'];
+                        $doc = $row['document'];
+                        $sourceUpload = $row['sourceUpload'] ?? null;
+                        $title = $sourceUpload?->document_category === 'employee_manual'
+                        ? 'Employee manual (reviewed)'
+                        : $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' —
+                        '.$sourceUpload->original_filename : '');
+                        [$badgeClass, $badgeLabel] = match(true) {
+                        ! $doc => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
+                        (bool) $doc->is_stale => ['bg-[#fde2e2] text-[#a53b3b]', 'Outdated'],
+                        $doc->isReady() => ['bg-[#d7f3ea] text-[#117a51]', 'Current'],
+                        $doc->wasRevoked() => ['bg-[#fde8cc] text-[#9a5b0f]', 'Updated'],
+                        $doc->status === DocumentStatus::Failed => ['bg-[#fde2e2] text-[#a53b3b]', 'Failed'],
+                        $doc->status === DocumentStatus::Completed => ['bg-[#edf2f7] text-[#5d6e7f]', 'Pending Review'],
+                        default => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
+                        };
+                        @endphp
+                        <div class="flex items-center gap-3 px-4 py-3">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                class="text-[#1a7aad] flex-shrink-0">
+                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linejoin="round" />
+                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                            </svg>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <p class="text-sm font-semibold text-[#173045] truncate">{{ $title }}</p>
+                                    <span
+                                        class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider {{ $badgeClass }}">{{
+                                        $badgeLabel }}</span>
+                                </div>
+                                @if($doc?->generated_at)
+                                <p class="text-xs text-[#5d6e7f]">
+                                    {{ $doc->is_stale ? 'Last generated' : 'Generated' }} {{
+                                    $doc->generated_at->format('M j, Y')
+                                    }}{{ $doc->is_stale ? ' — details changed since.' : ($doc->wasRevoked() ? ' — pulled
+                                    back for
+                                    changes, check back soon.' : '') }}
+                                </p>
+                                @else
+                                <p class="text-xs text-[#5d6e7f]">We'll notify you once this is ready.</p>
+                                @endif
+                            </div>
+                            <div class="flex gap-2 flex-shrink-0">
+                                @if($doc?->is_stale)
+                                <button wire:click="regenerateDocument({{ $doc->id }})"
+                                    wire:confirm="Regenerate this document with your latest details?"
+                                    wire:target="regenerateDocument({{ $doc->id }})" wire:loading.attr="disabled"
+                                    wire:target="regenerateDocument({{ $doc->id }})"
+                                    class="text-xs font-bold rounded bg-[#12304f] text-white px-3 py-1.5 hover:bg-[#0a2037] transition-colors">
+                                    <span wire:loading.remove
+                                        wire:target="regenerateDocument({{ $doc->id }})">Regenerate</span>
+                                    <span wire:loading.inline-flex wire:target="regenerateDocument({{ $doc->id }})"
+                                        class="inline-flex items-center gap-1.5">
+                                        <x-spinner class="h-3.5 w-3.5" /> Regenerating…
+                                    </span>
+                                </button>
+                                @elseif($doc?->isReady() && $doc->delivery_source ===
+                                \App\Enums\DocumentDeliverySource::Custom)
+                                <a href="{{ route('documents.download', $doc) }}"
+                                    class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
+                                    Download
+                                </a>
+                                @elseif($doc?->isReady() && $doc->pdf_storage_path)
+                                <a href="{{ route('documents.download', $doc) }}"
+                                    class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
+                                    Download
+                                </a>
+                                @elseif($doc?->isReady() && $doc->docx_storage_path)
+                                <a href="{{ route('documents.download', $doc) }}?format=docx"
+                                    class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors">
+                                    Download
+                                </a>
+                                @endif
+                            </div>
+                        </div>
+                        @endforeach
+
+                        @if($this->primarySubmission)
+                        <div class="flex items-center gap-3 px-4 py-3">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                class="text-[#8592a1] flex-shrink-0">
+                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linejoin="round" />
+                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                            </svg>
+                            <p class="flex-1 text-sm font-semibold text-[#173045]">Your intake answers</p>
+                            <a href="{{ route('intake-submissions.answers', $this->primarySubmission) }}"
+                                class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors flex-shrink-0">Download</a>
+                        </div>
+                        @endif
+                    </div>
+
+                    <div class="mt-4 rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
+                        <p class="text-sm font-semibold text-[#173045] mb-1">Have another document you'd like reviewed?
+                        </p>
+                        <p class="text-xs text-[#5d6e7f] mb-3">Upload it and our team will review and polish it, same as
+                            your other
+                            documents — no need to redo your intake.</p>
+
+                        @if($additionalDocumentNotice)
+                        <p class="text-xs font-semibold text-[#117a51] mb-3">✓ {{ $additionalDocumentNotice }}</p>
+                        @endif
+
+                        <div class="flex flex-wrap items-start gap-2">
+                            <div class="flex-1 min-w-[10rem]">
+                                <input wire:model="additionalDocumentFile" type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png,.docx" wire:loading.attr="disabled"
+                                    wire:target="additionalDocumentFile,uploadAdditionalDocument"
+                                    class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
+                                @error('additionalDocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+                            <select wire:model="additionalDocumentCategory"
+                                class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
+                                <option value="">Document type…</option>
+                                @foreach($this->reviewDocumentCategories as $key => $label)
+                                <option value="{{ $key }}">{{ $label }}</option>
+                                @endforeach
+                                <option value="other">Other</option>
+                            </select>
+                            <button type="button" wire:click="uploadAdditionalDocument"
+                                wire:target="uploadAdditionalDocument" wire:loading.attr="disabled"
+                                wire:loading.class="opacity-70 cursor-not-allowed"
+                                class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
+                                <span wire:loading.remove wire:target="uploadAdditionalDocument">Upload for
+                                    Review</span>
+                                <span wire:loading.inline-flex wire:target="uploadAdditionalDocument"
+                                    class="inline-flex items-center gap-1.5">
+                                    <x-spinner class="h-3.5 w-3.5" /> Uploading…
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-[#5d6e7f] mt-2">For any queries, <a
+                            href="{{ route('contact', ['package' => $this->currentOrder->package?->slug]) }}"
+                            wire:navigate class="font-semibold text-[#1a7aad] hover:underline">contact us</a>.</p>
+                </div>
+                @elseif($dashboardTab === 'payments')
+                <div>
+                    <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+                        @forelse($this->userOrders as $order)
+                        @php $amountPaid = (float) $order->amount_paid; @endphp
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <p class="text-sm font-semibold text-[#173045]">
+                                {{ $order->paid_at?->format('M j, Y') }} &middot; Initial payment{{
+                                $order->card_last_four ? " (card ending {$order->card_last_four})" : '' }}
+                            </p>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <span class="text-sm font-semibold text-[#173045]">${{ number_format($amountPaid,
+                                    $amountPaid == floor($amountPaid) ? 0 : 2) }}</span>
+                                <span
+                                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#d7f3ea] text-[#117a51]">Paid</span>
+                                <a href="{{ route('orders.receipt', $order) }}" target="_blank"
+                                    class="text-xs font-bold text-[#1a7aad] hover:underline">View Receipt</a>
+                            </div>
+                        </div>
+                        @if($order->next_bill_date && $order->payment_status === PaymentStatus::Paid)
+                        @php $nextAmount = (float) ($order->original_price ?? $order->amount_paid); @endphp
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <p class="text-sm font-semibold text-[#173045]">
+                                {{ $order->next_bill_date->format('M j, Y') }} &middot; Next {{
+                                $order->billing_cycle?->period() ?? 'monthly' }} charge
+                            </p>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <span class="text-sm font-semibold text-[#173045]">${{ number_format($nextAmount,
+                                    $nextAmount == floor($nextAmount) ? 0 : 2) }}</span>
+                                <span
+                                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6rem] font-extrabold uppercase tracking-wider bg-[#edf2f7] text-[#5d6e7f]">Scheduled</span>
+                            </div>
+                        </div>
+                        @endif
+                        @empty
+                        <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No purchases yet.</p>
+                        @endforelse
+                    </div>
+
+                    <p class="text-xs text-[#5d6e7f] mt-3">Want another compliance package for this practice? <a
+                            href="{{ route('home') }}#pricing" class="font-semibold text-[#1a7aad] hover:underline">View
+                            all packages &rarr;</a></p>
+                </div>
+                @elseif($dashboardTab === 'profile')
+                <div>
+                    <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <span class="text-sm text-[#5d6e7f]">Practice</span>
+                            <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->name ?:
+                                '—' }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <span class="text-sm text-[#5d6e7f]">Specialty</span>
+                            <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->specialty
+                                ?: '—' }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <span class="text-sm text-[#5d6e7f]">Billable providers</span>
+                            <span class="text-sm font-semibold text-[#173045] text-right">{{
+                                $this->practice?->billable_providers_count ?? '—' }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <span class="text-sm text-[#5d6e7f]">Address</span>
+                            <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->address
+                                ?: '—' }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <span class="text-sm text-[#5d6e7f]">Account</span>
+                            <span class="text-sm font-semibold text-[#173045] text-right">{{ auth()->user()->name }}
+                                &middot; {{ auth()->user()->email }}</span>
+                        </div>
+                    </div>
+                    <div class="flex justify-end mt-4">
+                        <button wire:click="editProfile" wire:target="editProfile" wire:loading.attr="disabled"
+                            class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                            <span wire:loading.remove wire:target="editProfile">Edit intake answers</span>
+                            <span wire:loading.inline-flex wire:target="editProfile"
+                                class="inline-flex items-center gap-1.5">
+                                <x-spinner class="h-3.5 w-3.5" /> Loading…
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                @else
+                <div>
+                    <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
+                        @forelse($this->activityLog as $log)
+                        <div class="flex items-center justify-between gap-3 px-4 py-3">
+                            <p class="text-sm font-semibold text-[#173045]">{{ $log->description }}</p>
+                            <p class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $log->created_at->format('M j, g:ia') }}
+                            </p>
+                        </div>
+                        @empty
+                        <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No activity yet.</p>
+                        @endforelse
+                    </div>
+                </div>
+                @endif
+            </div>
         </div>
 
-        <p class="text-xs text-[#5d6e7f] mt-3">Want another compliance package for this practice? <a href="{{ route('home') }}#pricing" class="font-semibold text-[#1a7aad] hover:underline">View all packages &rarr;</a></p>
-    </div>
-    @elseif($dashboardTab === 'profile')
-    <div>
-        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <span class="text-sm text-[#5d6e7f]">Practice</span>
-                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->name ?: '—' }}</span>
-            </div>
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <span class="text-sm text-[#5d6e7f]">Specialty</span>
-                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->specialty ?: '—' }}</span>
-            </div>
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <span class="text-sm text-[#5d6e7f]">Billable providers</span>
-                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->billable_providers_count ?? '—' }}</span>
-            </div>
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <span class="text-sm text-[#5d6e7f]">Address</span>
-                <span class="text-sm font-semibold text-[#173045] text-right">{{ $this->practice?->address ?: '—' }}</span>
-            </div>
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <span class="text-sm text-[#5d6e7f]">Account</span>
-                <span class="text-sm font-semibold text-[#173045] text-right">{{ auth()->user()->name }} &middot; {{ auth()->user()->email }}</span>
-            </div>
-        </div>
-        <div class="flex justify-end mt-4">
-            <button wire:click="editProfile" wire:target="editProfile" wire:loading.attr="disabled"
-                class="inline-flex items-center gap-1 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
-                <span wire:loading.remove wire:target="editProfile">Edit intake answers</span>
-                <span wire:loading.inline-flex wire:target="editProfile" class="inline-flex items-center gap-1.5">
+        <div class="flex justify-start">
+            <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
+                wire:target="goToStep(4)"
+                class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+                <span wire:loading.remove wire:target="goToStep(4)">Back to Review</span>
+                <span wire:loading.inline-flex wire:target="goToStep(4)" class="inline-flex items-center gap-1.5">
                     <x-spinner class="h-3.5 w-3.5" /> Loading…
                 </span>
             </button>
         </div>
     </div>
-    @else
-    <div>
-        <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
-            @forelse($this->activityLog as $log)
-            <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <p class="text-sm font-semibold text-[#173045]">{{ $log->description }}</p>
-                <p class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $log->created_at->format('M j, g:ia') }}</p>
-            </div>
-            @empty
-            <p class="text-sm text-[#5d6e7f] italic px-4 py-3">No activity yet.</p>
-            @endforelse
-        </div>
-    </div>
-    @endif
-        </div>
-    </div>
-
-    <div class="flex justify-start">
-        <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
-            wire:target="goToStep(4)"
-            class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-            <span wire:loading.remove wire:target="goToStep(4)">Back to Review</span>
-            <span wire:loading.inline-flex wire:target="goToStep(4)" class="inline-flex items-center gap-1.5">
-                <x-spinner class="h-3.5 w-3.5" /> Loading…
-            </span>
-        </button>
-    </div>
-    </div>
 
     {{-- Shared "Cancel subscription" confirmation modal — one Alpine scope wraps the whole
-         dashboard step since the trigger buttons live in three different conditional banners
-         (trial/past-due/active) that are siblings of each other, not nested. Kept outside the
-         space-y-4 div above so it doesn't pick up sibling spacing while position:fixed. --}}
+    dashboard step since the trigger buttons live in three different conditional banners
+    (trial/past-due/active) that are siblings of each other, not nested. Kept outside the
+    space-y-4 div above so it doesn't pick up sibling spacing while position:fixed. --}}
     <div x-show="confirmCancelOrderId !== null" x-cloak
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-        <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmCancelOrderId = null">
+        <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6"
+            x-on:click.outside="confirmCancelOrderId = null">
             <h3 class="text-base font-semibold text-[#12304f] mb-2">Cancel your subscription?</h3>
             <p class="text-sm text-[#5d6e7f] mb-5" x-text="confirmCancelMessage"></p>
             <div class="flex justify-end gap-3">
@@ -3481,15 +3568,19 @@ $progressPct = ($milestone / 4) * 100;
                 </button>
                 <button type="button"
                     x-on:click="$wire.cancelSubscription(confirmCancelOrderId).then(() => confirmCancelOrderId = null).catch(() => {})"
-                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed" wire:target="cancelSubscription"
+                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                    wire:target="cancelSubscription"
                     class="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors">
                     <span wire:loading.remove wire:target="cancelSubscription">Cancel Subscription</span>
-                    <span wire:loading.inline-flex wire:target="cancelSubscription" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Cancelling…</span>
+                    <span wire:loading.inline-flex wire:target="cancelSubscription"
+                        class="inline-flex items-center gap-1.5">
+                        <x-spinner class="h-3.5 w-3.5" /> Cancelling…
+                    </span>
                 </button>
             </div>
         </div>
     </div>
-    </div>
-    @endif
+</div>
+@endif
 
 </div>
