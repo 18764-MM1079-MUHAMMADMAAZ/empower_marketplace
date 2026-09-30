@@ -2265,7 +2265,7 @@ $progressPct = ($milestone / 4) * 100;
         @else
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
             <div
-                class="{{ auth()->check() ? 'lg:col-span-2' : '' }} bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
+                class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
                 <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1</p>
                 <h2 class="text-lg font-semibold text-navy mb-1">Selected Package</h2>
                 <p class="text-xs text-empower-muted">
@@ -2349,82 +2349,86 @@ $progressPct = ($milestone / 4) * 100;
                 </div>
                 @endif
                 @endif
+
+                @auth
+                @else
+                <div class="mt-3 pt-3 border-t border-[#eef2f6]">
+                    <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1 mt-3">Step 1.1
+                    </p>
+                    <h3 class="text-sm font-semibold text-navy mb-1">Account Information</h3>
+                    <p class="text-xs text-empower-muted mb-3">Create the account that will manage this practice's
+                        Empower portal.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Your name <span
+                                    class="text-red-500">*</span></label>
+                            <input wire:model.live="accountName" type="text" placeholder="Jane Provider" required
+                                maxlength="100" pattern="[\p{L}\s.'\-]+"
+                                title="Letters, spaces, periods, apostrophes and hyphens only"
+                                class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                            @error('accountName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email address <span
+                                    class="text-red-500">*</span></label>
+                            <input wire:model.live="accountEmail" type="email" placeholder="jane@practice.com" required
+                                maxlength="150" pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+                                title="Please include a domain extension, e.g. name@example.com"
+                                class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                            @error('accountEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                    </div>
+                    <p class="text-xs text-empower-muted mt-2">We'll email you a secure, auto-generated password to log
+                        in with.
+                    </p>
+                </div>
+                @endauth
             </div>
 
-            @auth
-            @else
-            <div
-                class="h-full bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-                <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.1</p>
-                <h3 class="text-lg font-semibold text-navy mb-1">Account Information</h3>
-                <p class="text-xs text-empower-muted mb-3">Create the account that will manage this practice's Empower
-                    portal.</p>
-                <div class="grid grid-cols-1 sm:grid-cols-1 gap-3">
+            <div x-data="{
+                    cardNameValid: false, cardNumberValid: false, cardExpiryError: '', cardCvcValid: false, showTerms: false, termsAccepted: false,
+                }"
+                class="flex flex-col bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
+                <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.2</p>
+                <h3 class="text-lg font-semibold text-navy mb-1">Payment Details</h3>
+                <p class="text-xs text-empower-muted mb-3">Your card is charged securely — these fields are never saved
+                    or
+                    logged by this form.</p>
+                @error('payment') <p
+                    class="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-700">
+                    {{
+                    $message }}</p> @enderror
+                @error('termsAccepted') <p x-show="!termsAccepted"
+                    class="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-700">
+                    {{
+                    $message }}</p> @enderror
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Your name <span
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Name on card <span
                                 class="text-red-500">*</span></label>
-                        <input wire:model.live="accountName" type="text" placeholder="Jane Provider" required
-                            maxlength="100" pattern="[\p{L}\s.'\-]+"
-                            title="Letters, spaces, periods, apostrophes and hyphens only"
+                        <input x-ref="cardName" type="text" placeholder="Jane Provider" maxlength="255"
+                            x-on:input="cardNameValid = /^[\p{L}\s.'-]+$/u.test($el.value.trim())"
                             class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('accountName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @error('cardName') <p x-show="!cardNameValid" class="mt-1 text-xs text-red-600">{{ $message }}
+                        </p>
+                        @enderror
                     </div>
                     <div>
-                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email address <span
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Card number <span
                                 class="text-red-500">*</span></label>
-                        <input wire:model.live="accountEmail" type="email" placeholder="jane@practice.com" required
-                            maxlength="150" pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
-                            title="Please include a domain extension, e.g. name@example.com"
+                        <input x-ref="cardNumber" type="text" placeholder="4242424242424242" inputmode="numeric"
+                            maxlength="16"
+                            x-on:input="$el.value = $el.value.replace(/[^0-9]/g, '').slice(0, 16); cardNumberValid = $el.value.length === 16"
                             class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('accountEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @error('cardNumber') <p x-show="!cardNumberValid" class="mt-1 text-xs text-red-600">{{ $message
+                            }}
+                        </p> @enderror
                     </div>
-                </div>
-                <p class="text-xs text-empower-muted mt-2">We'll email you a secure, auto-generated password to log in
-                    with.
-                </p>
-            </div>
-            @endauth
-        </div>
-
-        <div x-data="{
-                cardNameValid: false, cardNumberValid: false, cardExpiryError: '', cardCvcValid: false, showTerms: false, termsAccepted: false,
-            }"
-            class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
-            <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.2</p>
-            <h3 class="text-lg font-semibold text-navy mb-1">Payment Details</h3>
-            <p class="text-xs text-empower-muted mb-3">Your card is charged securely — these fields are never saved or
-                logged by this form.</p>
-            @error('payment') <p
-                class="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-700">{{
-                $message }}</p> @enderror
-            @error('termsAccepted') <p x-show="!termsAccepted"
-                class="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-700">{{
-                $message }}</p> @enderror
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Name on card <span
-                            class="text-red-500">*</span></label>
-                    <input x-ref="cardName" type="text" placeholder="Jane Provider" maxlength="255"
-                        x-on:input="cardNameValid = /^[\p{L}\s.'-]+$/u.test($el.value.trim())"
-                        class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('cardName') <p x-show="!cardNameValid" class="mt-1 text-xs text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Card number <span
-                            class="text-red-500">*</span></label>
-                    <input x-ref="cardNumber" type="text" placeholder="4242424242424242" inputmode="numeric"
-                        maxlength="16"
-                        x-on:input="$el.value = $el.value.replace(/[^0-9]/g, '').slice(0, 16); cardNumberValid = $el.value.length === 16"
-                        class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('cardNumber') <p x-show="!cardNumberValid" class="mt-1 text-xs text-red-600">{{ $message }}
-                    </p> @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Expiry <span
-                            class="text-red-500">*</span></label>
-                    <input x-ref="cardExpiry" type="text" placeholder="MM / YY" inputmode="numeric" maxlength="5"
-                        x-on:input="
+                    <div>
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Expiry <span
+                                class="text-red-500">*</span></label>
+                        <input x-ref="cardExpiry" type="text" placeholder="MM / YY" inputmode="numeric" maxlength="5"
+                            x-on:input="
                             let digits = $el.value.replace(/[^0-9]/g, '').slice(0, 4);
                             let deleting = ($event.inputType || '').startsWith('delete');
                             $el.value = (digits.length >= 2 && !deleting) ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
@@ -2441,128 +2445,134 @@ $progressPct = ($milestone / 4) * 100;
                                 cardExpiryError = '';
                             }
                         " x-bind:class="cardExpiryError ? 'border-red-400' : 'border-empower-border'"
-                        class="w-full rounded-xl border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    <p x-show="cardExpiryError" x-text="cardExpiryError" class="mt-1 text-xs text-red-600"></p>
-                    @error('cardExpiry') <p x-show="!cardExpiryError" class="mt-1 text-xs text-red-600">{{ $message }}
-                    </p> @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">CVC <span
-                            class="text-red-500">*</span></label>
-                    <input x-ref="cardCvc" type="text" placeholder="123" inputmode="numeric" maxlength="4"
-                        x-on:input="$el.value = $el.value.replace(/[^0-9]/g, ''); cardCvcValid = $el.value.length >= 3 && $el.value.length <= 4"
-                        class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('cardCvc') <p x-show="!cardCvcValid" class="mt-1 text-xs text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                <div class="sm:col-span-2">
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Billing address <span
-                            class="text-red-500">*</span></label>
-                    <input wire:model.live="billingAddress1" type="text" placeholder="7 Clyde Road" required
-                        maxlength="255"
-                        class="w-full rounded-xl border {{ $errors->has('billingAddress1') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                    @error('billingAddress1') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                </div>
-                <div class="sm:col-span-2 grid grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">City <span
-                                class="text-red-500">*</span></label>
-                        <input wire:model.live="billingCity" type="text" placeholder="Somerset" required maxlength="100"
-                            class="w-full rounded-xl border {{ $errors->has('billingCity') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('billingCity') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                            class="w-full rounded-xl border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        <p x-show="cardExpiryError" x-text="cardExpiryError" class="mt-1 text-xs text-red-600"></p>
+                        @error('cardExpiry') <p x-show="!cardExpiryError" class="mt-1 text-xs text-red-600">{{ $message
+                            }}
+                        </p> @enderror
                     </div>
                     <div>
-                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">State <span
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">CVC <span
                                 class="text-red-500">*</span></label>
-                        <input wire:model.live="billingState" type="text" placeholder="NJ or New Jersey" required
-                            maxlength="50"
-                            class="w-full rounded-xl border {{ $errors->has('billingState') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('billingState') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Zip <span
-                                class="text-red-500">*</span></label>
-                        <input wire:model.live="billingZip" type="text" placeholder="08873" inputmode="numeric" required
-                            maxlength="10"
-                            class="w-full rounded-xl border {{ $errors->has('billingZip') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('billingZip') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        <input x-ref="cardCvc" type="text" placeholder="123" inputmode="numeric" maxlength="4"
+                            x-on:input="$el.value = $el.value.replace(/[^0-9]/g, ''); cardCvcValid = $el.value.length >= 3 && $el.value.length <= 4"
+                            class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('cardCvc') <p x-show="!cardCvcValid" class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                        @enderror
                     </div>
                 </div>
-            </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Billing address <span
+                                class="text-red-500">*</span></label>
+                        <input wire:model.live="billingAddress1" type="text" placeholder="7 Clyde Road" required
+                            maxlength="255"
+                            class="w-full rounded-xl border {{ $errors->has('billingAddress1') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                        @error('billingAddress1') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div class="sm:col-span-2 grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">City <span
+                                    class="text-red-500">*</span></label>
+                            <input wire:model.live="billingCity" type="text" placeholder="Somerset" required
+                                maxlength="100"
+                                class="w-full rounded-xl border {{ $errors->has('billingCity') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                            @error('billingCity') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">State <span
+                                    class="text-red-500">*</span></label>
+                            <input wire:model.live="billingState" type="text" placeholder="NJ or New Jersey" required
+                                maxlength="50"
+                                class="w-full rounded-xl border {{ $errors->has('billingState') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                            @error('billingState') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Zip <span
+                                    class="text-red-500">*</span></label>
+                            <input wire:model.live="billingZip" type="text" placeholder="08873" inputmode="numeric"
+                                required maxlength="10"
+                                class="w-full rounded-xl border {{ $errors->has('billingZip') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                            @error('billingZip') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+                    </div>
+                </div>
 
-            <div class="mt-3 flex justify-end">
-                <button
-                    x-on:click="$wire.validatePayment($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then((valid) => { if (valid) showTerms = true })"
-                    class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark hover:bg-accent-dark transition-colors"
-                    wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                    wire:target="validatePayment">
-                    <span wire:loading.remove wire:target="validatePayment">
-                        @if($this->isFreeTrialCheckout)
-                        Start Free Trial &rarr;
-                        @else
-                        Pay ${{ number_format($this->discountedTotal, 2) }}
-                        &rarr;
-                        @endif
-                    </span>
-                    <span wire:loading.inline-flex wire:target="validatePayment"
-                        class="inline-flex items-center gap-1.5">
-                        <x-spinner class="h-3.5 w-3.5" /> Checking…
-                    </span>
-                </button>
-            </div>
+                <div class="mt-auto pt-5 flex justify-end">
+                    <button
+                        x-on:click="$wire.validatePayment($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value).then((valid) => { if (valid) showTerms = true })"
+                        class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark hover:bg-accent-dark transition-colors"
+                        wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                        wire:target="validatePayment">
+                        <span wire:loading.remove wire:target="validatePayment">
+                            @if($this->isFreeTrialCheckout)
+                            Start Free Trial &rarr;
+                            @else
+                            Pay ${{ number_format($this->discountedTotal, 2) }}
+                            &rarr;
+                            @endif
+                        </span>
+                        <span wire:loading.inline-flex wire:target="validatePayment"
+                            class="inline-flex items-center gap-1.5">
+                            <x-spinner class="h-3.5 w-3.5" /> Checking…
+                        </span>
+                    </button>
+                </div>
 
-            <div x-show="showTerms" x-cloak
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-                <div class="w-full max-w-md bg-white rounded-[1.25rem] shadow-xl p-6"
-                    x-on:click.outside="showTerms = false">
-                    <h3 class="text-base font-semibold text-navy mb-2">Review &amp; Accept Terms &amp; Conditions</h3>
-                    <p class="text-sm text-empower-muted mb-4">Before we process your payment, please confirm you agree
-                        to our Terms &amp; Conditions and the CareCloud Master Services Agreement (MSA).</p>
-                    <a href="{{ config('services.carecloud.msa_url') }}" target="_blank" rel="noopener noreferrer"
-                        class="inline-flex items-center gap-1 text-sm font-semibold text-[#1a7aad] hover:underline mb-4">
-                        Read the CareCloud MSA &#8599;
-                    </a>
-                    <label class="flex items-start gap-2.5 mb-5 cursor-pointer">
-                        <input type="checkbox" x-model="termsAccepted"
-                            class="mt-0.5 h-4 w-4 rounded border-empower-border text-accent focus:ring-accent">
-                        <span class="text-sm text-empower-text">I agree to the Terms &amp; Conditions.</span>
-                    </label>
-                    <div class="flex justify-end gap-3">
-                        <button type="button" x-on:click="showTerms = false"
-                            class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition-colors">
-                            Cancel
-                        </button>
-                        @if($this->isFreeTrialCheckout)
-                        <button type="button" wire:key="terms-confirm-payfreetrial"
-                            x-on:click="$wire.payFreeTrial($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
-                            :disabled="!termsAccepted"
-                            :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
-                            class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
-                            wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                            wire:target="payFreeTrial">
-                            <span wire:loading.remove wire:target="payFreeTrial">I Agree — Start Free Trial
-                                &rarr;</span>
-                            <span wire:loading.inline-flex wire:target="payFreeTrial"
-                                class="inline-flex items-center gap-1.5">
-                                <x-spinner class="h-3.5 w-3.5" /> Processing…
-                            </span>
-                        </button>
-                        @else
-                        <button type="button" wire:key="terms-confirm-pay"
-                            x-on:click="$wire.pay($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
-                            :disabled="!termsAccepted"
-                            :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
-                            class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
-                            wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
-                            wire:target="pay">
-                            <span wire:loading.remove wire:target="pay">I Agree — Pay &rarr;</span>
-                            <span wire:loading.inline-flex wire:target="pay" class="inline-flex items-center gap-1.5">
-                                <x-spinner class="h-3.5 w-3.5" /> Processing…
-                            </span>
-                        </button>
-                        @endif
+                <div x-show="showTerms" x-cloak
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+                    <div class="w-full max-w-md bg-white rounded-[1.25rem] shadow-xl p-6"
+                        x-on:click.outside="showTerms = false">
+                        <h3 class="text-base font-semibold text-navy mb-2">Review &amp; Accept Terms &amp; Conditions
+                        </h3>
+                        <p class="text-sm text-empower-muted mb-4">Before we process your payment, please confirm you
+                            agree
+                            to our Terms &amp; Conditions and the CareCloud Master Services Agreement (MSA).</p>
+                        <a href="{{ config('services.carecloud.msa_url') }}" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center gap-1 text-sm font-semibold text-[#1a7aad] hover:underline mb-4">
+                            Read the CareCloud MSA &#8599;
+                        </a>
+                        <label class="flex items-start gap-2.5 mb-5 cursor-pointer">
+                            <input type="checkbox" x-model="termsAccepted"
+                                class="mt-0.5 h-4 w-4 rounded border-empower-border text-accent focus:ring-accent">
+                            <span class="text-sm text-empower-text">I agree to the Terms &amp; Conditions.</span>
+                        </label>
+                        <div class="flex justify-end gap-3">
+                            <button type="button" x-on:click="showTerms = false"
+                                class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition-colors">
+                                Cancel
+                            </button>
+                            @if($this->isFreeTrialCheckout)
+                            <button type="button" wire:key="terms-confirm-payfreetrial"
+                                x-on:click="$wire.payFreeTrial($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
+                                :disabled="!termsAccepted"
+                                :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
+                                class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
+                                wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                                wire:target="payFreeTrial">
+                                <span wire:loading.remove wire:target="payFreeTrial">I Agree — Start Free Trial
+                                    &rarr;</span>
+                                <span wire:loading.inline-flex wire:target="payFreeTrial"
+                                    class="inline-flex items-center gap-1.5">
+                                    <x-spinner class="h-3.5 w-3.5" /> Processing…
+                                </span>
+                            </button>
+                            @else
+                            <button type="button" wire:key="terms-confirm-pay"
+                                x-on:click="$wire.pay($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
+                                :disabled="!termsAccepted"
+                                :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
+                                class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
+                                wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed"
+                                wire:target="pay">
+                                <span wire:loading.remove wire:target="pay">I Agree — Pay &rarr;</span>
+                                <span wire:loading.inline-flex wire:target="pay"
+                                    class="inline-flex items-center gap-1.5">
+                                    <x-spinner class="h-3.5 w-3.5" /> Processing…
+                                </span>
+                            </button>
+                            @endif
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3173,8 +3183,9 @@ $progressPct = ($milestone / 4) * 100;
                     wire:target="convertTrialToPaid({{ $dashOrder->id }})" wire:loading.attr="disabled"
                     wire:loading.class="opacity-70 cursor-not-allowed"
                     class="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-bold text-navy-dark hover:bg-accent-dark transition-colors">
-                    <span wire:loading.remove wire:target="convertTrialToPaid({{ $dashOrder->id }})">Proceed with
-                        Payment</span>
+                    <span wire:loading.remove wire:target="convertTrialToPaid({{ $dashOrder->id }})">
+                        Proceed with Payment
+                    </span>
                     <span wire:loading.inline-flex wire:target="convertTrialToPaid({{ $dashOrder->id }})"
                         class="inline-flex items-center gap-1.5">
                         <x-spinner class="h-3.5 w-3.5" /> Processing…
