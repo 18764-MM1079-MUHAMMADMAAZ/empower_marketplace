@@ -62,6 +62,7 @@ new class extends Component
             order: $order,
         );
 
+        session()->flash('toast', "Order #{$order->id} updated.");
         $this->redirect(route('admin.orders'), navigate: true);
     }
 
@@ -73,6 +74,7 @@ new class extends Component
 
         ActivityLog::record('order.deleted', "Order #{$this->orderId} for {$this->clientName} was deleted by an admin.", user: auth()->user());
 
+        session()->flash('toast', "Order #{$this->orderId} deleted.");
         $this->redirect(route('admin.orders'), navigate: true);
     }
 };

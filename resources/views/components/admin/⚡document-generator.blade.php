@@ -160,6 +160,8 @@ new class extends Component
         );
 
         unset($this->order);
+
+        $this->dispatch('toast', message: 'Test answers auto-filled.', type: 'success');
     }
 
     /** Dispatches generation for every wizard-driven manual this package includes — mirrors
@@ -183,6 +185,8 @@ new class extends Component
         );
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: 'Manual generation dispatched.', type: 'success');
     }
 
     /** Questionnaires already uploaded for the current submission, keyed by upload type value —
@@ -259,6 +263,8 @@ new class extends Component
 
         $this->orderId = $order->id;
         $this->reset('userId', 'packageId', 'userSearch');
+
+        $this->dispatch('toast', message: 'Test order created.', type: 'success');
     }
 
     public function submitUploads(): void
@@ -277,6 +283,7 @@ new class extends Component
 
         if ($filledFiles->isEmpty()) {
             $this->addError('questionnaireFiles', 'Choose at least one filled form below before submitting. The file picker does not keep showing a file after it has already been submitted.');
+            $this->dispatch('toast', message: 'Choose at least one file to upload.', type: 'error');
 
             return;
         }
@@ -321,6 +328,8 @@ new class extends Component
             ? 'Uploaded 1 file. AI processing has started; see status below.'
             : "Uploaded {$filledFiles->count()} files. AI processing has started; see status below.";
         unset($this->order, $this->documentsForReview, $this->applicableQuestionnaires, $this->existingUploadsByType);
+
+        $this->dispatch('toast', message: 'Files uploaded for AI processing.', type: 'success');
     }
 
     /**
@@ -395,6 +404,8 @@ new class extends Component
         $document = GeneratedDocument::where('id', $documentId)->where('order_id', $order->id)->firstOrFail();
 
         if (! $document->canBeApproved()) {
+            $this->dispatch('toast', message: "{$document->document_type->label()} can't be approved yet.", type: 'error');
+
             return;
         }
 
@@ -409,6 +420,8 @@ new class extends Component
         );
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: "{$document->document_type->label()} approved for download.", type: 'success');
     }
 
     public function revokeDocument(int $documentId): void
@@ -420,6 +433,8 @@ new class extends Component
         $document = GeneratedDocument::where('id', $documentId)->where('order_id', $order->id)->firstOrFail();
 
         if (! $document->isApproved()) {
+            $this->dispatch('toast', message: "{$document->document_type->label()} isn't approved yet.", type: 'error');
+
             return;
         }
 
@@ -434,6 +449,8 @@ new class extends Component
         );
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: "Approval revoked for {$document->document_type->label()}.", type: 'success');
     }
 
     public function startOver(): void
@@ -456,6 +473,8 @@ new class extends Component
         ActivityLog::record('order.deleted', "Test order #{$orderId} was deleted via the admin Document Generator.", user: auth()->user());
 
         $this->startOver();
+
+        $this->dispatch('toast', message: 'Test order deleted.', type: 'success');
     }
 
     private function adminName(): string

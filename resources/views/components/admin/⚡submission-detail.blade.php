@@ -197,9 +197,10 @@ new class extends Component
      * The Practice Intake wizard's 66 workflow questions, grouped by section, each paired with
      * this submission's answer (if any) — read-only, for the admin to see what will drive the
      * generated manuals' content. Empty for a submission with no answers at all (Essential
-     * tier, or one predating the wizard).
+     * tier, or one predating the wizard). Mirrors ⚡portal.blade.php's sectionDetailRows() badge/
+     * meta shape (client-facing "Your answers" review), minus the Edit link — this is read-only.
      *
-     * @return Collection<int, array{label: string, questions: Collection}>
+     * @return Collection<int, array{label: string, done: int, total: int, questions: Collection}>
      */
     #[Computed]
     public function intakeAnswersBySection(): Collection
@@ -210,15 +211,34 @@ new class extends Component
             return collect();
         }
 
-        return IntakeSection::with('questions')->orderBy('sort_order')->get()
-            ->map(fn (IntakeSection $section) => [
-                'label' => $section->label,
-                'questions' => $section->questions->map(fn (IntakeQuestion $question) => [
-                    'title' => $question->title,
-                    'answer' => $answersByQuestionId->get($question->id),
-                ]),
-            ])
-            ->filter(fn (array $section) => $section['questions']->contains(fn (array $q) => $q['answer'] !== null));
+        return IntakeSection::with('questions.policies')->orderBy('sort_order')->get()
+            ->map(function (IntakeSection $section) use ($answersByQuestionId) {
+                $questions = $section->questions->map(function (IntakeQuestion $question) use ($answersByQuestionId) {
+                    $answer = $answersByQuestionId->get($question->id);
+
+                    [$value, $badge] = match (true) {
+                        $answer === null => ['Not yet answered', ['label' => 'Open', 'class' => 'bg-[#edf2f7] text-empower-muted']],
+                        (bool) $answer->has_documented_process => [(string) $answer->response, ['label' => 'Practice response', 'class' => 'bg-[#dff7f0] text-[#0f7a4f]']],
+                        default => ['No documented answer · policy default language applies', ['label' => 'Policy default', 'class' => 'bg-[#eaf5fb] text-[#1a7aad]']],
+                    };
+
+                    return [
+                        'title' => $question->title,
+                        'value' => $value,
+                        'badge' => $badge,
+                        'done' => $answer !== null,
+                        'meta' => $question->policies->pluck('code')->implode(' · ') ?: null,
+                    ];
+                });
+
+                return [
+                    'label' => $section->label,
+                    'done' => $questions->filter(fn (array $q) => $q['done'])->count(),
+                    'total' => $questions->count(),
+                    'questions' => $questions,
+                ];
+            })
+            ->filter(fn (array $section) => $section['done'] > 0);
     }
 
     /** Aggregate AI-extraction status across every uploaded file, for the prominent banner at
@@ -329,6 +349,8 @@ new class extends Component
         $this->generateIncludedDocuments($submission->order);
 
         unset($this->submission);
+
+        $this->dispatch('toast', message: 'Review started — document generation is underway.', type: 'success');
     }
 
     public function deleteIntakeUpload(int $uploadId): void
@@ -359,6 +381,8 @@ new class extends Component
         );
 
         unset($this->submission, $this->documentsForReview);
+
+        $this->dispatch('toast', message: "{$filename} deleted.", type: 'success');
     }
 
     /**
@@ -394,6 +418,7 @@ new class extends Component
 
         // Back to Draft means it no longer belongs in the admin queue (submission-list excludes
         // Draft submissions) — leave for the list rather than sit on a now-stale detail view.
+        session()->flash('toast', 'Sent back for resubmission.');
         $this->redirect(route('admin.submissions'), navigate: true);
     }
 
@@ -441,6 +466,8 @@ new class extends Component
         );
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: "Approval revoked for {$document->document_type->label()}.", type: 'success');
     }
 
     /**
@@ -474,9 +501,11 @@ new class extends Component
 
         try {
             Mail::to($document->order->user->email)->send(new ClientDocumentsApprovedMail($document->order, $document->newCollection([$document])));
+            $this->dispatch('toast', message: "{$document->document_type->label()} approved and the client notified.", type: 'success');
         } catch (\Throwable $e) {
             report($e);
             $this->notice = 'Document approved, but the client notification email failed to send.';
+            $this->dispatch('toast', message: $this->notice, type: 'error');
         }
 
         unset($this->documentsForReview);
@@ -502,6 +531,8 @@ new class extends Component
         ActivityLog::record('document.deleted', "{$label} was deleted from order #{$submission->order_id} by an admin.", user: auth()->user(), order: $submission->order);
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: "{$label} deleted.", type: 'success');
     }
 
     /**
@@ -522,6 +553,8 @@ new class extends Component
         $upload = $this->sourceUploadFor($document, $uploadsByType);
 
         if (! $upload) {
+            $this->dispatch('toast', message: 'No source upload found to regenerate from.', type: 'error');
+
             return;
         }
 
@@ -542,6 +575,8 @@ new class extends Component
         );
 
         unset($this->submission, $this->documentsForReview);
+
+        $this->dispatch('toast', message: 'Regeneration started — this can take a couple of minutes.', type: 'success');
     }
 
     /** Undoes an accidental rejection — clears the reviewer notes and puts it back under review. */
@@ -571,6 +606,8 @@ new class extends Component
         $this->reviewerNotes = '';
 
         unset($this->submission);
+
+        $this->dispatch('toast', message: 'Submission reopened for review.', type: 'success');
     }
 
     public function approve(): void
@@ -630,6 +667,8 @@ new class extends Component
         }
 
         unset($this->submission);
+
+        $this->dispatch('toast', message: $this->notice ?? 'Submission approved and the client notified.', type: $this->notice ? 'error' : 'success');
     }
 
     /**
@@ -727,6 +766,8 @@ new class extends Component
         );
 
         unset($this->customDocumentFiles[$documentId], $this->documentsForReview);
+
+        $this->dispatch('toast', message: "Custom {$document->document_type->label()} uploaded.", type: 'success');
     }
 
     public function deleteCustomDocument(int $documentId): void
@@ -767,6 +808,8 @@ new class extends Component
         );
 
         unset($this->documentsForReview);
+
+        $this->dispatch('toast', message: "Custom {$document->document_type->label()} removed.", type: 'success');
     }
 
     /** Fires when the admin checks the "AI-Generated File" or "Custom File" box for a
@@ -834,6 +877,8 @@ new class extends Component
         }
 
         unset($this->submission);
+
+        $this->dispatch('toast', message: $this->notice ?? 'Submission rejected and the client notified.', type: $this->notice ? 'error' : 'success');
     }
 };
 ?>
@@ -946,21 +991,33 @@ new class extends Component
         <h3 class="text-sm font-semibold text-navy mb-1">Practice Intake Answers</h3>
         <p class="text-xs text-empower-muted mb-4">What the practice typed into the intake wizard — this drives the generated manuals' content. Read-only.</p>
 
-        <div class="space-y-5">
+        <div class="divide-y divide-empower-border border border-empower-border rounded-xl">
             @foreach($this->intakeAnswersBySection as $section)
-            <div>
-                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">{{ $section['label'] }}</p>
-                <div class="space-y-3">
+            <div x-data="{ open: false }">
+                <button type="button" x-on:click="open = !open"
+                    class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer hover:bg-page transition-colors">
+                    <span class="text-sm font-semibold text-empower-text flex items-center gap-1.5">
+                        {{ $section['label'] }}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" x-bind:class="open ? 'rotate-180' : ''"
+                            class="text-empower-muted transition-transform">
+                            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                    <span class="text-xs text-empower-muted flex-shrink-0">{{ $section['done'] }}/{{ $section['total'] }} {{ $section['done'] === $section['total'] ? '✓' : '' }}</span>
+                </button>
+                <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-3">
                     @foreach($section['questions'] as $q)
-                    <div class="border-b border-empower-border last:border-b-0 pb-3 last:pb-0">
-                        <p class="text-sm font-semibold text-empower-text">{{ $q['title'] }}</p>
-                        @if(! $q['answer'])
-                        <p class="text-xs text-empower-muted italic mt-0.5">Not yet answered.</p>
-                        @elseif(! $q['answer']->has_documented_process)
-                        <p class="text-xs text-[#9a6700] italic mt-0.5">No documented process.</p>
-                        @else
-                        <p class="text-sm text-empower-muted mt-0.5 whitespace-pre-line">{{ $q['answer']->response }}</p>
-                        @endif
+                    <div class="flex items-start justify-between gap-3 {{ ! $loop->last ? 'border-b border-empower-border pb-3' : '' }}">
+                        <div>
+                            <p class="text-sm font-semibold text-empower-text">{{ $q['title'] }}</p>
+                            <p class="text-sm text-empower-muted mt-0.5 whitespace-pre-line">{{ $q['value'] }}</p>
+                            @if($q['meta'])
+                            <p class="text-[11px] text-empower-muted mt-1">{{ $q['meta'] }}</p>
+                            @endif
+                        </div>
+                        <span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $q['badge']['class'] }}">
+                            {{ $q['badge']['label'] }}
+                        </span>
                     </div>
                     @endforeach
                 </div>

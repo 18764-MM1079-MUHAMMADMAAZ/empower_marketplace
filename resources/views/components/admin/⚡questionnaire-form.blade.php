@@ -219,10 +219,12 @@ new class extends Component
             $questionnaire->update($data);
 
             ActivityLog::record('questionnaire.updated', "{$questionnaire->title} was updated.", user: auth()->user(), subject: $questionnaire);
+            session()->flash('toast', "{$questionnaire->title} updated.");
         } else {
             $questionnaire = Questionnaire::create($data);
 
             ActivityLog::record('questionnaire.created', "{$questionnaire->title} was created.", user: auth()->user(), subject: $questionnaire);
+            session()->flash('toast', "{$questionnaire->title} created.");
         }
 
         // The "exactly one required questionnaire" invariant is enforced the same way the

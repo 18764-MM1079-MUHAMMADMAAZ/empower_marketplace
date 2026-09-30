@@ -328,9 +328,9 @@ class AdminPanelTest extends TestCase
             ->assertSee('Owner & board oversight')
             ->assertSee('The board reviews the program every quarter.')
             ->assertSee('Compliance Committee')
-            ->assertSee('No documented process.')
+            ->assertSee('No documented answer · policy default language applies')
             ->assertSee("Management's role")
-            ->assertSee('Not yet answered.');
+            ->assertSee('Not yet answered');
     }
 
     public function test_submission_detail_hides_the_answers_section_when_there_are_no_answers(): void
@@ -1760,6 +1760,35 @@ class AdminPanelTest extends TestCase
 
         $this->assertSame(
             ['compliance_ethics_manual', 'hipaa_security_manual'],
+            $package->fresh()->included_document_types,
+        );
+    }
+
+    /** Regression: the Advanced package's own included_document_types (security_risk_assessment,
+     *  coding_mini_audit_report) must be editable/re-saveable, not just the 3 original manuals. */
+    public function test_editing_the_advanced_package_can_save_its_sra_and_mini_audit_report_types(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $package = Package::factory()->create([
+            'slug' => 'advanced',
+            'included_document_types' => [
+                'compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual',
+                'security_risk_assessment', 'coding_mini_audit_report',
+            ],
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form', ['package' => $package])
+            ->assertSet('includedDocumentTypes', [
+                'compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual',
+                'security_risk_assessment', 'coding_mini_audit_report',
+            ])
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('admin.packages'));
+
+        $this->assertSame(
+            ['compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual', 'security_risk_assessment', 'coding_mini_audit_report'],
             $package->fresh()->included_document_types,
         );
     }

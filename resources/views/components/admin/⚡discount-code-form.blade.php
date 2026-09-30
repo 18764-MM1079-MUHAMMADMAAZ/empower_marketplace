@@ -88,10 +88,12 @@ new class extends Component
             $discountCode->update($data);
 
             ActivityLog::record('discount_code.updated', "{$discountCode->code} was updated.", user: auth()->user(), subject: $discountCode);
+            session()->flash('toast', "{$discountCode->code} updated.");
         } else {
             $discountCode = DiscountCode::create($data);
 
             ActivityLog::record('discount_code.created', "{$discountCode->code} was created.", user: auth()->user(), subject: $discountCode);
+            session()->flash('toast', "{$discountCode->code} created.");
         }
 
         $this->redirect(route('admin.discount-codes'), navigate: true);

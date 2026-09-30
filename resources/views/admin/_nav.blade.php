@@ -1,6 +1,7 @@
 @php
-    $active ??= \Illuminate\Support\Str::before(\Illuminate\Support\Str::after(request()->route()?->getName() ?? '', 'admin.'), '.');
-    $mobile ??= false;
+$active ??= \Illuminate\Support\Str::before(\Illuminate\Support\Str::after(request()->route()?->getName() ?? '',
+'admin.'), '.');
+$mobile ??= false;
 @endphp
 <nav class="flex flex-col gap-1">
     @foreach([
@@ -10,12 +11,12 @@
     'packages' => ['admin.packages', 'Packages'],
     'discount-codes' => ['admin.discount-codes', 'Discount Codes'],
     'intake-questions' => ['admin.intake-questions', 'Intake Questions'],
-    'questionnaires' => ['admin.questionnaires', 'Questionnaires'],
     'leads' => ['admin.leads', 'Leads'],
     'users' => ['admin.users', 'Users'],
     'orders' => ['admin.orders', 'Orders'],
     'payment-logs' => ['admin.payment-logs', 'Payment Logs'],
     'activity-log' => ['admin.activity-log', 'Activity Log'],
+    'questionnaires' => ['admin.questionnaires', 'Questionnaires'],
     'document-generator' => ['admin.document-generator', 'Document Generator'],
     ] as $key => [$route, $label])
     <a href="{{ route($route) }}" wire:navigate @if($mobile) x-on:click="adminSidebarOpen = false" @endif

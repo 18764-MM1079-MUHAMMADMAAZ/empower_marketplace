@@ -48,6 +48,8 @@ new class extends Component
         );
 
         unset($this->documents);
+
+        $this->dispatch('toast', message: "{$document->document_type->label()} regeneration requested.", type: 'success');
     }
 };
 ?>

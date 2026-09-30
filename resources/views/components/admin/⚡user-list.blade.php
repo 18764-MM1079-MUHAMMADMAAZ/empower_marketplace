@@ -67,8 +67,10 @@ new class extends Component
 
         if ($result->success) {
             $this->endTrialSuccessMessage = 'Charge succeeded'.($result->transactionId ? " (transaction {$result->transactionId})" : '').' — trial converted to paid.';
+            $this->dispatch('toast', message: 'Trial converted to paid.', type: 'success');
         } else {
             $this->addError('endTrial', $result->declineMessage ?? 'The charge failed.');
+            $this->dispatch('toast', message: $result->declineMessage ?? 'The trial charge failed.', type: 'error');
         }
 
         unset($this->users);
@@ -78,6 +80,7 @@ new class extends Component
     {
         if ($userId === auth()->id()) {
             $this->addError('delete', "You can't delete your own account.");
+            $this->dispatch('toast', message: "You can't delete your own account.", type: 'error');
 
             return;
         }
@@ -98,6 +101,8 @@ new class extends Component
         ActivityLog::record('user.deleted', "{$name} was deleted.", user: auth()->user());
 
         unset($this->users);
+
+        $this->dispatch('toast', message: "{$name} deleted.", type: 'success');
     }
 };
 ?>

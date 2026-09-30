@@ -105,6 +105,7 @@ new class extends Component
 
             if ($validator->fails()) {
                 $this->addError('additionalEmails', 'Please enter only valid email addresses, separated by commas or new lines.');
+                $this->dispatch('toast', message: 'Please enter valid email addresses.', type: 'error');
 
                 return;
             }
@@ -114,6 +115,7 @@ new class extends Component
 
         if (empty($recipients)) {
             $this->addError('recipients', 'Please select or enter at least one recipient.');
+            $this->dispatch('toast', message: 'Select or enter at least one recipient.', type: 'error');
 
             return;
         }
@@ -134,6 +136,8 @@ new class extends Component
         $this->selectedUserIds = [];
         $this->selectedLeadIds = [];
         $this->additionalEmails = '';
+
+        $this->dispatch('toast', message: "{$this->discountCode->code} emailed to {$this->lastSentCount} recipient(s).", type: 'success');
     }
 };
 ?>

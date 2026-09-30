@@ -191,6 +191,7 @@ new class extends Component
 
         if ($this->isEditingSelf() && $this->role !== UserRole::Admin->value) {
             $this->addError('role', "You can't change your own role.");
+            $this->dispatch('toast', message: "You can't change your own role.", type: 'error');
 
             return;
         }
@@ -214,10 +215,12 @@ new class extends Component
             $user->update($data);
 
             ActivityLog::record('user.updated', "{$user->name} ({$user->email}) was updated.", user: auth()->user(), subject: $user);
+            $toastMessage = "{$user->name} updated.";
         } else {
             $user = User::create($data);
 
             ActivityLog::record('user.created', "{$user->name} ({$user->email}) was created.", user: auth()->user(), subject: $user);
+            $toastMessage = "{$user->name} created.";
         }
 
         if ($this->practiceId) {
@@ -285,6 +288,7 @@ new class extends Component
             ActivityLog::record('practice.updated', "{$practice->name}'s practice profile was updated by an admin.", user: auth()->user(), subject: $practice);
         }
 
+        session()->flash('toast', $toastMessage);
         $this->redirect(route('admin.users'), navigate: true);
     }
 
@@ -361,6 +365,8 @@ new class extends Component
         }
 
         $this->editingLocationIndex = null;
+
+        $this->dispatch('toast', message: "{$location->name} saved.", type: 'success');
     }
 
     public function deleteOshaLocation(int $index): void
@@ -372,6 +378,8 @@ new class extends Component
             $location->delete();
 
             ActivityLog::record('osha_location.deleted', "{$location->name} was deleted by an admin.", user: auth()->user());
+
+            $this->dispatch('toast', message: "{$location->name} deleted.", type: 'success');
         }
 
         unset($this->oshaLocations[$index]);
@@ -387,6 +395,7 @@ new class extends Component
 
         if ($this->isEditingSelf()) {
             $this->addError('delete', "You can't delete your own account.");
+            $this->dispatch('toast', message: "You can't delete your own account.", type: 'error');
 
             return;
         }
@@ -406,6 +415,7 @@ new class extends Component
 
         ActivityLog::record('user.deleted', "{$name} was deleted.", user: auth()->user());
 
+        session()->flash('toast', "{$name} deleted.");
         $this->redirect(route('admin.users'), navigate: true);
     }
 };

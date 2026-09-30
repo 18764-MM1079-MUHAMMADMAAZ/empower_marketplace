@@ -63,6 +63,8 @@ new class extends Component
 
         $this->editingQuestionId = null;
         unset($this->sections);
+
+        $this->dispatch('toast', message: 'Intake question updated.', type: 'success');
     }
 };
 ?>

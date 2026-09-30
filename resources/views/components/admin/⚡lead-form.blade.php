@@ -71,10 +71,12 @@ new class extends Component
             $lead->update($data);
 
             ActivityLog::record('lead.updated', "{$lead->name} was updated.", user: auth()->user(), subject: $lead);
+            session()->flash('toast', "{$lead->name} updated.");
         } else {
             $lead = Lead::create($data);
 
             ActivityLog::record('lead.created', "{$lead->name} was created.", user: auth()->user(), subject: $lead);
+            session()->flash('toast', "{$lead->name} created.");
         }
 
         $this->redirect(route('admin.leads'), navigate: true);

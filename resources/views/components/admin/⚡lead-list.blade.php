@@ -29,6 +29,8 @@ new class extends Component
         ]);
 
         unset($this->leads);
+
+        $this->dispatch('toast', message: 'Lead marked as contacted.', type: 'success');
     }
 
     public function delete(int $leadId): void
@@ -40,6 +42,8 @@ new class extends Component
         ActivityLog::record('lead.deleted', "{$name} was deleted.", user: auth()->user());
 
         unset($this->leads);
+
+        $this->dispatch('toast', message: "{$name} deleted.", type: 'success');
     }
 
     #[Computed]

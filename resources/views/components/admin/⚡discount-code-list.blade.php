@@ -41,6 +41,8 @@ new class extends Component
         );
 
         unset($this->discountCodes);
+
+        $this->dispatch('toast', message: "{$discountCode->code} ".($discountCode->is_active ? 'activated' : 'deactivated').'.', type: 'success');
     }
 
     public function delete(int $discountCodeId): void
@@ -52,6 +54,8 @@ new class extends Component
         ActivityLog::record('discount_code.deleted', "{$code} was deleted.", user: auth()->user());
 
         unset($this->discountCodes);
+
+        $this->dispatch('toast', message: "{$code} deleted.", type: 'success');
     }
 };
 ?>

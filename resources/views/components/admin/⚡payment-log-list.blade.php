@@ -37,6 +37,8 @@ new class extends Component
         ActivityLog::record('payment_log.deleted', "Payment log {$label} was deleted.", user: auth()->user());
 
         unset($this->logs);
+
+        $this->dispatch('toast', message: "Payment log {$label} deleted.", type: 'success');
     }
 
     #[Computed]

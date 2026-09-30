@@ -28,6 +28,7 @@ new class extends Component
 
         ActivityLog::record('payment_log.deleted', "Payment log {$label} was deleted.", user: auth()->user());
 
+        session()->flash('toast', "Payment log {$label} deleted.");
         $this->redirect(route('admin.payment-logs'), navigate: true);
     }
 };

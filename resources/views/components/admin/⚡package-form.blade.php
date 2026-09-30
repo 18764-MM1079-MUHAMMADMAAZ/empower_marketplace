@@ -9,14 +9,17 @@ use Livewire\Component;
 new class extends Component
 {
     /** The only document types safe to auto-generate on submission approval today — every one
-     *  is policy-driven, merging from the Practice Intake wizard's answers (see
-     *  GenerateComplianceDocument). Other DocumentType values either need an uploaded file
-     *  (per-upload/per-location types) or haven't been migrated off the old questionnaire-upload
-     *  mechanism, so they're deliberately not offered here. */
+     *  is either policy-driven (merging from the Practice Intake wizard's answers) or AI-
+     *  synthesized from the practice's own data (see GenerateComplianceDocument). Other
+     *  DocumentType values either need an uploaded file (per-upload/per-location types) or
+     *  haven't been migrated off the old questionnaire-upload mechanism, so they're
+     *  deliberately not offered here. */
     public const AUTO_GENERATED_DOCUMENT_TYPES = [
         DocumentType::ComplianceEthicsManual,
         DocumentType::HipaaPrivacyPolicy,
         DocumentType::HipaaSecurityManual,
+        DocumentType::SecurityRiskAssessment,
+        DocumentType::CodingMiniAuditReport,
     ];
 
     public ?int $packageId = null;
@@ -76,6 +79,7 @@ new class extends Component
     {
         if (! $this->packageId && empty($this->availableTiers())) {
             $this->addError('slug', 'All compliance tiers already have a package. Edit an existing one instead.');
+            $this->dispatch('toast', message: 'All compliance tiers already have a package.', type: 'error');
 
             return;
         }
@@ -118,11 +122,13 @@ new class extends Component
             $package->update($data);
 
             ActivityLog::record('package.updated', "{$package->name} was updated.", user: auth()->user(), subject: $package);
+            session()->flash('toast', "{$package->name} updated.");
         } else {
             $data['slug'] = $this->slug;
             $package = Package::create($data);
 
             ActivityLog::record('package.created', "{$package->name} was created.", user: auth()->user(), subject: $package);
+            session()->flash('toast', "{$package->name} created.");
         }
 
         $this->redirect(route('admin.packages'), navigate: true);

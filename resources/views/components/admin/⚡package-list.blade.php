@@ -27,6 +27,8 @@ new class extends Component
         );
 
         unset($this->packages);
+
+        $this->dispatch('toast', message: "{$package->name} ".($package->is_active ? 'activated' : 'deactivated').'.', type: 'success');
     }
 
     public function delete(int $packageId): void
@@ -35,6 +37,7 @@ new class extends Component
 
         if ($package->orders()->exists()) {
             $this->addError('delete', "{$package->name} has existing orders and can't be deleted. Deactivate it instead.");
+            $this->dispatch('toast', message: "{$package->name} has existing orders and can't be deleted.", type: 'error');
 
             return;
         }
@@ -45,6 +48,8 @@ new class extends Component
         ActivityLog::record('package.deleted', "{$name} was deleted.", user: auth()->user());
 
         unset($this->packages);
+
+        $this->dispatch('toast', message: "{$name} deleted.", type: 'success');
     }
 };
 ?>
@@ -63,12 +68,13 @@ new class extends Component
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[720px] text-sm">
+            <table class="w-full min-w-[860px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Package</th>
                     <th class="px-5 py-3">Billing</th>
                     <th class="px-5 py-3">Annual Price</th>
+                    <th class="px-5 py-3">Monthly Price</th>
                     <th class="px-5 py-3">Status</th>
                     <th class="px-5 py-3"></th>
                 </tr>
@@ -83,6 +89,9 @@ new class extends Component
                         <td class="px-5 py-3.5 text-empower-text capitalize">{{ $package->billing_type }}</td>
                         <td class="px-5 py-3.5 text-empower-text">
                             {{ $package->annual_price !== null ? '$'.number_format($package->annual_price, 2) : 'Custom quote' }}
+                        </td>
+                        <td class="px-5 py-3.5 text-empower-text">
+                            {{ $package->monthly_price !== null ? '$'.number_format($package->monthly_price, 2) : '—' }}
                         </td>
                         <td class="px-5 py-3.5">
                             <button wire:click="toggleActive({{ $package->id }})" wire:target="toggleActive({{ $package->id }})"
@@ -100,7 +109,7 @@ new class extends Component
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="px-5 py-10 text-center text-sm text-empower-muted italic">No packages yet.</td>
+                        <td colspan="6" class="px-5 py-10 text-center text-sm text-empower-muted italic">No packages yet.</td>
                     </tr>
                 @endforelse
             </tbody>
