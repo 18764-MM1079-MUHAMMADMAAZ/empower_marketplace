@@ -593,6 +593,15 @@ PROMPT;
         $this->setPracticeLogo($processor, $practice);
         $processor->saveAs($absoluteOutput);
 
+        // Settings::setOutputEscapingEnabled() is a process-wide static flag, not scoped to this
+        // TemplateProcessor instance — left on, it also makes PhpWord's HTML Writer (used right
+        // after this by convertDocxToHtml()) run its own htmlspecialchars() pass over text that,
+        // for shape/textbox content in particular, PhpWord already carries forward in its raw
+        // escaped XML form — doubly-escaping "&", "'", "<", ">" into visible "&amp;amp;" etc. in
+        // the final PDF. Only the merge above needed escaping enabled, so it's turned back off
+        // the moment that merge is done.
+        Settings::setOutputEscapingEnabled(false);
+
         if ($blocksToRemove !== []) {
             $this->removeUnansweredPolicyBlocks($absoluteOutput, $blocksToRemove);
         }

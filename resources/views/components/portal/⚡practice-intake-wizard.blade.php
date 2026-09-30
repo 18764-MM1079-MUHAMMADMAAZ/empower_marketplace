@@ -1694,7 +1694,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full">
+        <form wire:submit="continueFromProfile" class="max-w-xl w-full">
         <p class="text-xs font-extrabold uppercase tracking-widest text-[#1a7aad] mb-1.5">Practice basics &middot; 1 of 4</p>
         <h2 class="text-lg font-semibold text-[#12304f] mb-1">Let's start with your practice</h2>
         <p class="text-sm text-[#5d6e7f] mb-5">The name patients know you by, and your specialty.</p>
@@ -1702,7 +1702,7 @@ new class extends Component
         <div class="space-y-4">
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Practice name <span class="text-red-500">*</span></label>
-                <input wire:model.live="practiceName" type="text" placeholder="Riverside Family Medicine" {{ $this->practice?->is_profile_locked ? 'disabled' : '' }}
+                <input wire:model.live="practiceName" type="text" placeholder="Riverside Family Medicine" required maxlength="150" {{ $this->practice?->is_profile_locked ? 'disabled' : '' }}
                     class="w-full rounded-xl border {{ $errors->has('practiceName') ? 'border-red-400' : 'border-[#dbe4ee]' }} {{ $this->practice?->is_profile_locked ? 'bg-[#f0f4f8] cursor-not-allowed' : 'bg-[#f8fbfd]' }} px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('practiceName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -1726,20 +1726,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center mt-5">
-            <button wire:click="backToDocuments" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToDocuments" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromProfile(true)" wire:target="continueFromProfile"
+                <button type="button" wire:click="continueFromProfile(true)" wire:target="continueFromProfile"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromProfile(true, true)" wire:target="continueFromProfile"
+                <button type="button" wire:click="continueFromProfile(true, true)" wire:target="continueFromProfile"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromProfile" wire:target="continueFromProfile" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromProfile" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromProfile">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromProfile" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
@@ -1815,7 +1815,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full">
+        <form wire:submit="continueFromAddress" class="max-w-xl w-full">
         <p class="text-xs font-extrabold uppercase tracking-widest text-[#1a7aad] mb-1.5">Practice basics &middot; 3 of 4</p>
         <h2 class="text-lg font-semibold text-[#12304f] mb-1">Where is your practice located?</h2>
         <p class="text-sm text-[#5d6e7f] mb-5">Your main practice address.</p>
@@ -1831,7 +1831,7 @@ new class extends Component
         @unless($sameAsBillingAddress)
         <div class="mt-4">
             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Street address <span class="text-red-500">*</span></label>
-            <input wire:model.live="practiceAddress" type="text" placeholder="123 Main St, Springfield, IL"
+            <input wire:model.live="practiceAddress" type="text" placeholder="123 Main St, Springfield, IL" required maxlength="255"
                 class="w-full rounded-xl border {{ $errors->has('practiceAddress') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
             @error('practiceAddress') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
@@ -1843,20 +1843,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center mt-5">
-            <button wire:click="backToProviders" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToProviders" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromAddress(true)" wire:target="continueFromAddress"
+                <button type="button" wire:click="continueFromAddress(true)" wire:target="continueFromAddress"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromAddress(true, true)" wire:target="continueFromAddress"
+                <button type="button" wire:click="continueFromAddress(true, true)" wire:target="continueFromAddress"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromAddress" wire:target="continueFromAddress" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromAddress" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromAddress">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromAddress" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
@@ -1969,7 +1969,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full space-y-5">
+        <form wire:submit="continueFromPractice" class="max-w-xl w-full space-y-5">
         <div>
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 1 of 5</p>
             <h2 class="text-lg font-semibold text-[#12304f] mb-1">Your practice's legal details</h2>
@@ -1978,7 +1978,7 @@ new class extends Component
 
         <div>
             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Legal practice name <span class="text-red-500">*</span></label>
-            <input wire:model="legalPracticeName" type="text"
+            <input wire:model="legalPracticeName" type="text" required maxlength="200"
                 class="w-full rounded-xl border {{ $errors->has('legalPracticeName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
             @error('legalPracticeName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
@@ -1996,13 +1996,16 @@ new class extends Component
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main phone <span class="text-red-500">*</span></label>
-                <input wire:model="mainPhone" type="text"
+                <input wire:model="mainPhone" type="tel" inputmode="tel" required maxlength="30"
+                    pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
+                    x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
                     class="w-full rounded-xl border {{ $errors->has('mainPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('mainPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main email <span class="text-red-500">*</span></label>
-                <input wire:model="mainEmail" type="email"
+                <input wire:model="mainEmail" type="email" required maxlength="150"
+                    pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                     class="w-full rounded-xl border {{ $errors->has('mainEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('mainEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -2013,7 +2016,7 @@ new class extends Component
             <p class="text-xs text-[#8592a1] mb-2">Legal address first, then each additional site.</p>
             @foreach($practiceLocations as $i => $location)
             <div class="flex gap-2 mb-2">
-                <input wire:model="practiceLocations.{{ $i }}" type="text" placeholder="{{ $i ? 'Location '.($i + 1).' address' : 'Legal / main address' }}"
+                <input wire:model="practiceLocations.{{ $i }}" type="text" maxlength="255" placeholder="{{ $i ? 'Location '.($i + 1).' address' : 'Legal / main address' }}"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 <button type="button" wire:click="removeLocation({{ $i }})" @disabled(count($practiceLocations) < 2)
                     class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-40">
@@ -2031,20 +2034,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center pt-2">
-            <button wire:click="backToBasics" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToBasics" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromPractice(true)" wire:target="continueFromPractice"
+                <button type="button" wire:click="continueFromPractice(true)" wire:target="continueFromPractice"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromPractice(true, true)" wire:target="continueFromPractice"
+                <button type="button" wire:click="continueFromPractice(true, true)" wire:target="continueFromPractice"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromPractice" wire:target="continueFromPractice" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromPractice" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromPractice">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromPractice" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
         {!! $teamAside("Section 1 starts with your legal name and addresses. Facility security policies and hotline poster counts depend on your locations.") !!}
         </div>
     </div>
@@ -2055,7 +2058,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full space-y-5">
+        <form wire:submit="continueFromOfficers" class="max-w-xl w-full space-y-5">
         <div>
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 2 of 5</p>
             <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who fills your compliance roles?</h2>
@@ -2063,8 +2066,8 @@ new class extends Component
         </div>
 
         @foreach($this->officerPrefixes as $prefix => $label)
-        <div class="border-t border-[#eef2f6] pt-4">
-            <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
                 <p class="text-sm font-semibold text-[#12304f]">{{ $label }}</p>
                 <select wire:change="copyOfficerContact('{{ $prefix }}', $event.target.value)"
                     class="rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
@@ -2078,18 +2081,24 @@ new class extends Component
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                    <input wire:model="{{ $prefix }}Name" type="text" placeholder="Full name"
-                        class="w-full rounded-xl border {{ $errors->has($prefix.'Name') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Full name <span class="text-red-500">*</span></label>
+                    <input wire:model="{{ $prefix }}Name" type="text" required maxlength="150"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Name') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                     @error($prefix.'Name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <input wire:model="{{ $prefix }}Phone" type="text" placeholder="Phone"
-                        class="w-full rounded-xl border {{ $errors->has($prefix.'Phone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span class="text-red-500">*</span></label>
+                    <input wire:model="{{ $prefix }}Phone" type="tel" inputmode="tel" required maxlength="30"
+                        pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
+                        x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Phone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                     @error($prefix.'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <input wire:model="{{ $prefix }}Email" type="email" placeholder="Email"
-                        class="w-full rounded-xl border {{ $errors->has($prefix.'Email') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span class="text-red-500">*</span></label>
+                    <input wire:model="{{ $prefix }}Email" type="email" required maxlength="150"
+                        pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
+                        class="w-full rounded-xl border {{ $errors->has($prefix.'Email') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                     @error($prefix.'Email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
             </div>
@@ -2102,20 +2111,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center pt-2">
-            <button wire:click="backToPractice" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToPractice" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromOfficers(true)" wire:target="continueFromOfficers"
+                <button type="button" wire:click="continueFromOfficers(true)" wire:target="continueFromOfficers"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromOfficers(true, true)" wire:target="continueFromOfficers"
+                <button type="button" wire:click="continueFromOfficers(true, true)" wire:target="continueFromOfficers"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromOfficers" wire:target="continueFromOfficers" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromOfficers" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromOfficers">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromOfficers" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
         {!! $teamAside("HIPAA requires designated Privacy and Security Officers, and OIG guidance calls for a Compliance Officer. They are named throughout all three manuals.") !!}
         </div>
     </div>
@@ -2126,7 +2135,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full space-y-5">
+        <form wire:submit="continueFromIt" class="max-w-xl w-full space-y-5">
         <div>
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 3 of 5</p>
             <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who handles your IT?</h2>
@@ -2155,24 +2164,27 @@ new class extends Component
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Company name <span class="text-red-500">*</span></label>
-                <input wire:model="itVendorName" type="text"
+                <input wire:model="itVendorName" type="text" required maxlength="150"
                     class="w-full rounded-xl border {{ $errors->has('itVendorName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itVendorName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Contact name</label>
-                <input wire:model="itContactName" type="text"
+                <input wire:model="itContactName" type="text" maxlength="150"
                     class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span class="text-red-500">*</span></label>
-                <input wire:model="itContactPhone" type="text"
+                <input wire:model="itContactPhone" type="tel" inputmode="tel" required maxlength="30"
+                    pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
+                    x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
                     class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span class="text-red-500">*</span></label>
-                <input wire:model="itContactEmail" type="email"
+                <input wire:model="itContactEmail" type="email" required maxlength="150"
+                    pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                     class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itContactEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -2192,19 +2204,22 @@ new class extends Component
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Full name <span class="text-red-500">*</span></label>
-                <input wire:model="itContactName" type="text"
+                <input wire:model="itContactName" type="text" required maxlength="150"
                     class="w-full rounded-xl border {{ $errors->has('itContactName') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itContactName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span class="text-red-500">*</span></label>
-                <input wire:model="itContactPhone" type="text"
+                <input wire:model="itContactPhone" type="tel" inputmode="tel" required maxlength="30"
+                    pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
+                    x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
                     class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
             <div>
                 <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span class="text-red-500">*</span></label>
-                <input wire:model="itContactEmail" type="email"
+                <input wire:model="itContactEmail" type="email" required maxlength="150"
+                    pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                     class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('itContactEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -2218,20 +2233,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center pt-2">
-            <button wire:click="backToOfficers" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToOfficers" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromIt(true)" wire:target="continueFromIt"
+                <button type="button" wire:click="continueFromIt(true)" wire:target="continueFromIt"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromIt(true, true)" wire:target="continueFromIt"
+                <button type="button" wire:click="continueFromIt(true, true)" wire:target="continueFromIt"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromIt" wire:target="continueFromIt" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromIt" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromIt">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromIt" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
         {!! $teamAside("Your IT contact is named in most HIPAA Security policies.") !!}
         </div>
     </div>
@@ -2242,7 +2257,7 @@ new class extends Component
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-        <div class="max-w-xl w-full space-y-5">
+        <form wire:submit="continueFromHotline" class="max-w-xl w-full space-y-5">
         <div>
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 4 of 5</p>
             <h2 class="text-lg font-semibold text-[#12304f] mb-1">How can staff reach a compliance hotline?</h2>
@@ -2270,7 +2285,7 @@ new class extends Component
         @if($usesEhcpHotline === false)
         <div>
             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Hotline number and/or email <span class="text-red-500">*</span></label>
-            <input wire:model="hotlineContact" type="text"
+            <input wire:model="hotlineContact" type="text" required maxlength="200"
                 class="w-full rounded-xl border {{ $errors->has('hotlineContact') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
             @error('hotlineContact') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
@@ -2292,20 +2307,20 @@ new class extends Component
         @endif
 
         <div class="flex justify-between items-center pt-2">
-            <button wire:click="backToIt" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button type="button" wire:click="backToIt" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
             <div class="flex items-center gap-4">
-                <button wire:click="continueFromHotline(true)" wire:target="continueFromHotline"
+                <button type="button" wire:click="continueFromHotline(true)" wire:target="continueFromHotline"
                     class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromHotline(true, true)" wire:target="continueFromHotline"
+                <button type="button" wire:click="continueFromHotline(true, true)" wire:target="continueFromHotline"
                     class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromHotline" wire:target="continueFromHotline" wire:loading.attr="disabled"
+                <button type="submit" wire:target="continueFromHotline" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
                     <span wire:loading.remove wire:target="continueFromHotline">Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="continueFromHotline" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
             </div>
         </div>
-        </div>
+        </form>
         {!! $teamAside("A hotline is part of the reporting element. Section 1 recommends 2 posters per location.") !!}
         </div>
     </div>
@@ -2332,9 +2347,9 @@ new class extends Component
             @unless($committeeNone)
             @foreach($complianceCommitteeMembers as $i => $member)
             <div class="flex gap-2 mb-2">
-                <input wire:model="complianceCommitteeMembers.{{ $i }}.name" type="text" placeholder="Name"
+                <input wire:model="complianceCommitteeMembers.{{ $i }}.name" type="text" placeholder="Name" maxlength="150"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <input wire:model="complianceCommitteeMembers.{{ $i }}.title" type="text" placeholder="Title or role"
+                <input wire:model="complianceCommitteeMembers.{{ $i }}.title" type="text" placeholder="Title or role" maxlength="150"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 <button type="button" wire:click="removeCommitteeMember({{ $i }})" @disabled(count($complianceCommitteeMembers) < 2)
                     class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-white transition-colors disabled:opacity-40">
@@ -2379,9 +2394,9 @@ new class extends Component
             @if($boardMode !== '')
             @foreach($complianceGoverningBoardMembers as $i => $member)
             <div class="flex gap-2 mb-2">
-                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.name" type="text" placeholder="Name"
+                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.name" type="text" placeholder="Name" maxlength="150"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.title" type="text" placeholder="Title or role"
+                <input wire:model="complianceGoverningBoardMembers.{{ $i }}.title" type="text" placeholder="Title or role" maxlength="150"
                     class="flex-1 rounded-xl border border-[#dbe4ee] bg-white px-4 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 <button type="button" wire:click="removeBoardMember({{ $i }})" @disabled(count($complianceGoverningBoardMembers) < 2)
                     class="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-white transition-colors disabled:opacity-40">

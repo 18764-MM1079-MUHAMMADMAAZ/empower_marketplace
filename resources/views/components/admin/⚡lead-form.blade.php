@@ -93,14 +93,16 @@ new class extends Component
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Name</label>
-                <input wire:model="name" type="text"
+                <input wire:model="name" type="text" required maxlength="150"
+                    pattern="[\p{L}\s.'\-]+" title="Letters, spaces, periods, apostrophes and hyphens only"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div>
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Email</label>
-                <input wire:model="email" type="email"
+                <input wire:model="email" type="email" required maxlength="255"
+                    pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -108,6 +110,8 @@ new class extends Component
             <div>
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Phone</label>
                 <input wire:model="phone" type="tel" inputmode="tel" placeholder="+15551234567" maxlength="16"
+                    pattern="[+]?[1-9][0-9]{7,14}" title="A valid international phone number, e.g. +15551234567"
+                    x-on:input="$el.value = $el.value.replace(/[^0-9+]/g, '')"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>

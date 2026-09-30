@@ -26,6 +26,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpWord\Settings;
 use Tests\TestCase;
 
 class GenerateComplianceDocumentTest extends TestCase
@@ -469,6 +470,40 @@ class GenerateComplianceDocumentTest extends TestCase
         $this->assertStringNotContainsString('cmp_02_block', $xml);
         $this->assertStringNotContainsString('cmp_02_answer', $xml);
         $this->assertStringNotContainsString('[No response provided]', $xml);
+
+        Storage::disk('local')->deleteDirectory("private/compliance/{$order->id}");
+    }
+
+    /**
+     * Regression test: Settings::setOutputEscapingEnabled() is a process-wide static flag PhpWord
+     * checks in two unrelated places — TemplateProcessor::setValue() (which needs it on, to safely
+     * merge answers containing '&', '<' etc.) and the HTML Writer used to convert the merged docx
+     * to HTML for the PDF (which must NOT have it on, since PhpWord's own docx reader already
+     * carries characters like '&' forward in their escaped XML form for certain elements — leaving
+     * escaping on for the HTML writer re-escapes that, turning "&" into the literal text "&amp;amp;"
+     * in the final PDF). Left on past the merge step, the cover title ("Compliance & Ethics
+     * Program", static text inside the template's cover text box) renders as literal "&amp;".
+     */
+    public function test_compliance_ethics_manual_cover_title_is_not_double_escaped(): void
+    {
+        $capturedTitle = null;
+        $this->mock(CompliancePdfGenerator::class, function ($mock) use (&$capturedTitle) {
+            $mock->shouldReceive('generate')
+                ->once()
+                ->withArgs(function ($html, $ownerPassword, $manual) use (&$capturedTitle) {
+                    $capturedTitle = $manual['title'] ?? null;
+
+                    return true;
+                })
+                ->andReturn('%PDF-1.4 fake protected pdf');
+        });
+
+        $order = $this->makeOrder('complete');
+
+        GenerateComplianceDocument::dispatchSync($order, DocumentType::ComplianceEthicsManual);
+
+        $this->assertSame('Compliance & Ethics Program', $capturedTitle);
+        $this->assertFalse(Settings::isOutputEscapingEnabled());
 
         Storage::disk('local')->deleteDirectory("private/compliance/{$order->id}");
     }

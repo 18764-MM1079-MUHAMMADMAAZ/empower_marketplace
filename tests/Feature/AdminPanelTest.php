@@ -170,18 +170,37 @@ class AdminPanelTest extends TestCase
             'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
         ]);
 
+        // Submission is still Submitted (review hasn't started), so the placeholder row that
+        // ensureExpectedDocumentsExist() pre-creates should say generation hasn't begun yet —
+        // not claim it's already in progress, since no job has been dispatched for it.
         $this->withoutVite()->actingAs($admin)->get(route('admin.submissions.show', $submission))
             ->assertOk()
             ->assertSee('Document Review')
             ->assertSee('Compliance & Ethics Manual')
             ->assertSee('Not Started')
-            ->assertSee('Upload a custom file below instead');
+            ->assertSee('Generation hasn\'t started yet', false);
 
         $this->assertDatabaseHas('generated_documents', [
             'order_id' => $submission->order_id,
             'document_type' => DocumentType::ComplianceEthicsManual->value,
             'status' => DocumentStatus::Pending->value,
         ]);
+    }
+
+    public function test_document_review_shows_waiting_message_once_review_has_started(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::UnderReview);
+        IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,
+        ]);
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.submissions.show', $submission))
+            ->assertOk()
+            ->assertSee('Documents are being generated')
+            ->assertSee('Waiting on AI generation')
+            ->assertDontSee('Generation hasn\'t started yet');
     }
 
     public function test_document_review_shows_an_empty_state_with_no_expected_documents(): void
@@ -460,6 +479,11 @@ class AdminPanelTest extends TestCase
         ]);
         $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
         $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+        IntakeUpload::factory()->create([
+            'intake_submission_id' => $submission->id,
+            'upload_type' => IntakeUploadType::ClientDocumentForReview,
+            'document_category' => 'encounter_list',
+        ]);
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
@@ -467,6 +491,35 @@ class AdminPanelTest extends TestCase
 
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::SecurityRiskAssessment);
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::CodingMiniAuditReport);
+    }
+
+    public function test_starting_review_on_an_advanced_submission_skips_the_mini_audit_report_without_an_encounter_list(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'included_document_types' => [
+                'compliance_ethics_manual', 'hipaa_privacy_policy', 'hipaa_security_manual',
+                'security_risk_assessment', 'coding_mini_audit_report',
+            ],
+        ]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startReview');
+
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::SecurityRiskAssessment);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::CodingMiniAuditReport);
+
+        $this->assertDatabaseMissing('generated_documents', [
+            'order_id' => $order->id,
+            'document_type' => DocumentType::CodingMiniAuditReport->value,
+        ]);
     }
 
     public function test_approving_a_submission_also_approves_its_ready_documents(): void

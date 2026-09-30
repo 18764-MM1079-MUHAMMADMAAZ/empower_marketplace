@@ -442,14 +442,16 @@ new class extends Component
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Name</label>
-                <input wire:model="name" type="text"
+                <input wire:model="name" type="text" required maxlength="150"
+                    pattern="[\p{L}\s.'\-]+" title="Letters, spaces, periods, apostrophes and hyphens only"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="sm:col-span-2">
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Email</label>
-                <input wire:model="email" type="email"
+                <input wire:model="email" type="email" required maxlength="255"
+                    pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
@@ -573,17 +575,21 @@ new class extends Component
                 <p class="text-sm font-semibold text-navy mb-2">{{ $officer['label'] }}</p>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                        <input wire:model="{{ $officer['prefix'] }}Name" type="text" placeholder="Name"
+                        <input wire:model="{{ $officer['prefix'] }}Name" type="text" placeholder="Name" maxlength="150"
+                            pattern="[\p{L}\s.'\-]+" title="Letters, spaces, periods, apostrophes and hyphens only"
                             class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Name') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                         @error($officer['prefix'].'Name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <input wire:model="{{ $officer['prefix'] }}Phone" type="text" placeholder="Phone"
+                        <input wire:model="{{ $officer['prefix'] }}Phone" type="tel" inputmode="tel" placeholder="Phone" maxlength="30"
+                            pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
+                            x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
                             class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Phone') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                         @error($officer['prefix'].'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <input wire:model="{{ $officer['prefix'] }}Email" type="email" placeholder="Email"
+                        <input wire:model="{{ $officer['prefix'] }}Email" type="email" placeholder="Email" maxlength="150"
+                            pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                             class="w-full rounded-xl border {{ $errors->has($officer['prefix'].'Email') ? 'border-red-400' : 'border-empower-border' }} bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                         @error($officer['prefix'].'Email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
@@ -594,7 +600,7 @@ new class extends Component
             <div class="border-t border-empower-border pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-semibold text-[#173a59] mb-1.5">IT Vendor</label>
-                    <input wire:model="practiceItVendorName" type="text"
+                    <input wire:model="practiceItVendorName" type="text" maxlength="150"
                         class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                     @error('practiceItVendorName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
@@ -615,13 +621,14 @@ new class extends Component
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Compliance hotline number</label>
-                        <input wire:model="practiceComplianceHotlineNumber" type="text"
+                        <input wire:model="practiceComplianceHotlineNumber" type="text" maxlength="30"
                             class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                         @error('practiceComplianceHotlineNumber') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Compliance hotline email</label>
-                        <input wire:model="practiceComplianceHotlineEmail" type="email"
+                        <input wire:model="practiceComplianceHotlineEmail" type="email" maxlength="150"
+                            pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Please include a domain extension, e.g. name@example.com"
                             class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                         @error('practiceComplianceHotlineEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>

@@ -28,6 +28,15 @@ class CompliancePdfGenerator
      */
     public function generate(string $html, string $ownerPassword, ?array $manual = null): string
     {
+        $html = $this->sanitizeForCoreFont($html);
+
+        if ($manual !== null) {
+            $manual = array_map(
+                fn ($value) => is_string($value) ? $this->sanitizeForCoreFont($value) : $value,
+                $manual,
+            );
+        }
+
         $pdf = new CompliancePdf('P', 'mm', $manual !== null ? 'LETTER' : 'A4', true, 'UTF-8');
         $pdf->setCreator(config('app.name'));
         $pdf->setPrintFooter(false);
@@ -69,6 +78,27 @@ class CompliancePdfGenerator
         }
 
         return (string) $pdf->Output('', 'S');
+    }
+
+    /**
+     * TCPDF's core "helvetica" font (used for every generated manual — nothing here embeds a
+     * TrueType font) silently fails to render a handful of "smart" typographic characters that
+     * Word freely inserts into typed text: an en dash in particular comes out as an invisible
+     * soft-hyphen byte rather than a dash, which is what made the templates' "– Reference bullet"
+     * lines look like their bullet marker had vanished. Swapping these for their plain-ASCII
+     * equivalents keeps every character on the page actually visible.
+     */
+    private function sanitizeForCoreFont(string $text): string
+    {
+        return strtr($text, [
+            "\u{2013}" => '-',  // en dash
+            "\u{2018}" => "'",  // left single quote
+            "\u{2019}" => "'",  // right single quote / apostrophe
+            "\u{201C}" => '"',  // left double quote
+            "\u{201D}" => '"',  // right double quote
+            "\u{2026}" => '...', // ellipsis
+            "\u{00A0}" => ' ',  // non-breaking space
+        ]);
     }
 
     /**

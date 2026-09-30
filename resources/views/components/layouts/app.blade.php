@@ -15,7 +15,7 @@
 </head>
 @php
 $isAdmin = request()->routeIs('admin.*');
-$containerClass = $isAdmin ? 'max-w-[112rem]' : 'max-w-7xl';
+$containerClass = $isAdmin ? 'max-w-full' : 'max-w-7xl';
 @endphp
 
 <body class="min-h-screen flex flex-col bg-page font-sans antialiased @unless($isAdmin) client-portal @endunless"

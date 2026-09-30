@@ -112,17 +112,37 @@ new class extends Component
         $oshaLocations = $order->user->practice?->oshaLocations ?? collect();
         $uploadedQuestionnaireTypes = $submission->intakeUploads->map(fn ($u) => $u->upload_type)->unique();
 
+        $hasEncounterList = $submission->intakeUploads->contains(fn (IntakeUpload $u) => $u->document_category === 'encounter_list');
+
         foreach ($order->package?->included_document_types ?? [] as $typeValue) {
             $docType = DocumentType::tryFrom($typeValue);
 
-            if ($docType !== null) {
-                GeneratedDocument::firstOrCreate([
+            if ($docType === null) {
+                continue;
+            }
+
+            // The Mini Audit report can only be synthesized from an uploaded encounter list —
+            // don't create a placeholder for it (or keep one already sitting Pending/Failed from
+            // before the client uploaded anything) until an encounter list actually exists.
+            if ($docType === DocumentType::CodingMiniAuditReport && ! $hasEncounterList) {
+                GeneratedDocument::where([
                     'order_id' => $order->id,
                     'document_type' => $docType,
                     'osha_location_id' => null,
                     'intake_upload_id' => null,
-                ], ['status' => DocumentStatus::Pending]);
+                ])->whereIn('status', [DocumentStatus::Pending, DocumentStatus::Failed])
+                    ->whereNull('custom_storage_path')
+                    ->delete();
+
+                continue;
             }
+
+            GeneratedDocument::firstOrCreate([
+                'order_id' => $order->id,
+                'document_type' => $docType,
+                'osha_location_id' => null,
+                'intake_upload_id' => null,
+            ], ['status' => DocumentStatus::Pending]);
         }
 
         foreach ($uploadedQuestionnaireTypes as $uploadType) {
@@ -320,8 +340,23 @@ new class extends Component
         $uploadPending = $this->submission->intakeUploads
             ->contains(fn (IntakeUpload $u) => in_array($u->ai_extraction_status, [AiExtractionStatus::Pending, AiExtractionStatus::Processing], true));
 
-        $documentPending = $this->documentsForReview
-            ->contains(fn (GeneratedDocument $d) => in_array($d->status, [DocumentStatus::Pending, DocumentStatus::Generating], true));
+        // Package-included manuals (intake_upload_id/osha_location_id both null) are only
+        // dispatched once review starts (see startReview()/generateIncludedDocuments()), but
+        // ensureExpectedDocumentsExist() pre-creates their Pending placeholder rows the moment
+        // this page loads — well before that. Per-upload and per-location documents, by
+        // contrast, are dispatched independently as soon as their source upload finishes
+        // processing, so a Pending status on those really does mean "generating."
+        $documentPending = $this->documentsForReview->contains(function (GeneratedDocument $d) {
+            if (! in_array($d->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
+                return false;
+            }
+
+            if ($d->intake_upload_id === null && $d->osha_location_id === null) {
+                return $this->submission->status !== IntakeSubmissionStatus::Submitted;
+            }
+
+            return true;
+        });
 
         return $uploadPending || $documentPending;
     }
@@ -690,10 +725,19 @@ new class extends Component
             ->where('status', '!=', DocumentStatus::Pending)
             ->pluck('document_type');
 
+        $hasEncounterList = $order->intakeSubmission?->intakeUploads
+            ->contains(fn (IntakeUpload $u) => $u->document_category === 'encounter_list') ?? false;
+
         foreach ($includedTypes as $typeValue) {
             $documentType = DocumentType::tryFrom($typeValue);
 
             if ($documentType === null || $alreadyGeneratedTypes->contains($documentType)) {
+                continue;
+            }
+
+            // No point dispatching a Mini Audit report that will just fail — see
+            // ensureExpectedDocumentsExist(), which already keeps its placeholder from existing.
+            if ($documentType === DocumentType::CodingMiniAuditReport && ! $hasEncounterList) {
                 continue;
             }
 
@@ -963,6 +1007,20 @@ new class extends Component
         @endif
     </div>
 
+    @if($submission->status === IntakeSubmissionStatus::Submitted)
+        <div class="rounded-xl border border-[#9ed3e9] bg-[#eef6fb] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <p class="text-sm font-semibold text-navy">Review hasn't started yet</p>
+                <p class="text-xs text-empower-muted">Document generation for this submission's manuals only begins once you mark it as under review.</p>
+            </div>
+            <button wire:click="startReview" wire:target="startReview" wire:loading.attr="disabled" wire:target="startReview"
+                class="inline-flex items-center gap-1.5 rounded-lg bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors whitespace-nowrap">
+                <span wire:loading.remove wire:target="startReview">Mark as Under Review</span>
+                <span wire:loading.inline-flex wire:target="startReview" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Updating…</span>
+            </button>
+        </div>
+    @endif
+
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-3">Uploaded Forms</h3>
         @forelse($submission->intakeUploads as $upload)
@@ -1075,7 +1133,11 @@ new class extends Component
                                 @elseif($document->status === DocumentStatus::Failed)
                                     <p class="text-xs text-[#a53b3b]">AI generation failed{{ $document->failure_reason ? ': '.$document->failure_reason : '.' }} Upload a custom file below to deliver this document.</p>
                                 @elseif(in_array($document->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) && ! $document->hasCustomDocument())
-                                    <p class="text-xs text-empower-muted">Waiting on AI generation{{ $document->created_at ? ' since '.$document->created_at->diffForHumans() : '' }}. Taking too long? Upload a custom file below instead.</p>
+                                    @if($document->intake_upload_id === null && $document->osha_location_id === null && $this->submission->status === IntakeSubmissionStatus::Submitted)
+                                        <p class="text-xs text-empower-muted">Generation hasn't started yet — click "Mark as Under Review" below to begin.</p>
+                                    @else
+                                        <p class="text-xs text-empower-muted">Waiting on AI generation{{ $document->created_at ? ' since '.$document->created_at->diffForHumans() : '' }}. Taking too long? Upload a custom file below instead.</p>
+                                    @endif
                                 @endif
                             </div>
                             <div class="flex items-center gap-3">
@@ -1171,14 +1233,6 @@ new class extends Component
     @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]))
         <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <h3 class="text-sm font-semibold text-navy mb-3">Review Decision</h3>
-
-            @if($submission->status === IntakeSubmissionStatus::Submitted)
-                <button wire:click="startReview" wire:target="startReview" wire:loading.attr="disabled" wire:target="startReview"
-                    class="mb-4 text-xs font-bold text-[#1a7aad] hover:underline">
-                    <span wire:loading.remove wire:target="startReview">Mark as Under Review</span>
-                    <span wire:loading.inline-flex wire:target="startReview" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Updating…</span>
-                </button>
-            @endif
 
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">Reviewer notes (required to reject)</label>

@@ -123,6 +123,8 @@ new class extends Component
             <div class="mb-4">
                 <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cf-phone">Phone Number</label>
                 <input wire:model="phone" id="cf-phone" type="tel" inputmode="tel" placeholder="+15551234567" maxlength="16"
+                    pattern="[+]?[1-9][0-9]{7,14}" title="A valid international phone number, e.g. +15551234567"
+                    x-on:input="$el.value = $el.value.replace(/[^0-9+]/g, '')"
                     class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                 @error('phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
