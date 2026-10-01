@@ -6,6 +6,9 @@ use Livewire\Component;
 
 new class extends Component
 {
+    /** See ⚡login-form.blade.php's $popup doc — same switch-within-the-modal behavior. */
+    public bool $popup = false;
+
     #[Validate('required|email:rfc,filter')]
     public string $email = '';
 
@@ -55,7 +58,11 @@ new class extends Component
 
         <p class="mt-6 text-center text-sm text-[#5c778d]">
             Remembered your password?
+            @if($popup)
+            <button type="button" x-on:click="authView = 'login'" class="font-semibold text-[#0e3a61] hover:text-[#0b9ed0] transition-colors">Log in</button>
+            @else
             <a href="{{ route('login') }}" wire:navigate class="font-semibold text-[#0e3a61] hover:text-[#0b9ed0] transition-colors">Log in</a>
+            @endif
         </p>
     @endif
 </div>

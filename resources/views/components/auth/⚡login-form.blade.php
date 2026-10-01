@@ -12,6 +12,12 @@ new class extends Component
 
     private const LOGIN_DECAY_SECONDS = 60;
 
+    /** True when rendered inside the homepage's login modal (marketing.blade.php) rather than
+     *  the standalone /login page — swaps the "Create an account"/"Forgot password?" links from
+     *  real page navigation to switching the modal's own Alpine `authView`, so the whole flow
+     *  stays in the popup instead of dropping back to a full page. */
+    public bool $popup = false;
+
     #[Validate('required|email:rfc,filter')]
     public string $email = '';
 
@@ -86,10 +92,17 @@ new class extends Component
         </a>
     </div>
     <div class="space-y-2.5 mb-5">
+        @if($popup)
+        <button type="button" x-on:click="authView = 'register'"
+            class="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-[#d4e5f1] px-4 py-2.5 text-sm font-semibold text-[#0e3a61] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            Create an account
+        </button>
+        @else
         <a href="{{ route('register') }}" wire:navigate
             class="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-[#d4e5f1] px-4 py-2.5 text-sm font-semibold text-[#0e3a61] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
             Create an account
         </a>
+        @endif
     </div>
 
     <div class="flex items-center gap-3 mb-5">
@@ -110,9 +123,15 @@ new class extends Component
         <div class="mb-4">
             <div class="flex items-center justify-between mb-1.5">
                 <label class="block text-sm font-medium text-[#173a59]" for="lf-password">Password</label>
+                @if($popup)
+                <button type="button" x-on:click="authView = 'forgot-password'"
+                    class="text-xs font-semibold text-[#0b9ed0] hover:text-[#0e3a61] transition-colors">Forgot
+                    password?</button>
+                @else
                 <a href="{{ route('password.request') }}" wire:navigate
                     class="text-xs font-semibold text-[#0b9ed0] hover:text-[#0e3a61] transition-colors">Forgot
                     password?</a>
+                @endif
             </div>
             <input wire:model="password" id="lf-password" type="password" autocomplete="current-password"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
