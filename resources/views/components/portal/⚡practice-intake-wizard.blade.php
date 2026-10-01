@@ -576,6 +576,29 @@ new class extends Component
         unset($this->currentSubmission);
     }
 
+    /** Every forward "Continue" used to call markReached() once or twice then setWizardScreen()
+     *  separately — each a fetch-then-update-then-uncache round trip against intake_submissions,
+     *  so a single step forward touched the row 2-3 times. This does it in one fetch + one update,
+     *  which is the fix for the wizard's per-step lag (every "Continue"/"Save & Continue" click). */
+    private function advanceWizardScreen(array $reachedKeys, string $screen): void
+    {
+        $submission = $this->currentSubmission;
+        $reached = $submission->wizard_reached_screens ?? [];
+
+        foreach ($reachedKeys as $key) {
+            if (! in_array($key, $reached, true)) {
+                $reached[] = $key;
+            }
+        }
+
+        $submission->update([
+            'wizard_reached_screens' => $reached,
+            'wizard_screen' => $screen,
+        ]);
+
+        unset($this->currentSubmission);
+    }
+
     private function currentNavKey(): string
     {
         return match (true) {
@@ -731,10 +754,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('documents');
         $this->screen = 'b_profile';
-        $this->markReached('b_profile');
-        $this->setWizardScreen('b_profile');
+        $this->advanceWizardScreen(['documents', 'b_profile'], 'b_profile');
     }
 
     // ── Basics: 1) Profile ───────────────────────────────────────────────────
@@ -783,10 +804,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('b_profile');
         $this->screen = 'b_providers';
-        $this->markReached('b_providers');
-        $this->setWizardScreen('b_providers');
+        $this->advanceWizardScreen(['b_profile', 'b_providers'], 'b_providers');
     }
 
     // ── Basics: 2) Providers ─────────────────────────────────────────────────
@@ -824,10 +843,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('b_providers');
         $this->screen = 'b_address';
-        $this->markReached('b_address');
-        $this->setWizardScreen('b_address');
+        $this->advanceWizardScreen(['b_providers', 'b_address'], 'b_address');
     }
 
     // ── Basics: 3) Address ───────────────────────────────────────────────────
@@ -856,10 +873,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('b_address');
         $this->screen = 'b_logo';
-        $this->markReached('b_logo');
-        $this->setWizardScreen('b_logo');
+        $this->advanceWizardScreen(['b_address', 'b_logo'], 'b_logo');
     }
 
     // ── Basics: 4) Logo (always optional) ────────────────────────────────────
@@ -906,13 +921,11 @@ new class extends Component
             return;
         }
 
-        $this->markReached('b_logo');
-
         if ($this->includesWorkflowQuestionnaire) {
             $this->screen = 't_practice';
-            $this->markReached('t_practice');
-            $this->setWizardScreen('t_practice');
+            $this->advanceWizardScreen(['b_logo', 't_practice'], 't_practice');
         } else {
+            $this->markReached('b_logo');
             $this->finishWizard();
         }
     }
@@ -988,9 +1001,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('t_practice');
         $this->screen = 't_officers';
-        $this->setWizardScreen('t_officers');
+        $this->advanceWizardScreen(['t_practice'], 't_officers');
     }
 
     // ── Team: 2/5 — Who fills your compliance roles? ────────────────────────
@@ -1156,9 +1168,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('t_officers');
         $this->screen = 't_it';
-        $this->setWizardScreen('t_it');
+        $this->advanceWizardScreen(['t_officers'], 't_it');
     }
 
     // ── Team: 3/5 — Who handles your IT? ─────────────────────────────────────
@@ -1204,9 +1215,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('t_it');
         $this->screen = 't_hotline';
-        $this->setWizardScreen('t_hotline');
+        $this->advanceWizardScreen(['t_it'], 't_hotline');
     }
 
     // ── Team: 4/5 — How can staff reach a compliance hotline? ────────────────
@@ -1248,9 +1258,8 @@ new class extends Component
             return;
         }
 
-        $this->markReached('t_hotline');
         $this->screen = 't_leadership';
-        $this->setWizardScreen('t_leadership');
+        $this->advanceWizardScreen(['t_hotline'], 't_leadership');
     }
 
     // ── Team: 5/5 — Who leads compliance oversight? ──────────────────────────
@@ -1343,11 +1352,10 @@ new class extends Component
             return;
         }
 
-        $this->markReached('t_leadership');
-
         $first = $this->remainingQueue[0] ?? null;
 
         if ($first === null) {
+            $this->markReached('t_leadership');
             $this->finishWizard();
 
             return;
@@ -1355,8 +1363,7 @@ new class extends Component
 
         $this->loadQuestion($first);
         $this->screen = 'question';
-        $this->markReached('section:'.$this->currentQuestion->intake_section_id);
-        $this->setWizardScreen('question');
+        $this->advanceWizardScreen(['t_leadership', 'section:'.$this->currentQuestion->intake_section_id], 'question');
     }
 
     // ── Questions ─────────────────────────────────────────────────────────
@@ -1377,6 +1384,11 @@ new class extends Component
 
         $this->currentResponse = $existing?->response ?? '';
         $this->currentHasDocumentedProcess = $existing ? (bool) $existing->has_documented_process : null;
+    }
+
+    public function chooseDocumentedProcess(): void
+    {
+        $this->currentHasDocumentedProcess = true;
     }
 
     public function chooseNoDocumentedProcess(): void
@@ -1449,8 +1461,7 @@ new class extends Component
         }
 
         $this->loadQuestion($next);
-        $this->markReached('section:'.$this->currentQuestion->intake_section_id);
-        $this->setWizardScreen('question');
+        $this->advanceWizardScreen(['section:'.$this->currentQuestion->intake_section_id], 'question');
     }
 
     public function backOneQuestion(): void
@@ -2471,16 +2482,16 @@ new class extends Component
         <p class="text-sm text-[#5d6e7f] mb-4">{{ $question->prompt_summary }}</p>
         @endif
 
-        <div class="space-y-2.5 mb-4">
+        <div class="space-y-2.5 mb-4" wire:loading.class="opacity-60 pointer-events-none" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion">
             <label class="flex items-start gap-2.5 rounded-xl border {{ $currentHasDocumentedProcess === true ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
-                <input type="radio" wire:key="has-documented-process-yes-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="$set('currentHasDocumentedProcess', true)" @checked($currentHasDocumentedProcess === true) class="mt-0.5 accent-[#12304f]">
+                <input type="radio" wire:key="has-documented-process-yes-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="chooseDocumentedProcess" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion" @checked($currentHasDocumentedProcess === true) class="mt-0.5 accent-[#12304f]">
                 <span>
                     <span class="block text-sm font-bold text-[#173045]">We have a documented process</span>
                     <span class="block text-xs text-[#5d6e7f] mt-0.5">Describe it in your own words. Your response is used exactly as you write it.</span>
                 </span>
             </label>
             <label class="flex items-start gap-2.5 rounded-xl border {{ $currentHasDocumentedProcess === false ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
-                <input type="radio" wire:key="has-documented-process-no-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="chooseNoDocumentedProcess" @checked($currentHasDocumentedProcess === false) class="mt-0.5 accent-[#12304f]">
+                <input type="radio" wire:key="has-documented-process-no-{{ $currentQuestionId }}" name="has_documented_process_{{ $currentQuestionId }}" wire:click="chooseNoDocumentedProcess" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion" @checked($currentHasDocumentedProcess === false) class="mt-0.5 accent-[#12304f]">
                 <span>
                     <span class="block text-sm font-bold text-[#173045]">We don't have a documented answer</span>
                     <span class="block text-xs text-[#5d6e7f] mt-0.5">The policy's best-practice language becomes your default, and we move you to the next question.</span>
@@ -2523,18 +2534,18 @@ new class extends Component
         @endif
 
         <div class="flex items-center justify-between mt-5">
-            <button wire:click="backOneQuestion" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
+            <button wire:click="backOneQuestion" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-50">&larr; Back</button>
             <div class="flex items-center gap-2">
                 @if($this->onlySkippedQuestionsRemain)
-                <button wire:click="skipCurrentQuestion" wire:target="skipCurrentQuestion"
-                    class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">Finish questionnaire</button>
+                <button wire:click="skipCurrentQuestion" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion"
+                    class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-50">Finish questionnaire</button>
                 @else
-                <button wire:click="skipCurrentQuestion" wire:target="skipCurrentQuestion"
-                    class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">Skip for now</button>
+                <button wire:click="skipCurrentQuestion" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion"
+                    class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-50">Skip for now</button>
                 @endif
                 @if($currentHasDocumentedProcess === true)
-                <button wire:click="saveCurrentAnswer" wire:target="saveCurrentAnswer" wire:loading.attr="disabled"
-                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                <button wire:click="saveCurrentAnswer" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
                     <span wire:loading.remove wire:target="saveCurrentAnswer">Save &amp; Continue &rarr;</span>
                     <span wire:loading.inline-flex wire:target="saveCurrentAnswer" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
                 </button>
