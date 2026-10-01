@@ -79,30 +79,20 @@ new class extends Component
 <div>
     {{-- SSO sign-in options (UI only for now — these link out to CCH's/talkEHR's own "launch
     Empower" URL once that's built; see sso.md §5 "Sign-in screen" and open question 1). --}}
-    <div class="grid grid-cols-2 gap-2.5 mb-5">
-        <a href="#"
-            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
-            <img src="{{ asset('images/carcloud-logo.png') }}" alt="" class="h-3 w-auto flex-shrink-0">
-            <span class="sr-only min-[534px]:not-sr-only">Sign in with CareCloud</span>
-        </a>
-        <a href="#"
-            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
-            <img src="{{ asset('images/talk-logo.png') }}" alt="" class="h-3 w-auto flex-shrink-0">
-            <span class="sr-only min-[534px]:not-sr-only">Sign in with talkEHR</span>
-        </a>
+    <div class="flex items-center gap-3 mb-5">
+        <div class="h-px flex-1 bg-[#e5edf3]"></div>
+        <span class="text-xs font-semibold text-[#5c778d] uppercase tracking-wide">Sign in with</span>
+        <div class="h-px flex-1 bg-[#e5edf3]"></div>
     </div>
-    <div class="space-y-2.5 mb-5">
-        @if($popup)
-        <button type="button" x-on:click="authView = 'register'"
-            class="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-[#d4e5f1] px-4 py-2.5 text-sm font-semibold text-[#0e3a61] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
-            Create an account
-        </button>
-        @else
-        <a href="{{ route('register') }}" wire:navigate
-            class="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-[#d4e5f1] px-4 py-2.5 text-sm font-semibold text-[#0e3a61] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
-            Create an account
+    <div class="grid grid-cols-1 gap-2.5 mb-5">
+        <a href="#"
+            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            <img src="{{ asset('images/carcloud-logo.png') }}" alt="" class="flex-shrink-0" style="width: 12rem;">
         </a>
-        @endif
+        <a href="#"
+            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            <img src="{{ asset('images/talk-logo.png') }}" alt="" class="flex-shrink-0" style="width: 12rem;">
+        </a>
     </div>
 
     <div class="flex items-center gap-3 mb-5">
@@ -147,13 +137,15 @@ new class extends Component
             </label>
         </div>
 
-        <button type="submit"
-            class="inline-flex items-center gap-1 rounded bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors"
-            wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed">
-            <span wire:loading.remove>Log In &rarr;</span>
-            <span wire:loading.inline-flex class="inline-flex items-center gap-1.5">
-                <x-spinner class="h-3.5 w-3.5" /> Signing in…
-            </span>
-        </button>
+        <div class="flex justify-end">
+            <button type="submit"
+                class="inline-flex items-center gap-1 rounded bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors"
+                wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed">
+                <span wire:loading.remove>Log In &rarr;</span>
+                <span wire:loading.inline-flex class="inline-flex items-center gap-1.5">
+                    <x-spinner class="h-3.5 w-3.5" /> Signing in…
+                </span>
+            </button>
+        </div>
     </form>
 </div>

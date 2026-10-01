@@ -139,8 +139,8 @@ $sectionPrefix = $onHomePage ? '' : route('home');
 
             <div class="px-5 py-5">
                 <div x-show="authView === 'login'">
-                    <h3 class="text-lg font-semibold text-[#173a59] mb-1">Log In</h3>
-                    <p class="text-xs text-[#5c778d] mb-5">Enter your credentials to access your portal.</p>
+                    {{-- <h3 class="text-lg font-semibold text-[#173a59] mb-1">Log In</h3>
+                    <p class="text-xs text-[#5c778d] mb-5">Enter your credentials to access your portal.</p> --}}
                     <livewire:auth.login-form :popup="true" />
                 </div>
                 <div x-show="authView === 'register'">
