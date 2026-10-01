@@ -25,6 +25,12 @@ class DatabaseSeeder extends Seeder
             'role' => UserRole::Admin,
         ]);
 
+        User::factory()->create([
+            'name' => 'Casey',
+            'email' => 'cwessel@carecloud.com',
+            'role' => UserRole::Admin,
+        ]);
+
         // Sample client user for local development
         // User::factory()->create([
         //     'name' => 'Test Client',
