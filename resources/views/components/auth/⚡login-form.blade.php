@@ -71,6 +71,29 @@ new class extends Component
 ?>
 
 <div>
+    {{-- SSO sign-in options (UI only for now — these link out to CCH's/talkEHR's own "launch
+    Empower" URL once that's built; see sso.md §5 "Sign-in screen" and open question 1). --}}
+    <div class="space-y-2.5 mb-5">
+        <a href="#"
+            class="flex items-center justify-center gap-2 w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            Sign in with CareCloud
+        </a>
+        <a href="#"
+            class="flex items-center justify-center gap-2 w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            Sign in with talkEHR
+        </a>
+        <a href="{{ route('register') }}" wire:navigate
+            class="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-[#d4e5f1] px-4 py-2.5 text-sm font-semibold text-[#0e3a61] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            Create an account
+        </a>
+    </div>
+
+    <div class="flex items-center gap-3 mb-5">
+        <div class="h-px flex-1 bg-[#e5edf3]"></div>
+        <span class="text-xs font-semibold text-[#5c778d] uppercase tracking-wide">Or sign in with email</span>
+        <div class="h-px flex-1 bg-[#e5edf3]"></div>
+    </div>
+
     <form wire:submit="login" novalidate>
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="lf-email">Email address</label>
@@ -106,9 +129,4 @@ new class extends Component
             <span wire:loading.inline-flex class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Signing in…</span>
         </button>
     </form>
-
-    <p class="mt-6 text-center text-sm text-[#5c778d]">
-        Don't have an account?
-        <a href="{{ route('register') }}" wire:navigate class="font-semibold text-[#0e3a61] hover:text-[#0b9ed0] transition-colors">Get started</a>
-    </p>
 </div>
