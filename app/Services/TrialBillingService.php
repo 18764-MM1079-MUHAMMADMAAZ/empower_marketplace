@@ -16,7 +16,9 @@ use App\Models\ActivityLog;
 use App\Models\Order;
 use App\Models\PaymentLog;
 use App\Models\User;
+use App\Notifications\PaymentReceivedNotification;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * Orchestrates free-trial → paid conversion and recurring annual renewals, shared by the portal's
@@ -242,9 +244,13 @@ class TrialBillingService
 
     private function notifyAdmins(Order $order): void
     {
-        User::where('role', UserRole::Admin)->pluck('email')->each(
-            fn (string $adminEmail) => $this->sendQuietly(fn () => Mail::to($adminEmail)->queue(new AdminPaymentReceivedMail($order)))
+        $admins = User::where('role', UserRole::Admin)->get();
+
+        $admins->each(
+            fn (User $admin) => $this->sendQuietly(fn () => Mail::to($admin->email)->queue(new AdminPaymentReceivedMail($order)))
         );
+
+        $this->sendQuietly(fn () => Notification::send($admins, new PaymentReceivedNotification($order)));
     }
 
     private function sendQuietly(\Closure $send): void

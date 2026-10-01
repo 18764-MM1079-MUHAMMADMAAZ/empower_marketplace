@@ -5,9 +5,11 @@ use App\Mail\AdminNewSignupMail;
 use App\Mail\WelcomeCredentialsMail;
 use App\Models\Practice;
 use App\Models\User;
+use App\Notifications\NewSignupNotification;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
@@ -57,15 +59,21 @@ new class extends Component
             report($e);
         }
 
-        User::where('role', UserRole::Admin)->pluck('email')->each(
-            function (string $adminEmail) use ($user) {
-                try {
-                    Mail::to($adminEmail)->send(new AdminNewSignupMail($user));
-                } catch (\Throwable $e) {
-                    report($e);
-                }
+        $admins = User::where('role', UserRole::Admin)->get();
+
+        $admins->each(function (User $admin) use ($user) {
+            try {
+                Mail::to($admin->email)->send(new AdminNewSignupMail($user));
+            } catch (\Throwable $e) {
+                report($e);
             }
-        );
+        });
+
+        try {
+            Notification::send($admins, new NewSignupNotification($user));
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         event(new Registered($user));
 

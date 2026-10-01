@@ -380,6 +380,28 @@ class PortalTest extends TestCase
         Mail::assertNotQueued(AdminPaymentReceivedMail::class, fn ($mail) => $mail->hasTo($user->email));
     }
 
+    public function test_paying_also_creates_an_in_app_notification_for_every_admin(): void
+    {
+        $this->fakeSuccessfulCharge();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true);
+
+        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
+        $this->assertSame('Payment received', $admin->fresh()->notifications()->first()->data['title']);
+    }
+
     public function test_paying_emails_the_client_a_receipt_with_a_pdf_attached(): void
     {
         Mail::fake();
@@ -1461,6 +1483,7 @@ class PortalTest extends TestCase
         Mail::fake();
         $this->fakeSuccessfulDetokenizeAndCharge();
 
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
         $package = Package::factory()->create(['annual_price' => 999, 'is_active' => true]);
         $user = User::factory()->create();
         Practice::factory()->create(['user_id' => $user->id]);
@@ -1483,6 +1506,7 @@ class PortalTest extends TestCase
         $this->assertEquals(999.0, (float) $order->amount_paid);
 
         Mail::assertQueued(ClientPaymentReceiptMail::class);
+        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
     }
 
     public function test_proceed_with_payment_shows_decline_message_on_failed_conversion(): void
@@ -1908,6 +1932,9 @@ class PortalTest extends TestCase
         ]);
 
         Mail::assertSent(AdminIntakeSubmittedMail::class, fn ($mail) => $mail->hasTo($admin->email));
+
+        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
+        $this->assertSame('Intake submitted for review', $admin->fresh()->notifications()->first()->data['title']);
     }
 
     public function test_finalize_intake_creates_a_submission_for_every_order_in_the_batch(): void

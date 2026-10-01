@@ -164,6 +164,24 @@ class AuthTest extends TestCase
         Mail::assertNotSent(AdminNewSignupMail::class, fn ($mail) => $mail->hasTo('jane@practice.com'));
     }
 
+    public function test_registration_also_creates_an_in_app_notification_for_every_admin(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $otherAdmin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::test('auth.register-form')
+            ->set('name', 'Jane Provider')
+            ->set('email', 'jane@practice.com')
+            ->call('register');
+
+        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
+        $this->assertSame(1, $otherAdmin->fresh()->unreadNotifications()->count());
+
+        $data = $admin->fresh()->notifications()->first()->data;
+        $this->assertSame('New account created', $data['title']);
+        $this->assertStringContainsString('Jane Provider', $data['message']);
+    }
+
     public function test_registration_emails_the_generated_password_and_it_works_for_login(): void
     {
         Mail::fake();

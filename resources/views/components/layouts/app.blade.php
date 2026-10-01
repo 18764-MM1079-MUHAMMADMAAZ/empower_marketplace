@@ -48,7 +48,12 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
                     </a>
                 </div>
 
-                <livewire:header-account-menu />
+                <div class="flex items-center gap-3">
+                    @if($isAdmin)
+                    <livewire:admin.notification-bell />
+                    @endif
+                    <livewire:header-account-menu />
+                </div>
             </div>
         </div>
     </nav>

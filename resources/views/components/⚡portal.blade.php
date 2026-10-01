@@ -31,6 +31,8 @@ use App\Models\Package;
 use App\Models\PaymentLog;
 use App\Models\Practice;
 use App\Models\User;
+use App\Notifications\IntakeSubmittedNotification;
+use App\Notifications\PaymentReceivedNotification;
 use App\Services\CloverChargeService;
 use App\Services\EmpowerPaymentApiClient;
 use App\Services\TrialBillingService;
@@ -39,6 +41,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -1522,15 +1525,21 @@ new class extends Component
                 billingAddress: $billingAddress,
             );
 
-            User::where('role', UserRole::Admin)->pluck('email')->each(
-                function (string $adminEmail) use ($order) {
-                    try {
-                        Mail::to($adminEmail)->queue(new AdminPaymentReceivedMail($order));
-                    } catch (\Throwable $e) {
-                        report($e);
-                    }
+            $admins = User::where('role', UserRole::Admin)->get();
+
+            $admins->each(function (User $admin) use ($order) {
+                try {
+                    Mail::to($admin->email)->queue(new AdminPaymentReceivedMail($order));
+                } catch (\Throwable $e) {
+                    report($e);
                 }
-            );
+            });
+
+            try {
+                Notification::send($admins, new PaymentReceivedNotification($order));
+            } catch (\Throwable $e) {
+                report($e);
+            }
 
             try {
                 Mail::to($order->user->email)->queue(new ClientPaymentReceiptMail($order));
@@ -2020,15 +2029,21 @@ new class extends Component
 
         $primarySubmission->setRelation('order', $primaryOrder);
 
-        User::where('role', UserRole::Admin)->pluck('email')->each(
-            function (string $adminEmail) use ($primarySubmission) {
-                try {
-                    Mail::to($adminEmail)->send(new AdminIntakeSubmittedMail($primarySubmission));
-                } catch (\Throwable $e) {
-                    report($e);
-                }
+        $admins = User::where('role', UserRole::Admin)->get();
+
+        $admins->each(function (User $admin) use ($primarySubmission) {
+            try {
+                Mail::to($admin->email)->send(new AdminIntakeSubmittedMail($primarySubmission));
+            } catch (\Throwable $e) {
+                report($e);
             }
-        );
+        });
+
+        try {
+            Notification::send($admins, new IntakeSubmittedNotification($primarySubmission));
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         unset($this->intakeSubmission, $this->currentOrder, $this->completedMilestone, $this->batchOrders, $this->rejectedSubmission, $this->primarySubmission);
         $this->step = 4;
