@@ -77,12 +77,12 @@ new class extends Component
         <a href="#"
             class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
             <img src="{{ asset('images/carcloud-logo.png') }}" alt="" class="h-3 w-auto flex-shrink-0">
-            <span>Sign in with CareCloud</span>
+            <span class="sr-only min-[534px]:not-sr-only">Sign in with CareCloud</span>
         </a>
         <a href="#"
             class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
             <img src="{{ asset('images/talk-logo.png') }}" alt="" class="h-3 w-auto flex-shrink-0">
-            <span>Sign in with talkEHR</span>
+            <span class="sr-only min-[534px]:not-sr-only">Sign in with talkEHR</span>
         </a>
     </div>
     <div class="space-y-2.5 mb-5">
