@@ -17,6 +17,7 @@ use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
+use App\Models\Practice;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -37,6 +38,19 @@ new class extends Component
 
     /** Keyed by GeneratedDocument id. */
     public array $customDocumentFiles = [];
+
+    /** The intake question currently open for editing in the Practice Intake Answers panel below,
+     *  or null when none is being edited. */
+    public ?int $editingAnswerQuestionId = null;
+
+    public string $editingAnswerResponse = '';
+
+    public bool $editingAnswerHasDocumentedProcess = true;
+
+    public bool $editingTeam = false;
+
+    /** @var array<string, mixed> */
+    public array $teamForm = [];
 
     public function mount(IntakeSubmission $submission): void
     {
@@ -215,10 +229,12 @@ new class extends Component
 
     /**
      * The Practice Intake wizard's 66 workflow questions, grouped by section, each paired with
-     * this submission's answer (if any) — read-only, for the admin to see what will drive the
-     * generated manuals' content. Empty for a submission with no answers at all (Essential
-     * tier, or one predating the wizard). Mirrors ⚡portal.blade.php's sectionDetailRows() badge/
-     * meta shape (client-facing "Your answers" review), minus the Edit link — this is read-only.
+     * this submission's answer (if any) — shown to the admin as what will drive the generated
+     * manuals' content, with an edit option (see startEditingAnswer()/saveEditedAnswer() below)
+     * for correcting a practice's answer before documents are generated or re-generated. Empty
+     * for a submission with no answers at all (Essential tier, or one predating the wizard).
+     * Mirrors ⚡portal.blade.php's sectionDetailRows() badge/meta shape (client-facing "Your
+     * answers" review).
      *
      * @return Collection<int, array{label: string, done: int, total: int, questions: Collection}>
      */
@@ -243,6 +259,7 @@ new class extends Component
                     };
 
                     return [
+                        'id' => $question->id,
                         'title' => $question->title,
                         'value' => $value,
                         'badge' => $badge,
@@ -259,6 +276,199 @@ new class extends Component
                 ];
             })
             ->filter(fn (array $section) => $section['done'] > 0);
+    }
+
+    /** Opens a question's answer for editing, pre-filled with its current value (or sensible
+     *  defaults for a question that was never answered — "Open" questions are still editable
+     *  since the section they belong to already has at least one real answer). */
+    public function startEditingAnswer(int $questionId): void
+    {
+        $answer = $this->submission->intakeAnswers->firstWhere('intake_question_id', $questionId);
+
+        $this->editingAnswerQuestionId = $questionId;
+        $this->editingAnswerResponse = $answer?->response ?? '';
+        $this->editingAnswerHasDocumentedProcess = $answer === null || (bool) $answer->has_documented_process;
+        $this->resetErrorBag('editingAnswerResponse');
+    }
+
+    public function cancelEditingAnswer(): void
+    {
+        $this->editingAnswerQuestionId = null;
+        $this->editingAnswerResponse = '';
+        $this->resetErrorBag('editingAnswerResponse');
+    }
+
+    public function saveEditedAnswer(): void
+    {
+        if ($this->editingAnswerQuestionId === null) {
+            return;
+        }
+
+        if ($this->editingAnswerHasDocumentedProcess && trim($this->editingAnswerResponse) === '') {
+            $this->addError('editingAnswerResponse', 'Enter a response, or switch to "No documented process."');
+
+            return;
+        }
+
+        $submission = $this->submission;
+        $question = IntakeQuestion::find($this->editingAnswerQuestionId);
+
+        $submission->intakeAnswers()->updateOrCreate(
+            ['intake_question_id' => $this->editingAnswerQuestionId],
+            [
+                'response' => $this->editingAnswerHasDocumentedProcess ? trim($this->editingAnswerResponse) : null,
+                'has_documented_process' => $this->editingAnswerHasDocumentedProcess,
+                'skipped' => false,
+                'answered_at' => now(),
+            ]
+        );
+
+        ActivityLog::record(
+            'submission.answer_edited',
+            "An admin edited the answer to \"{$question?->title}\" for order #{$submission->order_id}.",
+            user: auth()->user(),
+            order: $submission->order,
+            subject: $submission,
+        );
+
+        $this->editingAnswerQuestionId = null;
+        $this->editingAnswerResponse = '';
+
+        unset($this->submission, $this->intakeAnswersBySection);
+
+        $this->dispatch('toast', message: 'Answer updated.', type: 'success');
+    }
+
+    /** Renders a {name, title} member list (committee/board, same shape the wizard stores) as
+     *  one "Name — Title" line per member, for a plain textarea rather than the wizard's own
+     *  repeatable-row UI — this is an admin correction tool, not a guided form. */
+    private function formatMembers(?array $members): string
+    {
+        return collect($members ?? [])
+            ->map(fn ($m) => trim(($m['name'] ?? '').(filled($m['title'] ?? null) ? ' — '.$m['title'] : '')))
+            ->filter()
+            ->implode("\n");
+    }
+
+    /** @return array<int, array{name: string, title: string}> */
+    private function parseMembers(string $text): array
+    {
+        return collect(preg_split('/\r?\n/', $text))
+            ->map(fn ($line) => trim($line))
+            ->filter()
+            ->map(function (string $line) {
+                [$name, $title] = array_pad(explode('—', $line, 2), 2, '');
+
+                return ['name' => trim($name), 'title' => trim($title)];
+            })
+            ->values()
+            ->all();
+    }
+
+    public function startEditingTeam(): void
+    {
+        $practice = $this->submission->order?->user?->practice;
+
+        $this->teamForm = [
+            'legal_practice_name' => $practice?->legal_practice_name ?? '',
+            'dba_name' => $practice?->dba_name ?? '',
+            'other_entities' => $practice?->other_entities ?? '',
+            'main_phone' => $practice?->main_phone ?? '',
+            'main_email' => $practice?->main_email ?? '',
+            'locations' => implode("\n", $practice?->practice_locations ?? []),
+            'compliance_officer_name' => $practice?->compliance_officer_name ?? '',
+            'compliance_officer_phone' => $practice?->compliance_officer_phone ?? '',
+            'compliance_officer_email' => $practice?->compliance_officer_email ?? '',
+            'hipaa_privacy_officer_name' => $practice?->hipaa_privacy_officer_name ?? '',
+            'hipaa_privacy_officer_phone' => $practice?->hipaa_privacy_officer_phone ?? '',
+            'hipaa_privacy_officer_email' => $practice?->hipaa_privacy_officer_email ?? '',
+            'hipaa_security_officer_name' => $practice?->hipaa_security_officer_name ?? '',
+            'hipaa_security_officer_phone' => $practice?->hipaa_security_officer_phone ?? '',
+            'hipaa_security_officer_email' => $practice?->hipaa_security_officer_email ?? '',
+            'release_of_info_officer_name' => $practice?->release_of_info_officer_name ?? '',
+            'release_of_info_officer_phone' => $practice?->release_of_info_officer_phone ?? '',
+            'release_of_info_officer_email' => $practice?->release_of_info_officer_email ?? '',
+            'it_mode' => $practice?->it_mode ?? '',
+            'it_vendor_name' => $practice?->it_vendor_name ?? '',
+            'it_contact_name' => $practice?->it_contact_name ?? '',
+            'it_contact_phone' => $practice?->it_contact_phone ?? '',
+            'it_contact_email' => $practice?->it_contact_email ?? '',
+            'uses_ehcp_hotline' => $practice?->uses_ehcp_hotline ?? true,
+            'compliance_hotline_number' => $practice?->compliance_hotline_number ?? '',
+            'hotline_poster_count' => (string) ($practice?->hotline_poster_count ?? ''),
+            'committee_none' => $practice?->committee_none ?? false,
+            'committee_members' => $this->formatMembers($practice?->compliance_committee_members),
+            'board_mode' => $practice?->board_mode ?? 'owners',
+            'board_members' => $this->formatMembers($practice?->compliance_governing_board_members),
+        ];
+
+        $this->editingTeam = true;
+    }
+
+    public function cancelEditingTeam(): void
+    {
+        $this->editingTeam = false;
+    }
+
+    public function saveTeam(): void
+    {
+        $practice = $this->submission->order?->user?->practice;
+
+        if ($practice === null) {
+            $this->editingTeam = false;
+
+            return;
+        }
+
+        $form = $this->teamForm;
+
+        $practice->update([
+            'legal_practice_name' => trim($form['legal_practice_name']) ?: null,
+            'dba_name' => trim($form['dba_name']) ?: null,
+            'other_entities' => trim($form['other_entities']) ?: null,
+            'main_phone' => trim($form['main_phone']) ?: null,
+            'main_email' => trim($form['main_email']) ?: null,
+            'practice_locations' => collect(preg_split('/\r?\n/', $form['locations']))->map(fn ($l) => trim($l))->filter()->values()->all(),
+            'compliance_officer_name' => trim($form['compliance_officer_name']) ?: null,
+            'compliance_officer_phone' => trim($form['compliance_officer_phone']) ?: null,
+            'compliance_officer_email' => trim($form['compliance_officer_email']) ?: null,
+            'hipaa_privacy_officer_name' => trim($form['hipaa_privacy_officer_name']) ?: null,
+            'hipaa_privacy_officer_phone' => trim($form['hipaa_privacy_officer_phone']) ?: null,
+            'hipaa_privacy_officer_email' => trim($form['hipaa_privacy_officer_email']) ?: null,
+            'hipaa_security_officer_name' => trim($form['hipaa_security_officer_name']) ?: null,
+            'hipaa_security_officer_phone' => trim($form['hipaa_security_officer_phone']) ?: null,
+            'hipaa_security_officer_email' => trim($form['hipaa_security_officer_email']) ?: null,
+            'release_of_info_officer_name' => trim($form['release_of_info_officer_name']) ?: null,
+            'release_of_info_officer_phone' => trim($form['release_of_info_officer_phone']) ?: null,
+            'release_of_info_officer_email' => trim($form['release_of_info_officer_email']) ?: null,
+            'it_mode' => $form['it_mode'] ?: null,
+            'it_vendor_name' => $form['it_mode'] === 'vendor' ? (trim($form['it_vendor_name']) ?: null) : null,
+            'it_contact_name' => trim($form['it_contact_name']) ?: null,
+            'it_contact_phone' => trim($form['it_contact_phone']) ?: null,
+            'it_contact_email' => trim($form['it_contact_email']) ?: null,
+            'uses_ehcp_hotline' => (bool) $form['uses_ehcp_hotline'],
+            'compliance_hotline_number' => ! $form['uses_ehcp_hotline'] ? (trim($form['compliance_hotline_number']) ?: null) : null,
+            'hotline_poster_count' => $form['hotline_poster_count'] !== '' ? (int) $form['hotline_poster_count'] : null,
+            'committee_none' => (bool) $form['committee_none'],
+            'compliance_committee_members' => $form['committee_none'] ? [] : $this->parseMembers($form['committee_members']),
+            'board_mode' => $form['board_mode'] ?: null,
+            'compliance_governing_board_members' => $this->parseMembers($form['board_members']),
+        ]);
+
+        ActivityLog::record(
+            'submission.team_info_edited',
+            "An admin edited the team/compliance contact info for order #{$this->submission->order_id}.",
+            user: auth()->user(),
+            order: $this->submission->order,
+            subject: $this->submission,
+        );
+
+        $this->editingTeam = false;
+        $this->teamForm = [];
+
+        unset($this->submission);
+
+        $this->dispatch('toast', message: 'Team info updated.', type: 'success');
     }
 
     /** Aggregate AI-extraction status across every uploaded file, for the prominent banner at
@@ -1044,14 +1254,145 @@ new class extends Component
         @endforelse
     </div>
 
+    @if($practice)
+    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+        <div class="flex items-start justify-between gap-3 mb-1">
+            <h3 class="text-sm font-semibold text-navy">Practice Team &amp; Compliance Contacts</h3>
+            @if(! $editingTeam)
+            <button type="button" wire:click="startEditingTeam" wire:loading.attr="disabled" wire:target="startEditingTeam"
+                class="text-xs font-bold text-accent hover:underline flex-shrink-0">Edit</button>
+            @endif
+        </div>
+        <p class="text-xs text-empower-muted mb-4">Who's listed as the compliance officers, IT contact, hotline, and committee/board — this also drives the generated manuals' content.</p>
+
+        @if($editingTeam)
+        @php $inputClass = 'w-full rounded-lg border border-empower-border bg-white px-3 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition'; @endphp
+        <div class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="block text-xs font-semibold text-empower-muted mb-1">Legal practice name</label><input type="text" wire:model="teamForm.legal_practice_name" class="{{ $inputClass }}"></div>
+                <div><label class="block text-xs font-semibold text-empower-muted mb-1">DBA name</label><input type="text" wire:model="teamForm.dba_name" class="{{ $inputClass }}"></div>
+                <div><label class="block text-xs font-semibold text-empower-muted mb-1">Other entities</label><input type="text" wire:model="teamForm.other_entities" class="{{ $inputClass }}"></div>
+                <div><label class="block text-xs font-semibold text-empower-muted mb-1">Main phone</label><input type="text" wire:model="teamForm.main_phone" class="{{ $inputClass }}"></div>
+                <div><label class="block text-xs font-semibold text-empower-muted mb-1">Main email</label><input type="email" wire:model="teamForm.main_email" class="{{ $inputClass }}"></div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-empower-muted mb-1">Locations (one per line)</label>
+                <textarea wire:model="teamForm.locations" rows="2" class="{{ $inputClass }}"></textarea>
+            </div>
+
+            <div class="pt-3 border-t border-empower-border">
+                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">Compliance officers</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-3">
+                    @foreach([
+                        ['compliance_officer', 'Compliance Officer'],
+                        ['hipaa_privacy_officer', 'HIPAA Privacy Officer'],
+                        ['hipaa_security_officer', 'HIPAA Security Officer'],
+                        ['release_of_info_officer', 'Release of Information Officer'],
+                    ] as [$prefix, $label])
+                    <div class="rounded-lg border border-empower-border p-3">
+                        <p class="text-xs font-bold text-empower-text mb-2">{{ $label }}</p>
+                        <input type="text" placeholder="Name" wire:model="teamForm.{{ $prefix }}_name" class="{{ $inputClass }} mb-1.5">
+                        <input type="text" placeholder="Phone" wire:model="teamForm.{{ $prefix }}_phone" class="{{ $inputClass }} mb-1.5">
+                        <input type="email" placeholder="Email" wire:model="teamForm.{{ $prefix }}_email" class="{{ $inputClass }}">
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-empower-border">
+                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">IT</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-empower-muted mb-1">Setup</label>
+                        <select wire:model="teamForm.it_mode" class="{{ $inputClass }}">
+                            <option value="">(not yet provided)</option>
+                            <option value="vendor">Outside vendor</option>
+                            <option value="inhouse">In-house staff</option>
+                        </select>
+                    </div>
+                    @if($teamForm['it_mode'] === 'vendor')
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">Vendor name</label><input type="text" wire:model="teamForm.it_vendor_name" class="{{ $inputClass }}"></div>
+                    @endif
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">{{ $teamForm['it_mode'] === 'vendor' ? "Vendor's contact name" : 'Staff contact name' }}</label><input type="text" wire:model="teamForm.it_contact_name" class="{{ $inputClass }}"></div>
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">Contact phone</label><input type="text" wire:model="teamForm.it_contact_phone" class="{{ $inputClass }}"></div>
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">Contact email</label><input type="email" wire:model="teamForm.it_contact_email" class="{{ $inputClass }}"></div>
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-empower-border">
+                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">Compliance hotline</p>
+                <div class="flex items-center gap-2 mb-2">
+                    <button type="button" wire:click="$set('teamForm.uses_ehcp_hotline', true)" class="rounded-full px-3 py-1 text-[11px] font-bold {{ $teamForm['uses_ehcp_hotline'] ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">Uses Empower's hotline</button>
+                    <button type="button" wire:click="$set('teamForm.uses_ehcp_hotline', false)" class="rounded-full px-3 py-1 text-[11px] font-bold {{ ! $teamForm['uses_ehcp_hotline'] ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">Own hotline number</button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @if(! $teamForm['uses_ehcp_hotline'])
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">Hotline number</label><input type="text" wire:model="teamForm.compliance_hotline_number" class="{{ $inputClass }}"></div>
+                    @endif
+                    <div><label class="block text-xs font-semibold text-empower-muted mb-1">Posters distributed</label><input type="number" min="0" wire:model="teamForm.hotline_poster_count" class="{{ $inputClass }}"></div>
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-empower-border">
+                <p class="text-xs font-extrabold uppercase tracking-wider text-empower-muted mb-2">Leadership</p>
+                <label class="flex items-center gap-2 mb-2 text-xs font-semibold text-empower-text">
+                    <input type="checkbox" wire:model="teamForm.committee_none" class="h-4 w-4 rounded border-empower-border text-accent focus:ring-accent">
+                    No Compliance Committee yet
+                </label>
+                @if(! $teamForm['committee_none'])
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold text-empower-muted mb-1">Compliance Committee members (one per line: Name — Title)</label>
+                    <textarea wire:model="teamForm.committee_members" rows="3" class="{{ $inputClass }}"></textarea>
+                </div>
+                @endif
+
+                <div class="flex items-center gap-2 mb-2">
+                    <button type="button" wire:click="$set('teamForm.board_mode', 'owners')" class="rounded-full px-3 py-1 text-[11px] font-bold {{ $teamForm['board_mode'] === 'owners' ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">Owners/partners oversee compliance</button>
+                    <button type="button" wire:click="$set('teamForm.board_mode', 'board')" class="rounded-full px-3 py-1 text-[11px] font-bold {{ $teamForm['board_mode'] === 'board' ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">Governing board</button>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-empower-muted mb-1">{{ $teamForm['board_mode'] === 'board' ? 'Governing board members' : 'Owners overseeing compliance' }} (one per line: Name — Title)</label>
+                    <textarea wire:model="teamForm.board_members" rows="3" class="{{ $inputClass }}"></textarea>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button type="button" wire:click="saveTeam" wire:loading.attr="disabled" wire:target="saveTeam,cancelEditingTeam"
+                    class="rounded-lg bg-accent px-4 py-2 text-sm font-bold text-white hover:opacity-90 transition">
+                    <span wire:loading.remove wire:target="saveTeam">Save</span>
+                    <span wire:loading wire:target="saveTeam">Saving…</span>
+                </button>
+                <button type="button" wire:click="cancelEditingTeam" wire:loading.attr="disabled" wire:target="saveTeam,cancelEditingTeam"
+                    class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-empower-muted hover:bg-page transition">Cancel</button>
+            </div>
+        </div>
+        @else
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div><span class="text-empower-muted">Legal practice name</span><br><span class="text-empower-text">{{ collect([$practice->legal_practice_name, $practice->dba_name ? "DBA {$practice->dba_name}" : null])->filter()->implode(' ') ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">Main phone / email</span><br><span class="text-empower-text">{{ collect([$practice->main_phone, $practice->main_email])->filter()->implode(' · ') ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">Locations</span><br><span class="text-empower-text">{{ collect($practice->practice_locations ?? [])->filter()->implode(' | ') ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">Compliance Officer</span><br><span class="text-empower-text">{{ $practice->compliance_officer_name ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">HIPAA Privacy Officer</span><br><span class="text-empower-text">{{ $practice->hipaa_privacy_officer_name ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">HIPAA Security Officer</span><br><span class="text-empower-text">{{ $practice->hipaa_security_officer_name ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">Release of Information Officer</span><br><span class="text-empower-text">{{ $practice->release_of_info_officer_name ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">IT</span><br><span class="text-empower-text">{{ ($practice->it_mode === 'vendor' ? $practice->it_vendor_name : $practice->it_contact_name) ?: '—' }}</span></div>
+            <div><span class="text-empower-muted">Compliance hotline</span><br><span class="text-empower-text">{{ $practice->uses_ehcp_hotline ? "Empower's shared hotline" : ($practice->compliance_hotline_number ?: '—') }}</span></div>
+            <div><span class="text-empower-muted">Compliance Committee</span><br><span class="text-empower-text">{{ $practice->committee_none ? 'No committee yet' : (collect($practice->compliance_committee_members ?? [])->pluck('name')->filter()->implode(', ') ?: '—') }}</span></div>
+            <div><span class="text-empower-muted">{{ $practice->board_mode === 'board' ? 'Governing board' : 'Owners overseeing compliance' }}</span><br><span class="text-empower-text">{{ collect($practice->compliance_governing_board_members ?? [])->pluck('name')->filter()->implode(', ') ?: '—' }}</span></div>
+        </div>
+        @endif
+    </div>
+    @endif
+
     @if($this->intakeAnswersBySection->isNotEmpty())
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-1">Practice Intake Answers</h3>
-        <p class="text-xs text-empower-muted mb-4">What the practice typed into the intake wizard — this drives the generated manuals' content. Read-only.</p>
+        <p class="text-xs text-empower-muted mb-4">What the practice typed into the intake wizard — this drives the generated manuals' content. Edit an answer below to correct it before documents are (re)generated.</p>
 
         <div class="divide-y divide-empower-border border border-empower-border rounded-xl">
             @foreach($this->intakeAnswersBySection as $section)
-            <div x-data="{ open: false }">
+            <div x-data="{ open: {{ $section['questions']->contains('id', $editingAnswerQuestionId) ? 'true' : 'false' }} }">
                 <button type="button" x-on:click="open = !open"
                     class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer hover:bg-page transition-colors">
                     <span class="text-sm font-semibold text-empower-text flex items-center gap-1.5">
@@ -1065,17 +1406,51 @@ new class extends Component
                 </button>
                 <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-3">
                     @foreach($section['questions'] as $q)
-                    <div class="flex items-start justify-between gap-3 {{ ! $loop->last ? 'border-b border-empower-border pb-3' : '' }}">
-                        <div>
-                            <p class="text-sm font-semibold text-empower-text">{{ $q['title'] }}</p>
-                            <p class="text-sm text-empower-muted mt-0.5 whitespace-pre-line">{{ $q['value'] }}</p>
-                            @if($q['meta'])
-                            <p class="text-[11px] text-empower-muted mt-1">{{ $q['meta'] }}</p>
+                    <div class="{{ ! $loop->last ? 'border-b border-empower-border pb-3' : '' }}">
+                        @if($editingAnswerQuestionId === $q['id'])
+                        <div class="rounded-xl border border-accent/40 bg-page p-3" wire:key="editing-answer-{{ $q['id'] }}">
+                            <p class="text-sm font-semibold text-empower-text mb-2">{{ $q['title'] }}</p>
+                            <div class="flex items-center gap-2 mb-2">
+                                <button type="button" wire:click="$set('editingAnswerHasDocumentedProcess', true)"
+                                    wire:loading.attr="disabled" wire:target="saveEditedAnswer,cancelEditingAnswer"
+                                    class="rounded-full px-3 py-1 text-[11px] font-bold {{ $editingAnswerHasDocumentedProcess ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">Documented process</button>
+                                <button type="button" wire:click="$set('editingAnswerHasDocumentedProcess', false)"
+                                    wire:loading.attr="disabled" wire:target="saveEditedAnswer,cancelEditingAnswer"
+                                    class="rounded-full px-3 py-1 text-[11px] font-bold {{ ! $editingAnswerHasDocumentedProcess ? 'bg-navy text-white' : 'bg-white border border-empower-border text-empower-muted' }}">No documented answer</button>
+                            </div>
+                            @if($editingAnswerHasDocumentedProcess)
+                            <textarea wire:model="editingAnswerResponse" rows="5"
+                                class="w-full rounded-lg border {{ $errors->has('editingAnswerResponse') ? 'border-red-400' : 'border-empower-border' }} bg-white px-3 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition"></textarea>
+                            @error('editingAnswerResponse') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                            @else
+                            <p class="text-xs text-empower-muted italic">The policy's best-practice language will be used instead of a practice response.</p>
                             @endif
+                            <div class="flex items-center gap-2 mt-3">
+                                <button type="button" wire:click="saveEditedAnswer" wire:loading.attr="disabled" wire:target="saveEditedAnswer,cancelEditingAnswer"
+                                    class="rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white hover:opacity-90 transition">
+                                    <span wire:loading.remove wire:target="saveEditedAnswer">Save</span>
+                                    <span wire:loading wire:target="saveEditedAnswer">Saving…</span>
+                                </button>
+                                <button type="button" wire:click="cancelEditingAnswer" wire:loading.attr="disabled" wire:target="saveEditedAnswer,cancelEditingAnswer"
+                                    class="rounded-lg border border-empower-border px-3 py-1.5 text-xs font-semibold text-empower-muted hover:bg-white transition">Cancel</button>
+                            </div>
                         </div>
-                        <span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $q['badge']['class'] }}">
-                            {{ $q['badge']['label'] }}
-                        </span>
+                        @else
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-semibold text-empower-text">{{ $q['title'] }}</p>
+                                <p class="text-sm text-empower-muted mt-0.5 whitespace-pre-line">{{ $q['value'] }}</p>
+                                @if($q['meta'])
+                                <p class="text-[11px] text-empower-muted mt-1">{{ $q['meta'] }}</p>
+                                @endif
+                                <button type="button" wire:click="startEditingAnswer({{ $q['id'] }})" wire:loading.attr="disabled" wire:target="startEditingAnswer({{ $q['id'] }})"
+                                    class="text-xs font-bold text-accent hover:underline mt-1.5">Edit</button>
+                            </div>
+                            <span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $q['badge']['class'] }}">
+                                {{ $q['badge']['label'] }}
+                            </span>
+                        </div>
+                        @endif
                     </div>
                     @endforeach
                 </div>

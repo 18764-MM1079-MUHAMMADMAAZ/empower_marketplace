@@ -362,6 +362,209 @@ class AdminPanelTest extends TestCase
             ->assertDontSee('Practice Intake Answers');
     }
 
+    public function test_admin_can_edit_a_practices_answered_intake_response(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $question->id,
+            'response' => 'Original response.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingAnswer', $question->id)
+            ->assertSet('editingAnswerResponse', 'Original response.')
+            ->assertSet('editingAnswerHasDocumentedProcess', true)
+            ->set('editingAnswerResponse', 'Corrected by admin after a call with the practice.')
+            ->call('saveEditedAnswer')
+            ->assertSet('editingAnswerQuestionId', null)
+            ->assertSee('Corrected by admin after a call with the practice.');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_submission_id' => $submission->id,
+            'intake_question_id' => $question->id,
+            'response' => 'Corrected by admin after a call with the practice.',
+            'has_documented_process' => true,
+        ]);
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'submission.answer_edited']);
+    }
+
+    public function test_admin_can_answer_a_previously_unanswered_intake_question(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $answeredQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $openQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 2, 'title' => "Management's role"]);
+        // At least one answer in the section is required for the whole panel (and this question
+        // alongside it) to render at all — see intakeAnswersBySection()'s done > 0 filter.
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $answeredQuestion->id,
+            'response' => 'The board reviews the program every quarter.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingAnswer', $openQuestion->id)
+            ->set('editingAnswerResponse', 'Managers escalate issues to the Compliance Officer weekly.')
+            ->call('saveEditedAnswer');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_submission_id' => $submission->id,
+            'intake_question_id' => $openQuestion->id,
+            'response' => 'Managers escalate issues to the Compliance Officer weekly.',
+            'has_documented_process' => true,
+        ]);
+    }
+
+    public function test_admin_can_switch_an_answer_to_no_documented_process(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $question->id,
+            'response' => 'Original response.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingAnswer', $question->id)
+            ->set('editingAnswerHasDocumentedProcess', false)
+            ->call('saveEditedAnswer');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_submission_id' => $submission->id,
+            'intake_question_id' => $question->id,
+            'response' => null,
+            'has_documented_process' => false,
+        ]);
+    }
+
+    public function test_saving_an_edited_answer_requires_a_response_when_marked_as_documented(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $submission->intakeAnswers()->create([
+            'intake_question_id' => $question->id,
+            'response' => 'Original response.',
+            'has_documented_process' => true,
+            'answered_at' => now(),
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingAnswer', $question->id)
+            ->set('editingAnswerResponse', '   ')
+            ->call('saveEditedAnswer')
+            ->assertHasErrors('editingAnswerResponse');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_question_id' => $question->id,
+            'response' => 'Original response.',
+        ]);
+    }
+
+    public function test_submission_detail_shows_the_practices_team_and_compliance_contacts(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $practice = $submission->order->user->practice;
+        $practice->update([
+            'legal_practice_name' => 'Riverside Family Medicine LLC',
+            'compliance_officer_name' => 'Pat Rivera',
+            'compliance_committee_members' => [['name' => 'Pat Rivera', 'title' => 'Compliance Officer']],
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertSee('Practice Team & Compliance Contacts')
+            ->assertSee('Riverside Family Medicine LLC')
+            ->assertSee('Pat Rivera');
+    }
+
+    public function test_admin_can_edit_the_practices_team_and_compliance_contacts(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $practice = $submission->order->user->practice;
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingTeam')
+            ->set('teamForm.legal_practice_name', 'Riverside Family Medicine LLC')
+            ->set('teamForm.main_phone', '555-010-2231')
+            ->set('teamForm.main_email', 'admin@riversidefm.test')
+            ->set('teamForm.locations', "742 Evergreen Terrace\n\n12 Oak Street")
+            ->set('teamForm.compliance_officer_name', 'Pat Rivera')
+            ->set('teamForm.compliance_officer_phone', '555-010-2232')
+            ->set('teamForm.compliance_officer_email', 'pat@riversidefm.test')
+            ->set('teamForm.it_mode', 'vendor')
+            ->set('teamForm.it_vendor_name', 'Acme IT Services')
+            ->set('teamForm.uses_ehcp_hotline', false)
+            ->set('teamForm.compliance_hotline_number', '1-800-555-0100')
+            ->set('teamForm.committee_members', "Pat Rivera — Compliance Officer\nSam Lee — Office Manager")
+            ->set('teamForm.board_mode', 'board')
+            ->set('teamForm.board_members', 'Denise Carter — Owner')
+            ->call('saveTeam')
+            ->assertSet('editingTeam', false)
+            ->assertSee('Pat Rivera');
+
+        $practice->refresh();
+
+        $this->assertSame('Riverside Family Medicine LLC', $practice->legal_practice_name);
+        $this->assertSame('555-010-2231', $practice->main_phone);
+        $this->assertSame(['742 Evergreen Terrace', '12 Oak Street'], $practice->practice_locations);
+        $this->assertSame('Pat Rivera', $practice->compliance_officer_name);
+        $this->assertSame('vendor', $practice->it_mode);
+        $this->assertSame('Acme IT Services', $practice->it_vendor_name);
+        $this->assertFalse($practice->uses_ehcp_hotline);
+        $this->assertSame('1-800-555-0100', $practice->compliance_hotline_number);
+        $this->assertSame(
+            [['name' => 'Pat Rivera', 'title' => 'Compliance Officer'], ['name' => 'Sam Lee', 'title' => 'Office Manager']],
+            $practice->compliance_committee_members,
+        );
+        $this->assertSame('board', $practice->board_mode);
+        $this->assertSame([['name' => 'Denise Carter', 'title' => 'Owner']], $practice->compliance_governing_board_members);
+
+        $this->assertDatabaseHas('activity_logs', ['event_type' => 'submission.team_info_edited']);
+    }
+
+    public function test_marking_no_compliance_committee_yet_clears_any_committee_members(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $practice = $submission->order->user->practice;
+        $practice->update(['compliance_committee_members' => [['name' => 'Pat Rivera', 'title' => 'Compliance Officer']]]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startEditingTeam')
+            ->set('teamForm.committee_none', true)
+            ->call('saveTeam');
+
+        $practice->refresh();
+
+        $this->assertTrue($practice->committee_none);
+        $this->assertSame([], $practice->compliance_committee_members);
+    }
+
     public function test_admin_can_approve_a_submission(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
