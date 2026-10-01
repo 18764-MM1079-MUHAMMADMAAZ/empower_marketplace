@@ -187,7 +187,13 @@ class EmpowerPaymentApiClient
         return $json;
     }
 
-    private function accessToken(): string
+    /**
+     * Public because CloverChargeService also needs a Bearer token for its own charge
+     * endpoint — MTBC moved that gateway onto this same Empower_Payment_Api host and auth
+     * server (confirmed live: the token this issues has `"iss":"Clover_Api"`), so both
+     * services share one cached token rather than each fetching/caching their own.
+     */
+    public function accessToken(): string
     {
         return Cache::remember(self::TOKEN_CACHE_KEY, self::TOKEN_TTL_SECONDS, function () {
             $baseUrl = config('services.empower_payment_api.base_url');
@@ -205,6 +211,13 @@ class EmpowerPaymentApiClient
 
             return $token;
         });
+    }
+
+    /** Lets a caller holding a now-rejected cached token (a 401 from either gateway) force a
+     *  fresh one on the next accessToken() call, without reaching into the private cache key. */
+    public function invalidateAccessToken(): void
+    {
+        Cache::forget(self::TOKEN_CACHE_KEY);
     }
 
     /** Protects the shared 10 req/min/IP limit across every caller (tokenize, detokenize, charge,
