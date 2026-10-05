@@ -33,6 +33,12 @@ enum DocumentType: string
     case SecurityRiskAssessment = 'security_risk_assessment';
     case CodingMiniAuditReport = 'coding_mini_audit_report';
 
+    // Every paid tier — synthesized by AI from the practice's own roster data (we don't hold
+    // individual provider names/NPIs today, so this documents Empower's screening process and
+    // attestation rather than a live per-person OIG LEIE/SAM.gov lookup). See
+    // isAiSynthesizedReport() and GenerateComplianceDocument::synthesizeExclusionsScreeningReport().
+    case ExclusionsScreeningReport = 'exclusions_screening_report';
+
     public function label(): string
     {
         return match ($this) {
@@ -51,6 +57,7 @@ enum DocumentType: string
             self::PolishedClientDocument => 'Reviewed & Polished Document',
             self::SecurityRiskAssessment => 'Security Risk Assessment (SRA)',
             self::CodingMiniAuditReport => 'Coding & Documentation Mini Audit Report',
+            self::ExclusionsScreeningReport => 'Exclusions Screening Report',
         };
     }
 
@@ -59,7 +66,7 @@ enum DocumentType: string
     public function isAiSynthesizedReport(): bool
     {
         return match ($this) {
-            self::SecurityRiskAssessment, self::CodingMiniAuditReport => true,
+            self::SecurityRiskAssessment, self::CodingMiniAuditReport, self::ExclusionsScreeningReport => true,
             default => false,
         };
     }

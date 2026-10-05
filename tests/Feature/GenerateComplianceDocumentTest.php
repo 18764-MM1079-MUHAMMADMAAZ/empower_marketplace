@@ -756,6 +756,35 @@ class GenerateComplianceDocumentTest extends TestCase
             && str_contains(json_encode($request->data()), '99213'));
     }
 
+    public function test_exclusions_screening_report_synthesizes_a_report_for_every_tier(): void
+    {
+        Storage::fake('local');
+        $this->mockPdfGenerator();
+        Http::fake([
+            'api.openai.com/*' => Http::response([
+                'model' => 'gpt-4o',
+                'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 10, 'total_tokens' => 20],
+                'choices' => [['message' => ['content' => '<h2>Exclusions Screening Report</h2><p>Report body.</p>']]],
+            ]),
+        ]);
+
+        // Essential — the tier with no uploaded questionnaires or encounter list, proving this
+        // report needs neither.
+        $order = $this->makeOrder('essential');
+
+        GenerateComplianceDocument::dispatchSync($order, DocumentType::ExclusionsScreeningReport);
+
+        $doc = GeneratedDocument::where('order_id', $order->id)->where('document_type', DocumentType::ExclusionsScreeningReport)->firstOrFail();
+
+        $this->assertEquals(DocumentStatus::Completed, $doc->status);
+        $this->assertNotNull($doc->pdf_storage_path);
+        Storage::disk('local')->assertExists($doc->pdf_storage_path);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'api.openai.com')
+            && str_contains(json_encode($request->data()), 'Exclusions Screening Report')
+            && str_contains(json_encode($request->data()), (string) $order->user->practice->billable_providers_count));
+    }
+
     public function test_mini_audit_report_fails_cleanly_when_no_encounter_list_was_uploaded(): void
     {
         Storage::fake('local');

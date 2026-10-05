@@ -20,7 +20,7 @@
 
     @if(session('status'))
     <div x-data="{ show: true }" x-init="setTimeout(() => show = false, 4000)" x-show="show" x-transition x-cloak
-        class="fixed bottom-6 right-6 z-[100]">
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]">
         <div
             class="flex items-center gap-2 rounded-xl bg-[#0e3a61] text-white pl-4 pr-5 py-3 shadow-[0_18px_50px_rgba(10,32,55,0.25)]">
             <span class="text-[#8ddaf2] font-bold">&#9432;</span>

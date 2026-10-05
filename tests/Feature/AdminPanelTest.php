@@ -14,6 +14,7 @@ use App\Enums\UserRole;
 use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
+use App\Mail\ClientReviewerQuestionMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Mail\DiscountCodeSharedMail;
 use App\Models\ActivityLog;
@@ -585,6 +586,46 @@ class AdminPanelTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_ask_the_client_a_reviewer_question(): void
+    {
+        Mail::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->set('reviewerQuestionInput', 'Is the HIPAA Privacy policy you uploaded the most recent version your staff use?')
+            ->call('askReviewerQuestion')
+            ->assertSet('reviewerQuestionInput', '');
+
+        $submission->refresh();
+        $this->assertSame('Is the HIPAA Privacy policy you uploaded the most recent version your staff use?', $submission->reviewer_question);
+        $this->assertNotNull($submission->reviewer_question_asked_at);
+        $this->assertNull($submission->reviewer_question_reply);
+
+        $this->assertDatabaseHas('activity_logs', [
+            'event_type' => 'submission.reviewer_question_asked',
+            'order_id' => $submission->order_id,
+        ]);
+
+        Mail::assertSent(ClientReviewerQuestionMail::class, fn ($mail) => $mail->hasTo($submission->order->user->email));
+    }
+
+    public function test_asking_a_reviewer_question_requires_a_question(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->set('reviewerQuestionInput', '')
+            ->call('askReviewerQuestion')
+            ->assertHasErrors(['reviewerQuestionInput' => 'required']);
+
+        $this->assertNull($submission->fresh()->reviewer_question);
+    }
+
     public function test_approving_a_professional_submission_dispatches_generation_for_its_included_manuals(): void
     {
         Bus::fake();
@@ -665,6 +706,24 @@ class AdminPanelTest extends TestCase
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ComplianceEthicsManual);
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaPrivacyPolicy);
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaSecurityManual);
+    }
+
+    public function test_starting_review_on_an_essential_submission_dispatches_the_exclusions_screening_report(): void
+    {
+        Bus::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['included_document_types' => ['exclusions_screening_report']]);
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id]);
+        $submission = IntakeSubmission::factory()->create(['order_id' => $order->id, 'status' => IntakeSubmissionStatus::Submitted, 'submitted_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->call('startReview');
+
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ExclusionsScreeningReport);
     }
 
     public function test_starting_review_on_an_advanced_submission_also_dispatches_the_sra_and_mini_audit_report(): void

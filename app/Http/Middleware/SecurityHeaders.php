@@ -30,7 +30,9 @@ class SecurityHeaders
             "style-src 'self' 'unsafe-inline' https://fonts.bunny.net https://fonts.googleapis.com",
             "font-src 'self' https://fonts.bunny.net https://fonts.gstatic.com data:",
             "img-src 'self' data:",
-            "connect-src 'self'",
+            // Address autocomplete (resources/js/app.js) calls these two keyless public APIs
+            // directly from the browser — see workflow-changes.md §5.
+            "connect-src 'self' https://photon.komoot.io https://api.zippopotam.us",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",

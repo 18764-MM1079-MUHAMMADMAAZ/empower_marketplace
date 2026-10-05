@@ -1,5 +1,44 @@
 <x-layouts.marketing title="Proactive Compliance by Empower: Healthcare Compliance Portal" :on-home-page="true">
 
+    {{-- "Welcome back" resume banner --}}
+    @if($resumeOrder)
+    @php $resumePercent = $resumeOrder->intakePercentComplete(); @endphp
+    <div class="bg-[#eef8f3] border-b border-[#bfe3d2]">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3" x-data="{
+                dismissed: false,
+                init() {
+                    try { this.dismissed = localStorage.getItem('resume-banner-dismissed-{{ $resumeOrder->id }}') === '1'; } catch (e) {}
+                },
+                dismiss() {
+                    this.dismissed = true;
+                    try { localStorage.setItem('resume-banner-dismissed-{{ $resumeOrder->id }}', '1'); } catch (e) {}
+                },
+            }" x-show="!dismissed" x-cloak>
+            <div class="flex items-center gap-4">
+                <span
+                    class="flex-shrink-0 h-9 w-9 rounded-full bg-[#1f9d6b] text-white flex items-center justify-center font-bold">&#10003;</span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-bold text-[#0e1b30]">Welcome back, {{ auth()->user()->name }}</p>
+                    <p class="text-xs text-[#4a5563]">Your {{ $resumeOrder->package?->name }} intake is
+                        {{ $resumePercent }}% complete.</p>
+                    <div class="mt-1.5 h-1.5 w-full max-w-xs rounded-full bg-white overflow-hidden">
+                        <div class="h-full bg-[#1f9d6b] rounded-full" style="width: {{ $resumePercent }}%"></div>
+                    </div>
+                </div>
+                <a href="{{ route('portal') }}"
+                    class="flex-shrink-0 rounded-full bg-[#1c3457] px-4 py-2 text-xs font-semibold text-white hover:bg-[#162a46] transition-colors whitespace-nowrap">Continue
+                    where you left off</a>
+                <button type="button" @click="dismiss()" aria-label="Dismiss"
+                    class="flex-shrink-0 text-[#4a5563] hover:text-[#0e1b30] transition-colors">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Hero --}}
     <section id="home" class="py-16 lg:py-20"
         style="background: radial-gradient(circle at 84% 18%, rgba(11, 158, 208, 0.36), transparent 34%), radial-gradient(circle at 8% 0%, rgba(34, 153, 221, 0.20), transparent 30%), linear-gradient(115deg, #f5f7fa 0%, #dff1fb 44%, #c7e7f6 100%);">
@@ -155,7 +194,84 @@
                 ],
             ];
         @endphp
-        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" x-data="{ cycle: 'annual' }">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" x-data="{
+                cycle: 'annual',
+                quizOpen: false,
+                quizStep: 1,
+                quizDocs: null,
+                quizSra: null,
+                quizProviders: 1,
+                {{-- toBase(): EloquentCollection::only() filters by primary key, not array key —
+                     without this every slug lookup below would silently miss and return []. --}}
+                quizPackages: @js($packages->toBase()->only(['essential', 'professional', 'advanced'])->map(fn ($p) => [
+                    'name' => $p->name,
+                    'monthly' => $p->monthly_price,
+                    'annual' => $p->annual_price,
+                ])),
+                get quizRecommendation() {
+                    if (this.quizSra === 'yes') return 'advanced';
+                    if (this.quizDocs === 'current') return 'essential';
+                    return 'professional';
+                },
+                // Alpine evaluates a freshly-inserted x-if template's bindings once before this
+                // getter's dependencies (quizSra/quizDocs) have settled, so this can transiently
+                // run with defaults — always falls back to a real package rather than throwing.
+                get quizResultPackage() {
+                    return this.quizPackages[this.quizRecommendation] ?? Object.values(this.quizPackages)[0] ?? { name: '', monthly: 0, annual: 0 };
+                },
+                get quizReason() {
+                    if (this.quizRecommendation === 'advanced') return 'It adds the Security Risk Assessment and the coding and documentation audit, on top of everything in Professional.';
+                    if (this.quizRecommendation === 'essential') return 'Your policies are current, so Essential reviews and updates what you already have.';
+                    return 'Empower creates any missing or outdated documents for you, and your staff get the Empower training platform.';
+                },
+                // Mirrors the client prototype's quizResult().extra array — 0, 1, or both tips
+                // can apply at once, so this is a list, not a single conditional paragraph.
+                get quizExtraTips() {
+                    const tips = [];
+                    if (this.quizSra === 'unsure' && this.quizRecommendation !== 'advanced') {
+                        tips.push('Not sure about a risk assessment? HIPAA requires a security <span class=\'underline decoration-dotted decoration-[#3a9bd5] underline-offset-2 cursor-help\' title=\'A formal review of risks to the confidentiality, integrity, and availability of patient data — required under the HIPAA Security Rule.\'>risk analysis</span>, and Advanced includes one.');
+                    }
+                    if (this.quizRecommendation === 'essential') {
+                        tips.push('If a policy turns out to be missing, Professional creates it for you.');
+                    }
+                    return tips;
+                },
+                quizPrice() {
+                    const perProvider = this.cycle === 'monthly' ? this.quizResultPackage.monthly : this.quizResultPackage.annual;
+                    return (perProvider ?? 0) * Math.max(1, this.quizProviders);
+                },
+                quizReset() {
+                    this.quizStep = 1;
+                    this.quizDocs = null;
+                    this.quizSra = null;
+                    this.quizProviders = 1;
+                    this.quizPicked = null;
+                },
+                quizPicked: null,
+                // Matches the prototype's .qz-opt.picked state: briefly highlight the chosen
+                // option before advancing, instead of jumping to the next question instantly.
+                quizPick(field, value, nextStep) {
+                    this.quizPicked = value;
+                    this[field] = value;
+                    setTimeout(() => {
+                        this.quizStep = nextStep;
+                        this.quizPicked = null;
+                    }, 220);
+                },
+                quizPulse(slug) {
+                    this.quizOpen = false;
+                    this.$nextTick(() => {
+                        document.getElementById('pricing').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        const card = document.querySelector('[data-package-card=' + slug + ']');
+                        if (card) {
+                            card.classList.remove('quiz-pick');
+                            void card.offsetWidth;
+                            card.classList.add('quiz-pick');
+                            setTimeout(() => card.classList.remove('quiz-pick'), 3200);
+                        }
+                    });
+                },
+            }">
             <div class="text-center mb-10">
                 <span class="text-xs font-bold tracking-widest uppercase text-[#3a9bd5]">Pricing</span>
                 <h2 class="mt-3 text-[34px] font-extrabold text-[#0e1b30]">Choose Your Compliance Package</h2>
@@ -177,6 +293,9 @@
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="text-sm text-[#4a5563]">Not sure what package is right?</span>
+                    <button type="button" @click="quizOpen = true; quizStep = 1"
+                        class="inline-block whitespace-nowrap rounded-full bg-[#3a9bd5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">Take
+                        the 3-question quiz</button>
                     <a href="{{ route('contact') }}"
                         class="inline-block whitespace-nowrap rounded-full border border-[#9ed3e9] bg-white px-4 py-2 text-sm font-semibold text-[#2b82b8] hover:bg-[#eaf5fb] transition-colors">Contact
                         us</a>
@@ -186,7 +305,8 @@
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch">
 
                 {{-- Essential --}}
-                <div class="relative rounded-2xl border border-[#dde3ea] bg-[#f5f7fa] p-7 flex flex-col">
+                <div data-package-card="essential"
+                    class="relative rounded-2xl border border-[#dde3ea] bg-[#f5f7fa] p-7 flex flex-col transition-shadow">
                     <div class="absolute top-4 right-4" x-data="{ open: false }">
                         <button type="button" @mouseenter="open = true" @mouseleave="open = false"
                             @click="open = !open"
@@ -238,13 +358,14 @@
                         @endforeach
                     </ul>
                     @endif
-                    <a :href="`{{ route('portal', ['package' => 'essential']) }}&billing_cycle=${cycle}`"
+                    <a :href="`{{ auth()->check() ? route('portal', ['package' => 'essential']) : route('register', ['package' => 'essential']) }}&billing_cycle=${cycle}`"
                         class="block w-full rounded-full bg-[#1c3457] py-3 text-center text-sm font-semibold text-white hover:bg-[#162a46] transition-colors">Select
                         Package</a>
                 </div>
 
                 {{-- Professional --}}
-                <div class="relative rounded-2xl border border-[#dde3ea] bg-[#f5f7fa] p-7 flex flex-col">
+                <div data-package-card="professional"
+                    class="relative rounded-2xl border border-[#dde3ea] bg-[#f5f7fa] p-7 flex flex-col transition-shadow">
                     <div class="absolute top-4 right-4" x-data="{ open: false }">
                         <button type="button" @mouseenter="open = true" @mouseleave="open = false"
                             @click="open = !open"
@@ -296,13 +417,14 @@
                         @endforeach
                     </ul>
                     @endif
-                    <a :href="`{{ route('portal', ['package' => 'professional']) }}&billing_cycle=${cycle}`"
+                    <a :href="`{{ auth()->check() ? route('portal', ['package' => 'professional']) : route('register', ['package' => 'professional']) }}&billing_cycle=${cycle}`"
                         class="block w-full rounded-full bg-[#1c3457] py-3 text-center text-sm font-semibold text-white hover:bg-[#162a46] transition-colors">Select
                         Package</a>
                 </div>
 
                 {{-- Advanced (Popular) --}}
-                <div class="rounded-2xl border-2 border-[#3a9bd5] bg-[#1c3457] p-7 flex flex-col relative">
+                <div data-package-card="advanced"
+                    class="rounded-2xl border-2 border-[#3a9bd5] bg-[#1c3457] p-7 flex flex-col relative transition-shadow">
                     <div class="absolute -top-3.5 left-1/2 -translate-x-1/2">
                         <span
                             class="rounded-full bg-[#3a9bd5] px-4 py-1 text-xs font-bold text-white shadow">Popular</span>
@@ -358,7 +480,7 @@
                         @endforeach
                     </ul>
                     @endif
-                    <a :href="`{{ route('portal', ['package' => 'advanced']) }}&billing_cycle=${cycle}`"
+                    <a :href="`{{ auth()->check() ? route('portal', ['package' => 'advanced']) : route('register', ['package' => 'advanced']) }}&billing_cycle=${cycle}`"
                         class="block w-full rounded-full bg-[#3a9bd5] py-3 text-center text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">Select
                         Package</a>
                 </div>
@@ -463,6 +585,211 @@
                             class="inline-block rounded-full bg-[#1c3457] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#162a46] transition-colors">Contact
                             us about this add-on</a>
                     </div>
+                </div>
+            </div>
+
+            {{-- Package-picker quiz --}}
+            <div x-show="quizOpen" x-cloak x-on:keydown.escape.window="quizOpen = false"
+                class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+                <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
+                    x-on:click.outside="quizOpen = false">
+
+                    {{-- Header --}}
+                    <div class="flex items-start justify-between px-7 pt-6 pb-4">
+                        <div>
+                            <h3 class="text-xl font-extrabold text-[#0e1b30]">Find the right package</h3>
+                            <p class="text-sm text-[#8a94a3] mt-1">
+                                <span x-show="quizStep <= 3">Question <span x-text="quizStep"></span> of 3</span>
+                                <span x-show="quizStep === 4" x-cloak>Based on your answers</span>
+                            </p>
+                        </div>
+                        <button type="button" x-on:click="quizOpen = false" aria-label="Close"
+                            class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#e2e8f0] text-[#5c778d] hover:bg-[#f5f7fa] hover:text-[#0e3a61] transition-colors">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="border-t border-[#eef1f5]"></div>
+
+                    {{-- Segmented progress bar: matches the client prototype's 3-state dots —
+                         done (#0b9ed0), current (#7cc8e8), not-yet-reached (#e3eef6). --}}
+                    <div class="flex gap-1.5 px-7 pt-5">
+                        <template x-for="segment in [1, 2, 3]" :key="segment">
+                            <div class="h-[5px] flex-1 rounded-full"
+                                :class="segment < quizStep ? 'bg-[#0b9ed0]' : segment === quizStep ? 'bg-[#7cc8e8]' : 'bg-[#e3eef6]'">
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="px-7 pt-5 pb-7">
+                        {{-- Q1: documentation state --}}
+                        <template x-if="quizStep === 1">
+                            <div>
+                                <h4 class="text-lg font-extrabold text-[#0e1b30] mb-4">Do you have written compliance
+                                    and HIPAA policies today?</h4>
+                                <div class="space-y-3">
+                                    <button type="button" @click="quizPick('quizDocs', 'current', 2)"
+                                        :class="quizPicked === 'current' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'current' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'current'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">Yes, and they're reasonably up to date</span>
+                                    </button>
+                                    <button type="button" @click="quizPick('quizDocs', 'outdated', 2)"
+                                        :class="quizPicked === 'outdated' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'outdated' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'outdated'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">Yes, but they're outdated or incomplete</span>
+                                    </button>
+                                    <button type="button" @click="quizPick('quizDocs', 'none', 2)"
+                                        :class="quizPicked === 'none' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'none' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'none'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">No, or we're not sure</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Q2: SRA / audit need --}}
+                        <template x-if="quizStep === 2">
+                            <div>
+                                <h4 class="text-lg font-extrabold text-[#0e1b30] mb-2">Do you also need a <span
+                                        class="underline decoration-dotted decoration-[#3a9bd5] underline-offset-2 cursor-help"
+                                        title="A formal review of risks to the confidentiality, integrity, and availability of patient data — required under the HIPAA Security Rule.">Security
+                                        Risk Assessment</span> or a coding audit this year?</h4>
+                                <p class="text-sm text-[#5f6b7a] mb-4">HIPAA requires a security <span
+                                        class="underline decoration-dotted decoration-[#3a9bd5] underline-offset-2 cursor-help"
+                                        title="A formal review of risks to the confidentiality, integrity, and availability of patient data — required under the HIPAA Security Rule.">risk
+                                        analysis</span>. Many practices also audit their coding each year.</p>
+                                <div class="space-y-3">
+                                    <button type="button" @click="quizPick('quizSra', 'yes', 3)"
+                                        :class="quizPicked === 'yes' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'yes' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'yes'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">Yes, we need one or both</span>
+                                    </button>
+                                    <button type="button" @click="quizPick('quizSra', 'no', 3)"
+                                        :class="quizPicked === 'no' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'no' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'no'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">No, we're already covered</span>
+                                    </button>
+                                    <button type="button" @click="quizPick('quizSra', 'unsure', 3)"
+                                        :class="quizPicked === 'unsure' ? 'border-[#12304f] bg-[#f2f6fa] scale-[0.99]' : 'border-[#e2e8f0] hover:border-[#3a9bd5] hover:bg-[#f5fafd]'"
+                                        class="w-full flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition-all">
+                                        <span class="h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                                            :class="quizPicked === 'unsure' ? 'border-[#12304f]' : 'border-[#cbd5e1]'">
+                                            <span x-show="quizPicked === 'unsure'" class="h-2.5 w-2.5 rounded-full bg-[#12304f]"></span>
+                                        </span>
+                                        <span class="text-sm font-semibold text-[#173045]">Not sure</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Q3: provider count --}}
+                        <template x-if="quizStep === 3">
+                            <div>
+                                <h4 class="text-lg font-extrabold text-[#0e1b30] mb-2">How many billable providers do
+                                    you have?</h4>
+                                <p class="text-sm text-[#5f6b7a] mb-4">Physicians and non-physician practitioners
+                                    billing under your group NPI. We use this to estimate your price.</p>
+                                {{-- Sized to match the prototype's .qz-num (larger than the
+                                     base .stepper-num used elsewhere): 48×52 buttons, 84×52 input. --}}
+                                <div class="inline-flex items-stretch rounded-[10px] border border-[#dde3ea] bg-[#f5f7fa] overflow-hidden">
+                                    <button type="button" @click="quizProviders = Math.max(1, quizProviders - 1)"
+                                        class="w-12 h-13 flex items-center justify-center text-[22px] text-[#1c3457] font-bold hover:bg-[#eef1f5] transition-colors">&minus;</button>
+                                    <input x-model.number="quizProviders" type="number" min="1" max="9999"
+                                        class="w-21 h-13 text-center bg-white border-x border-[#dde3ea] text-xl font-extrabold text-[#173045] focus:outline-none">
+                                    <button type="button" @click="quizProviders = Math.min(9999, quizProviders + 1)"
+                                        class="w-12 h-13 flex items-center justify-center text-[22px] text-[#1c3457] font-bold hover:bg-[#eef1f5] transition-colors">&plus;</button>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Result --}}
+                        <template x-if="quizStep === 4">
+                            <div class="text-center">
+                                <p class="text-xs font-bold tracking-widest uppercase text-[#3a9bd5] mb-2">We
+                                    recommend</p>
+                                <h3 class="text-2xl font-extrabold text-[#0e1b30] mb-1"
+                                    x-text="quizResultPackage.name"></h3>
+                                <p class="text-sm text-[#5f6b7a] mb-4">
+                                    $<span x-text="quizPrice().toLocaleString()"></span><span
+                                        x-text="cycle === 'monthly' ? '/month' : '/year'"></span>
+                                    &middot; $<span x-text="(cycle === 'monthly' ? quizResultPackage.monthly : quizResultPackage.annual).toLocaleString()"></span>
+                                    per provider &times; <span x-text="quizProviders"></span>
+                                </p>
+                                <p class="text-sm text-[#5f6b7a] leading-relaxed max-w-sm mx-auto" x-text="quizReason"></p>
+                                <ul class="max-w-sm mx-auto mt-2 text-left space-y-1">
+                                    <template x-for="tip in quizExtraTips" :key="tip">
+                                        <li class="flex items-start gap-1.5 text-xs text-[#5f6b7a] leading-relaxed">
+                                            <span class="mt-1.5 h-1 w-1 rounded-full bg-[#5f6b7a] flex-shrink-0"></span>
+                                            <span x-html="tip"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                                <p class="text-sm font-semibold mt-4">
+                                    <button type="button" @click="quizPulse(quizRecommendation)"
+                                        class="text-[#3a9bd5] hover:text-[#2b82b8] transition-colors">Compare all
+                                        packages</button>
+                                    <span class="text-[#c3ccd4] mx-1.5">&middot;</span>
+                                    <button type="button" @click="quizReset()"
+                                        class="text-[#3a9bd5] hover:text-[#2b82b8] transition-colors">Start over</button>
+                                </p>
+                            </div>
+                        </template>
+                    </div>
+
+                    {{-- Footer: Q1/Q2 show a back link + hint; Q3 shows Back and the continue
+                         action as a pair of buttons instead, since it needs an explicit submit. --}}
+                    <template x-if="quizStep === 1 || quizStep === 2">
+                        <div class="flex items-center justify-between border-t border-[#eef1f5] bg-[#f8fafc] px-7 py-3">
+                            <button type="button" x-show="quizStep > 1" @click="quizStep = quizStep - 1"
+                                class="text-sm font-semibold text-[#5f6b7a] hover:text-[#1c3457] transition-colors">&larr;
+                                Back</button>
+                            <span x-show="quizStep <= 1"></span>
+                            <span class="text-sm font-semibold text-[#3a9bd5]">Pick one to continue</span>
+                        </div>
+                    </template>
+                    <template x-if="quizStep === 3">
+                        <div class="flex items-center justify-between border-t border-[#eef1f5] bg-[#f8fafc] px-7 py-3">
+                            <button type="button" @click="quizStep = 2"
+                                class="rounded-full border border-[#dde3ea] bg-white px-4 py-2 text-sm font-semibold text-[#1c3457] hover:bg-[#f5f7fa] transition-colors">&larr;
+                                Back</button>
+                            <button type="button" @click="quizStep = 4"
+                                class="rounded-full bg-[#3a9bd5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">See
+                                my recommendation &rarr;</button>
+                        </div>
+                    </template>
+                    <template x-if="quizStep === 4">
+                        <div class="flex items-center justify-between border-t border-[#eef1f5] bg-[#f8fafc] px-7 py-3">
+                            <button type="button" @click="quizStep = 3"
+                                class="rounded-full border border-[#dde3ea] bg-white px-4 py-2 text-sm font-semibold text-[#1c3457] hover:bg-[#f5f7fa] transition-colors">&larr;
+                                Back</button>
+                            <a :href="`{{ auth()->check() ? route('portal') : route('register') }}?package=${quizRecommendation}&billing_cycle=${cycle}`"
+                                class="rounded-full bg-[#3a9bd5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">Choose
+                                <span x-text="quizResultPackage.name.split(' ')[0]"></span> &rarr;</a>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
@@ -704,7 +1031,7 @@
 
     <div x-data="{ show: false, message: '' }"
         x-on:toast.window="message = $event.detail.message; show = true; clearTimeout(hideTimer); hideTimer = setTimeout(() => show = false, 3000)"
-        x-init="hideTimer = null" x-show="show" x-transition x-cloak class="fixed bottom-6 right-6 z-[100]">
+        x-init="hideTimer = null" x-show="show" x-transition x-cloak class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]">
         <div
             class="flex items-center gap-2 rounded-xl bg-[#1c3457] text-white pl-4 pr-5 py-3 shadow-[0_18px_50px_rgba(10,32,55,0.25)]">
             <span class="text-[#74bfe4] font-bold">&#10003;</span>

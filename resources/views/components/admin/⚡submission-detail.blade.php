@@ -9,6 +9,7 @@ use App\Enums\OrderStatus;
 use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
+use App\Mail\ClientReviewerQuestionMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Models\ActivityLog;
 use App\Models\GeneratedDocument;
@@ -32,6 +33,8 @@ new class extends Component
     public int $submissionId;
 
     public string $reviewerNotes = '';
+
+    public string $reviewerQuestionInput = '';
 
     /** Set when an action succeeded but its client notification email failed to send. */
     public ?string $notice = null;
@@ -579,7 +582,7 @@ new class extends Component
             return;
         }
 
-        $submission->update(['status' => IntakeSubmissionStatus::UnderReview]);
+        $submission->update(['status' => IntakeSubmissionStatus::UnderReview, 'under_review_started_at' => now()]);
 
         ActivityLog::record(
             'submission.under_review',
@@ -596,6 +599,39 @@ new class extends Component
         unset($this->submission);
 
         $this->dispatch('toast', message: 'Review started — document generation is underway.', type: 'success');
+    }
+
+    public function askReviewerQuestion(): void
+    {
+        $this->validate(['reviewerQuestionInput' => 'required|string|max:2000']);
+
+        $submission = $this->submission;
+
+        $submission->update([
+            'reviewer_question' => $this->reviewerQuestionInput,
+            'reviewer_question_asked_at' => now(),
+            'reviewer_question_reply' => null,
+            'reviewer_question_replied_at' => null,
+        ]);
+
+        ActivityLog::record(
+            'submission.reviewer_question_asked',
+            "Reviewer asked a question on order #{$submission->order_id}.",
+            user: auth()->user(),
+            order: $submission->order,
+            subject: $submission,
+        );
+
+        try {
+            Mail::to($submission->order->user->email)->send(new ClientReviewerQuestionMail($submission));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $this->reviewerQuestionInput = '';
+        unset($this->submission);
+
+        $this->dispatch('toast', message: 'Question sent to the client.', type: 'success');
     }
 
     public function deleteIntakeUpload(int $uploadId): void
@@ -1590,6 +1626,39 @@ new class extends Component
                 @endforelse
             </div>
         </div>
+
+    @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]))
+        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+            <h3 class="text-sm font-semibold text-navy mb-3">Ask the Client a Question</h3>
+
+            @if($submission->reviewer_question && ! $submission->reviewer_question_reply)
+                <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 mb-3">
+                    <p class="text-xs font-bold uppercase tracking-wide text-amber-700 mb-1">Waiting on client reply</p>
+                    <p>{{ $submission->reviewer_question }}</p>
+                </div>
+            @elseif($submission->reviewer_question_reply)
+                <div class="rounded-xl border border-empower-border bg-page px-4 py-3 text-sm text-empower-text mb-3">
+                    <p class="text-xs font-bold uppercase tracking-wide text-empower-muted mb-1">Question</p>
+                    <p class="mb-2">{{ $submission->reviewer_question }}</p>
+                    <p class="text-xs font-bold uppercase tracking-wide text-empower-muted mb-1">Client's reply</p>
+                    <p>{{ $submission->reviewer_question_reply }}</p>
+                </div>
+            @endif
+
+            <div class="mb-3">
+                <textarea wire:model="reviewerQuestionInput" rows="2"
+                    placeholder="e.g. Is the HIPAA Privacy policy you uploaded the most recent version your staff use?"
+                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition"></textarea>
+                @error('reviewerQuestionInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+
+            <button type="button" wire:click="askReviewerQuestion" wire:target="askReviewerQuestion" wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1 rounded-lg border border-empower-border px-5 py-2 text-sm font-bold text-navy hover:bg-page transition-colors">
+                <span wire:loading.remove wire:target="askReviewerQuestion">{{ $submission->reviewer_question && ! $submission->reviewer_question_reply ? 'Ask another question' : 'Send question' }}</span>
+                <span wire:loading.inline-flex wire:target="askReviewerQuestion" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Sending&hellip;</span>
+            </button>
+        </div>
+    @endif
 
     @if($submission->status === IntakeSubmissionStatus::Rejected)
         <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

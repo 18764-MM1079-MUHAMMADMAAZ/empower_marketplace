@@ -6,6 +6,8 @@ use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\UserRole;
+use App\Mail\NewSpecialistCallRequestMail;
 use App\Models\CompliancePolicy;
 use App\Models\IntakeQuestion;
 use App\Models\IntakeSection;
@@ -13,9 +15,11 @@ use App\Models\IntakeSubmission;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Practice;
+use App\Models\SpecialistCallRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -99,6 +103,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->call('continueFromDocuments')
             ->assertHasErrors(['documentFiles'])
             ->assertSet('screen', 'documents');
@@ -112,6 +117,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->call('continueFromDocuments')
             ->assertHasNoErrors()
             ->assertSet('screen', 'b_profile');
@@ -125,6 +131,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->assertSee('Employee manual')
             ->assertSee('Encounter list (10 per provider)');
     }
@@ -137,6 +144,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->assertDontSee('Employee manual')
             ->assertDontSee('Encounter list (10 per provider)');
     }
@@ -149,6 +157,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         $component = Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
             ->set('documentFileTags.0', 'compliance_ethics')
             ->call('toggleDocumentMissing', 'hipaa_privacy')
@@ -177,6 +186,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
             ->set('documentFileTags.0', 'compliance_ethics')
             ->call('continueFromDocuments')
@@ -192,6 +202,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->set('documentFiles', [UploadedFile::fake()->create('random.pdf', 100, 'application/pdf')])
             ->call('toggleDocumentMissing', 'hipaa_privacy')
             ->call('toggleDocumentMissing', 'hipaa_security')
@@ -209,6 +220,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->call('toggleDocumentMissing', 'compliance_ethics')
             ->call('toggleDocumentMissing', 'hipaa_privacy')
             ->call('toggleDocumentMissing', 'hipaa_security')
@@ -226,6 +238,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         $component = Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->call('toggleDocumentMissing', 'hipaa_privacy');
 
         $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_privacy'));
@@ -243,6 +256,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->call('continueFromDocuments', true)
             ->assertHasNoErrors()
             ->assertSet('screen', 'b_profile');
@@ -256,6 +270,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
             ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
             ->set('documentFileTags.0', 'compliance_ethics')
             ->call('continueFromDocuments', true, true)
@@ -351,16 +366,19 @@ class PracticeIntakeWizardTest extends TestCase
 
     // ── Basics: 2) Providers ─────────────────────────────────────────────────
 
-    public function test_providers_screen_saves_the_billable_provider_count(): void
+    public function test_providers_screen_shows_the_count_already_confirmed_at_checkout(): void
     {
+        // Set directly, the way ⚡portal.blade.php's pay()/payFreeTrial() now does at Step 1
+        // checkout — this screen is read-only confirmation, not an editable input any more.
         $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
+        Practice::factory()->create(['user_id' => $user->id, 'billable_providers_count' => 3]);
         $order = $this->makeEssentialOrder($user);
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 'b_providers')
-            ->set('billableProviders', 3)
+            ->assertSet('billableProviders', 3)
+            ->assertSee('3')
             ->call('continueFromProviders')
             ->assertHasNoErrors()
             ->assertSet('screen', 'b_address');
@@ -423,6 +441,8 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('screen', 'b_logo')
             ->call('continueFromLogo')
             ->assertHasNoErrors()
+            ->assertSet('screen', 'saving')
+            ->call('finishWizard')
             ->assertSet('screen', 'done')
             ->call('continueToConfirm')
             ->assertDispatched('intake-wizard-complete');
@@ -431,7 +451,9 @@ class PracticeIntakeWizardTest extends TestCase
     public function test_essential_tier_finishes_the_wizard_after_all_basics_screens(): void
     {
         $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
+        // Billable providers is confirmed at Step 1 checkout now, not on this wizard screen —
+        // set directly here the way ⚡portal.blade.php's pay() does.
+        Practice::factory()->create(['user_id' => $user->id, 'billable_providers_count' => 2]);
         $order = $this->makeEssentialOrder($user);
 
         $component = Livewire::actingAs($user)
@@ -441,7 +463,6 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('specialty', 'General Practice')
             ->call('continueFromProfile')
             ->assertSet('screen', 'b_providers')
-            ->set('billableProviders', 2)
             ->call('continueFromProviders')
             ->assertSet('screen', 'b_address')
             ->call('continueFromAddress')
@@ -449,7 +470,8 @@ class PracticeIntakeWizardTest extends TestCase
             ->call('continueFromLogo');
 
         $component->assertHasNoErrors();
-        $component->assertSet('screen', 'done');
+        $component->assertSet('screen', 'saving');
+        $component->call('finishWizard')->assertSet('screen', 'done');
         $component->call('continueToConfirm')->assertDispatched('intake-wizard-complete');
 
         $this->assertDatabaseHas('practices', [
@@ -726,11 +748,155 @@ class PracticeIntakeWizardTest extends TestCase
         $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer two')->call('saveCurrentAnswer');
         $component->set('currentHasDocumentedProcess', true)->set('currentResponse', 'Answer three')->call('saveCurrentAnswer');
 
-        $component->assertSet('screen', 'done')->assertNotDispatched('intake-wizard-complete');
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $order->id, 'wizard_screen' => 'done']);
+        // The last answer lands on the "saving" transition screen first — a purely cosmetic,
+        // client-timed delay (its own timer calls finishWizard() after the checklist animation),
+        // not persisted to wizard_screen since it's not meant to be resumable.
+        $component->assertSet('screen', 'saving');
         $this->assertDatabaseCount('intake_answers', 3);
 
+        // Nothing was skipped, so finishWizard() goes straight to Step 3 instead of pausing on
+        // the wizard's own "done" screen — matching the reference prototype.
+        $component->call('finishWizard')->assertDispatched('intake-wizard-complete');
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $order->id, 'wizard_screen' => 'done']);
+    }
+
+    public function test_finishing_with_a_skipped_question_shows_the_done_screen_without_advancing(): void
+    {
+        $this->seedWorkflowQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = $this->advanceToQuestions($user, $order);
+        $firstQuestionId = $component->get('currentQuestionId');
+
+        // A question left skipped at the very end of the queue (e.g. via "Finish questionnaire")
+        // means the client didn't answer everything — the done screen should still require a
+        // manual "Continue" so they notice and can go back.
+        IntakeSubmission::where('order_id', $order->id)->update(['wizard_skipped_question_ids' => [$firstQuestionId]]);
+
+        $component->call('finishWizard')
+            ->assertSet('screen', 'done')
+            ->assertNotDispatched('intake-wizard-complete');
+
         $component->call('continueToConfirm')->assertDispatched('intake-wizard-complete');
+    }
+
+    public function test_booking_a_specialist_call_persists_it_and_notifies_every_admin(): void
+    {
+        Mail::fake();
+
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('openCallDialog')
+            ->assertSet('callDialogOpen', true);
+
+        $day = $component->get('availableCallDays')[0]->toDateString();
+
+        $component->set('callDate', $day)
+            ->set('callTime', '10:30 AM')
+            ->set('callPhone', '+15551234567')
+            ->set('callTopic', 'A question in the intake')
+            ->set('callNotes', 'Not sure about the HIPAA security section.')
+            ->call('bookSpecialistCall')
+            ->assertHasNoErrors()
+            ->assertSet('callBooked', true);
+
+        $this->assertDatabaseHas('specialist_call_requests', [
+            'user_id' => $user->id,
+            'order_id' => $order->id,
+            'requested_time' => '10:30 AM',
+            'phone' => '+15551234567',
+            'topic' => 'A question in the intake',
+            'notes' => 'Not sure about the HIPAA security section.',
+        ]);
+        $this->assertSame($day, SpecialistCallRequest::first()->requested_date->toDateString());
+
+        Mail::assertSent(NewSpecialistCallRequestMail::class, fn ($mail) => $mail->hasTo($admin->email));
+        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
+    }
+
+    public function test_booking_a_specialist_call_requires_a_valid_phone_number(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('openCallDialog')
+            ->set('callPhone', 'not-a-phone')
+            ->call('bookSpecialistCall')
+            ->assertHasErrors(['callPhone']);
+
+        $this->assertDatabaseCount('specialist_call_requests', 0);
+    }
+
+    public function test_first_visit_shows_the_intro_screen_before_documents(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSet('screen', 'intro')
+            ->assertSet('returnToScreen', null);
+
+        $component->call('continueFromIntro')->assertSet('screen', 'documents');
+
+        $this->assertDatabaseHas('intake_submissions', [
+            'order_id' => $order->id,
+        ]);
+        $submission = IntakeSubmission::where('order_id', $order->id)->first();
+        $this->assertContains('documents', $submission->wizard_reached_screens);
+    }
+
+    public function test_a_later_visit_skips_the_intro_screen(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'wizard_screen' => 'b_profile',
+            'wizard_reached_screens' => ['documents', 'b_profile'],
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSet('screen', 'b_profile');
+    }
+
+    public function test_what_you_need_reopens_the_intro_as_a_static_recap_and_returns(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'wizard_screen' => 'b_profile',
+            'wizard_reached_screens' => ['documents', 'b_profile'],
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSet('screen', 'b_profile')
+            ->call('viewWhatYouNeed')
+            ->assertSet('screen', 'intro')
+            ->assertSet('returnToScreen', 'b_profile')
+            ->assertSeeText('Your intake is ready')
+            ->assertSeeText('Back to the questions')
+            ->call('backToQuestions')
+            ->assertSet('screen', 'b_profile')
+            ->assertSet('returnToScreen', null);
     }
 
     public function test_resuming_a_draft_submission_reloads_the_saved_screen_and_answers(): void

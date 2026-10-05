@@ -40,6 +40,13 @@ return [
         'trial_reminder_days_before' => env('EMPOWER_PAYMENT_API_TRIAL_REMINDER_DAYS', 3),
     ],
 
+    // MTBC's EmpowerSSOAPI — a single-endpoint credential-verification API for the "Sign in with
+    // CareCloud"/"Sign in with talkEHR" login buttons (see sso.md §1a). Separate host and
+    // credentials from empower_payment_api above; do not merge the two.
+    'empower_sso_api' => [
+        'base_url' => env('EMPOWER_SSO_API_BASE_URL'),
+    ],
+
     'carecloud' => [
         'msa_url' => env('CARECLOUD_MSA_URL', '#'),
     ],

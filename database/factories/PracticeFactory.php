@@ -22,7 +22,11 @@ class PracticeFactory extends Factory
             'logo_path' => null,
             'address' => fake()->streetAddress().', '.fake()->city().', '.fake()->stateAbbr(),
             'specialty' => fake()->randomElement(Practice::SPECIALTIES),
-            'billable_providers_count' => fake()->numberBetween(1, 20),
+            // Fixed rather than random: this now drives checkout pricing (⚡portal.blade.php's
+            // billableProviders), so a random default made price-asserting tests flaky depending
+            // on what the factory happened to roll. Tests that want a specific count still pass
+            // it explicitly via ->create(['billable_providers_count' => N]).
+            'billable_providers_count' => 1,
             'is_profile_locked' => false,
             'locked_at' => null,
         ];

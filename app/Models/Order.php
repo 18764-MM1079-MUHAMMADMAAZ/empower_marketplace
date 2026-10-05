@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\BillingCycle;
+use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use Database\Factories\OrderFactory;
@@ -99,6 +100,41 @@ class Order extends Model
     public function isPaid(): bool
     {
         return in_array($this->payment_status, self::PAID_STATUSES, true);
+    }
+
+    /**
+     * How far through the Practice Intake wizard this order's submission has gotten, 0-100 —
+     * used by the homepage's "Welcome back" resume banner. Mirrors (deliberately not shared
+     * code with, to avoid coupling a domain model to a Livewire component's internal state)
+     * practice-intake-wizard.blade.php's BASICS_SUB_SCREENS/TEAM_SUB_SCREENS/chapterProgress().
+     * Once the wizard itself is done, the client's share of "intake" is 100% regardless of
+     * what happens afterward (submit, review, approval).
+     */
+    public function intakePercentComplete(): int
+    {
+        $submission = $this->intakeSubmission;
+
+        if (! $submission) {
+            return 0;
+        }
+
+        if ($submission->status !== IntakeSubmissionStatus::Draft || $submission->wizard_screen === 'done') {
+            return 100;
+        }
+
+        $reached = $submission->wizard_reached_screens ?? ['documents'];
+        $basicsScreens = ['b_profile', 'b_providers', 'b_address', 'b_logo'];
+        $teamScreens = ['t_practice', 't_officers', 't_it', 't_hotline', 't_leadership'];
+
+        $totalItems = 1 + count($basicsScreens);
+        $doneItems = (in_array('documents', $reached, true) ? 1 : 0) + count(array_intersect($basicsScreens, $reached));
+
+        if ($this->package?->includesWorkflowQuestionnaire()) {
+            $totalItems += count($teamScreens) + IntakeQuestion::count();
+            $doneItems += count(array_intersect($teamScreens, $reached)) + $submission->intakeAnswers()->count();
+        }
+
+        return $totalItems > 0 ? (int) round($doneItems / $totalItems * 100) : 0;
     }
 
     /**

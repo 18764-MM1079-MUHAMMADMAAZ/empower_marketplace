@@ -3,13 +3,13 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
-use App\Mail\AdminNewSignupMail;
 use App\Mail\ResetPasswordMail;
-use App\Mail\WelcomeCredentialsMail;
 use App\Models\Order;
+use App\Models\Package;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Livewire\Livewire;
@@ -94,6 +94,108 @@ class AuthTest extends TestCase
             ->assertHasErrors(['email', 'password']);
     }
 
+    // --- CareCloud/talkEHR SSO login (EmpowerSSOAPI — sso.md §1a) ---
+
+    private function fakeEmpowerSsoApi(array $data): void
+    {
+        Http::fake([
+            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+                'success' => true,
+                'message' => 'Login successful.',
+                'data' => [$data],
+            ]),
+        ]);
+    }
+
+    public function test_selecting_a_provider_shows_the_inline_sso_form(): void
+    {
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'carecloud')
+            ->assertSet('ssoProvider', 'carecloud')
+            ->assertSee('Username');
+    }
+
+    public function test_sso_login_creates_a_new_user_and_practice_from_the_returned_identity(): void
+    {
+        $this->fakeEmpowerSsoApi([
+            'userId' => '544109',
+            'email' => 'jane@practice.com',
+            'firstName' => 'Jane',
+            'lastName' => 'Provider',
+            'practiceName' => 'Riverside Family Medicine',
+            'prac_Address' => '742 Evergreen Terrace',
+            'prac_city' => 'Springfield',
+            'prac_State' => 'IL',
+            'zip' => '62704',
+        ]);
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'carecloud')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('home'));
+
+        $user = User::where('email', 'jane@practice.com')->first();
+        $this->assertNotNull($user);
+        $this->assertSame('Jane Provider', $user->name);
+        $this->assertAuthenticatedAs($user);
+
+        $this->assertDatabaseHas('practices', [
+            'user_id' => $user->id,
+            'name' => 'Riverside Family Medicine',
+            'address' => '742 Evergreen Terrace, Springfield, IL, 62704',
+        ]);
+    }
+
+    public function test_sso_login_signs_in_an_existing_user_matched_by_email(): void
+    {
+        $existing = User::factory()->create(['email' => 'jane@practice.com']);
+
+        $this->fakeEmpowerSsoApi(['email' => 'jane@practice.com', 'firstName' => 'Jane', 'lastName' => 'Provider']);
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->assertHasNoErrors();
+
+        $this->assertAuthenticatedAs($existing);
+        $this->assertSame(1, User::where('email', 'jane@practice.com')->count());
+    }
+
+    public function test_sso_login_shows_an_error_on_invalid_credentials(): void
+    {
+        Http::fake([
+            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+                'success' => false,
+                'message' => 'Invalid username or password.',
+                'data' => null,
+            ], 401),
+        ]);
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'carecloud')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 'wrong-password')
+            ->call('loginViaSso')
+            ->assertHasErrors(['ssoPassword']);
+
+        $this->assertGuest();
+    }
+
+    public function test_back_from_sso_returns_to_the_provider_buttons(): void
+    {
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'carecloud')
+            ->assertSet('ssoProvider', 'carecloud')
+            ->call('backFromSso')
+            ->assertSet('ssoProvider', null)
+            ->assertSee('Sign in with');
+    }
+
     // --- Register page ---
 
     public function test_register_page_renders(): void
@@ -111,147 +213,77 @@ class AuthTest extends TestCase
         $this->assertSame('essential', session('intended_package'));
     }
 
-    public function test_registration_creates_user_and_practice_and_logs_in(): void
+    public function test_register_page_shows_the_selected_package_and_its_price(): void
     {
-        Mail::fake();
+        Package::factory()->create([
+            'slug' => 'essential',
+            'name' => 'Essential Compliance',
+            'is_active' => true,
+            'monthly_price' => 99,
+            'annual_price' => 999,
+        ]);
 
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register')
-            ->assertRedirect(route('portal'));
+        $response = $this->withoutVite()->get(route('register', [
+            'package' => 'essential',
+            'billing_cycle' => 'monthly',
+        ]));
 
-        $this->assertDatabaseHas('users', ['email' => 'jane@practice.com']);
-
-        $user = User::where('email', 'jane@practice.com')->first();
-        $this->assertNotNull($user->practice);
+        $response->assertOk();
+        $response->assertSeeText('Selected package');
+        $response->assertSeeText('Essential Compliance');
+        $response->assertSeeText('$99.00 per provider / month');
     }
 
-    public function test_registration_completes_even_when_an_admin_notification_email_fails(): void
+    public function test_register_page_shows_no_package_card_when_none_was_selected(): void
     {
-        // Simulates a bad/reserved admin email address rejecting delivery at the SMTP
-        // level — this used to crash the whole registration request with a 500 before
-        // the new user's account had a chance to finish being logged in and redirected.
-        User::factory()->create(['role' => UserRole::Admin]);
+        $response = $this->withoutVite()->get(route('register'));
 
-        Mail::shouldReceive('to')->andReturnSelf();
-        Mail::shouldReceive('send')->andThrow(new \RuntimeException('SMTP rejected the recipient.'));
-
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register')
-            ->assertRedirect(route('portal'));
-
-        $this->assertDatabaseHas('users', ['email' => 'jane@practice.com']);
-        $this->assertAuthenticatedAs(User::where('email', 'jane@practice.com')->first());
+        $response->assertOk();
+        $response->assertDontSee('Selected package');
     }
 
-    public function test_registration_notifies_every_admin_by_email(): void
+    public function test_visiting_register_with_a_billing_cycle_stores_it_in_session(): void
     {
-        Mail::fake();
+        $this->withoutVite()->get(route('register', ['billing_cycle' => 'monthly']))->assertOk();
 
-        $admin = User::factory()->create(['role' => UserRole::Admin]);
-        $otherAdmin = User::factory()->create(['role' => UserRole::Admin]);
-
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register');
-
-        Mail::assertSent(AdminNewSignupMail::class, fn ($mail) => $mail->hasTo($admin->email));
-        Mail::assertSent(AdminNewSignupMail::class, fn ($mail) => $mail->hasTo($otherAdmin->email));
-        Mail::assertNotSent(AdminNewSignupMail::class, fn ($mail) => $mail->hasTo('jane@practice.com'));
+        $this->assertSame('monthly', session('intended_billing_cycle'));
     }
 
-    public function test_registration_also_creates_an_in_app_notification_for_every_admin(): void
+    /**
+     * The Sign Up screen no longer creates an account itself — "Create an account" just carries
+     * the package/billing cycle through to Step 1's checkout, which is what actually creates the
+     * guest account as part of paying (⚡portal.blade.php's pay()/payFreeTrial()).
+     */
+    public function test_create_an_account_link_carries_the_package_and_billing_cycle_to_checkout(): void
     {
-        $admin = User::factory()->create(['role' => UserRole::Admin]);
-        $otherAdmin = User::factory()->create(['role' => UserRole::Admin]);
+        Package::factory()->create(['slug' => 'essential', 'is_active' => true]);
 
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register');
+        $response = $this->withoutVite()->get(route('register', [
+            'package' => 'essential',
+            'billing_cycle' => 'monthly',
+        ]));
 
-        $this->assertSame(1, $admin->fresh()->unreadNotifications()->count());
-        $this->assertSame(1, $otherAdmin->fresh()->unreadNotifications()->count());
-
-        $data = $admin->fresh()->notifications()->first()->data;
-        $this->assertSame('New account created', $data['title']);
-        $this->assertStringContainsString('Jane Provider', $data['message']);
+        $response->assertOk();
+        $response->assertSee(route('portal', ['package' => 'essential', 'billing_cycle' => 'monthly']));
     }
 
-    public function test_registration_emails_the_generated_password_and_it_works_for_login(): void
+    public function test_create_an_account_link_falls_back_to_the_session_intended_package(): void
     {
-        Mail::fake();
+        Package::factory()->create(['slug' => 'essential', 'is_active' => true]);
+        session(['intended_package' => 'essential', 'intended_billing_cycle' => 'monthly']);
 
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register');
+        $response = $this->withoutVite()->get(route('register'));
 
-        $capturedPassword = null;
-
-        Mail::assertQueued(WelcomeCredentialsMail::class, function ($mail) use (&$capturedPassword) {
-            $capturedPassword = $mail->password;
-
-            return $mail->hasTo('jane@practice.com') && strlen($mail->password) >= 16;
-        });
-
-        $user = User::where('email', 'jane@practice.com')->first();
-
-        Livewire::test('auth.login-form')
-            ->set('email', $user->email)
-            ->set('password', $capturedPassword)
-            ->call('login')
-            ->assertRedirect(route('home'));
+        $response->assertOk();
+        $response->assertSee(route('portal', ['package' => 'essential', 'billing_cycle' => 'monthly']));
     }
 
-    public function test_registration_with_package_redirects_to_portal_with_package(): void
+    public function test_create_an_account_link_defaults_to_annual_billing_with_no_package(): void
     {
-        Mail::fake();
+        $response = $this->withoutVite()->get(route('register'));
 
-        Livewire::test('auth.register-form', ['package' => 'essential'])
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register')
-            ->assertRedirect(route('portal', ['package' => 'essential']));
-    }
-
-    public function test_registration_falls_back_to_session_intended_package(): void
-    {
-        Mail::fake();
-
-        session(['intended_package' => 'essential']);
-
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'jane@practice.com')
-            ->call('register')
-            ->assertRedirect(route('portal', ['package' => 'essential']));
-    }
-
-    public function test_registration_fails_with_duplicate_email(): void
-    {
-        Mail::fake();
-
-        User::factory()->create(['email' => 'taken@example.com']);
-
-        Livewire::test('auth.register-form')
-            ->set('name', 'Jane Provider')
-            ->set('email', 'taken@example.com')
-            ->call('register')
-            ->assertHasErrors(['email']);
-
-        Mail::assertNothingSent();
-    }
-
-    public function test_registration_requires_all_fields(): void
-    {
-        Livewire::test('auth.register-form')
-            ->call('register')
-            ->assertHasErrors(['name', 'email']);
+        $response->assertOk();
+        $response->assertSee(route('portal', ['billing_cycle' => 'annual']));
     }
 
     // --- Forgot / reset password ---

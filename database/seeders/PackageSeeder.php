@@ -26,8 +26,9 @@ class PackageSeeder extends Seeder
                     'Compliance Hotline',
                 ],
                 // Essential reviews the practice's own uploaded documents — it doesn't
-                // generate any of the 3 policy-driven manuals at this price point.
-                'included_document_types' => [],
+                // generate any of the 3 policy-driven manuals at this price point, but it does
+                // include the Exclusions Screening Report, same as every other tier.
+                'included_document_types' => ['exclusions_screening_report'],
                 'is_active' => true,
                 'sort_order' => 1,
             ],
@@ -49,6 +50,7 @@ class PackageSeeder extends Seeder
                     'compliance_ethics_manual',
                     'hipaa_privacy_policy',
                     'hipaa_security_manual',
+                    'exclusions_screening_report',
                 ],
                 'is_active' => true,
                 'sort_order' => 2,
@@ -74,6 +76,7 @@ class PackageSeeder extends Seeder
                     'hipaa_security_manual',
                     'security_risk_assessment',
                     'coding_mini_audit_report',
+                    'exclusions_screening_report',
                 ],
                 'is_active' => true,
                 'sort_order' => 3,
@@ -94,6 +97,7 @@ class PackageSeeder extends Seeder
                     'compliance_ethics_manual',
                     'hipaa_privacy_policy',
                     'hipaa_security_manual',
+                    'exclusions_screening_report',
                 ],
                 'is_active' => true,
                 'sort_order' => 4,

@@ -90,10 +90,17 @@ class TrialBillingService
     public function renew(Order $order): ChargeResult
     {
         $cycle = $order->billing_cycle ?? BillingCycle::Annual;
+        // Re-derives from the practice's *current* provider count, not the frozen count at
+        // purchase time — a provider count change should take effect at the next renewal, same
+        // as a package price change already does below.
+        $providers = max(1, $order->user->practice?->billable_providers_count ?? 1);
+        $perProviderPrice = $order->package->priceForCycle($cycle);
         // Falls back to the order's own frozen original_price if the package's price for this
         // cycle has since been unset (e.g. an admin cleared monthly_price after monthly
-        // subscribers already exist on it) — a renewal must never silently charge $0.
-        $amount = $order->package->priceForCycle($cycle) ?? (float) $order->original_price;
+        // subscribers already exist on it) — a renewal must never silently charge $0. The frozen
+        // value already has the provider count baked in from when it was first charged, so it's
+        // not multiplied again here.
+        $amount = $perProviderPrice !== null ? $perProviderPrice * $providers : (float) $order->original_price;
         $result = $this->chargeStoredCard($order, $amount);
 
         if (! $result->success) {

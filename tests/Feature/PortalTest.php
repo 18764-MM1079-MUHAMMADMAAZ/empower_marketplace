@@ -199,7 +199,8 @@ class PortalTest extends TestCase
             ->set('billingZip', '08873')
             ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
             ->assertSee('Payment of $999 received')
-            ->assertSee('Account created for jane@practice.com; a login password would be emailed there');
+            ->assertSeeText('Account created for Jane Provider')
+            ->assertSeeText('jane@practice.com');
 
         $user = User::where('email', 'jane@practice.com')->first();
         $this->assertNotNull($user);
@@ -353,6 +354,40 @@ class PortalTest extends TestCase
             'user_id' => $user->id,
             'event_type' => 'order.paid',
         ]);
+    }
+
+    public function test_paying_charges_per_provider_and_persists_the_count(): void
+    {
+        $this->fakeSuccessfulCharge();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'billable_providers_count' => 1]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billableProviders', 3)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
+            ->assertSee('Payment of $2,997 received')
+            ->assertSeeText('3 providers');
+
+        $this->assertDatabaseHas('orders', [
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'original_price' => 2997,
+            'amount_paid' => 2997,
+        ]);
+
+        $this->assertDatabaseHas('practices', [
+            'user_id' => $user->id,
+            'billable_providers_count' => 3,
+        ]);
+
+        Http::assertSent(fn ($request) => ($request['amount'] ?? null) === 2997.0);
     }
 
     public function test_paying_notifies_every_admin_by_email(): void
@@ -1423,6 +1458,42 @@ class PortalTest extends TestCase
         Mail::assertQueued(ClientTrialStartedMail::class);
     }
 
+    public function test_free_trial_checkout_freezes_the_per_provider_price_and_persists_the_count(): void
+    {
+        Mail::fake();
+        $this->fakeSuccessfulTokenize();
+
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        DiscountCode::factory()->freeTrial(30)->create(['code' => 'TRIAL30']);
+
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'billable_providers_count' => 1]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billableProviders', 4)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->set('discountCodeInput', 'TRIAL30')
+            ->call('applyDiscountCode')
+            ->call('payFreeTrial', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
+            ->assertHasNoErrors();
+
+        $order = Order::where('user_id', $user->id)->firstOrFail();
+
+        $this->assertEquals(0, (float) $order->amount_paid);
+        $this->assertEquals(3996, (float) $order->original_price);
+        $this->assertEquals(3996, (float) $order->discount_amount);
+
+        $this->assertDatabaseHas('practices', [
+            'user_id' => $user->id,
+            'billable_providers_count' => 4,
+        ]);
+    }
+
     public function test_free_trial_checkout_fails_gracefully_when_tokenize_fails(): void
     {
         Http::fake([
@@ -1880,11 +1951,54 @@ class PortalTest extends TestCase
             ->test('portal')
             ->assertSet('step', 3)
             ->assertSet('certifiedByName', $user->name)
+            ->assertSet('certifiedByTitle', 'Account Holder')
             ->assertSee('Sunrise Family Medicine')
             ->assertSee('employee-handbook.pdf')
             ->call('finalizeIntake')
-            ->assertHasErrors(['certifiedByTitle', 'certifiedSignature', 'certifyChecked'])
-            ->assertHasNoErrors(['certifiedByName']);
+            ->assertHasErrors(['certifiedSignature', 'certifyChecked'])
+            ->assertHasNoErrors(['certifiedByName', 'certifiedByTitle']);
+    }
+
+    /**
+     * A client can type a custom name/title over the defaults, step back into the practice
+     * intake wizard (e.g. to fix an answer), and return to Step 3 without losing what they typed
+     * — autosaved via updatedCertifiedByName()/updatedCertifiedByTitle() onto the submission
+     * record itself, not just the component's in-memory state.
+     */
+    public function test_custom_certification_fields_survive_a_trip_back_into_the_wizard_and_forward(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id, 'name' => 'Sunrise Family Medicine']);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+        IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
+        ]);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal')
+            ->assertSet('step', 3)
+            ->set('certifiedByName', 'Dr. Jane Custom')
+            ->set('certifiedByTitle', 'Practice Manager');
+
+        $this->assertDatabaseHas('intake_submissions', [
+            'order_id' => $order->id,
+            'certified_by_name' => 'Dr. Jane Custom',
+            'certified_by_title' => 'Practice Manager',
+        ]);
+
+        $component->call('goToStep', 2)->assertSet('step', 2);
+        $component->call('onIntakeWizardComplete')
+            ->assertSet('step', 3)
+            ->assertSet('certifiedByName', 'Dr. Jane Custom')
+            ->assertSet('certifiedByTitle', 'Practice Manager');
     }
 
     public function test_finalize_intake_certifies_submits_and_notifies_admins(): void
@@ -1915,7 +2029,10 @@ class PortalTest extends TestCase
             ->set('certifyChecked', true)
             ->call('finalizeIntake')
             ->assertHasNoErrors()
-            ->assertSet('step', 4);
+            // Lands straight on step 4 — its own "sending/uploading/queuing" transition is
+            // purely cosmetic and clears itself client-side once its timer finishes.
+            ->assertSet('step', 4)
+            ->assertSet('justSubmitted', true);
 
         $this->assertDatabaseHas('intake_submissions', [
             'order_id' => $order->id,
@@ -2088,7 +2205,7 @@ class PortalTest extends TestCase
             ->set('step', 4)
             ->assertSee('Essential Compliance')
             ->assertSee('Professional Compliance')
-            ->assertSee('Under review');
+            ->assertSee('In review');
 
         // Not every order is approved yet — stays on step 4.
         $component->call('checkApproval')->assertSet('step', 4);
@@ -2243,6 +2360,64 @@ class PortalTest extends TestCase
             ->assertSee('Employee manual (reviewed)')
             ->assertDontSee('Reviewed & Polished Document')
             ->assertDontSee('staff-handbook.pdf');
+    }
+
+    public function test_dashboard_labels_essentials_reviewed_uploads_distinctly(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = $this->makeApprovedOrder($user);
+
+        foreach (['compliance_ethics', 'hipaa_privacy', 'hipaa_security', 'training_materials'] as $category) {
+            $upload = IntakeUpload::factory()->create([
+                'intake_submission_id' => $order->intakeSubmission->id,
+                'upload_type' => IntakeUploadType::ClientDocumentForReview,
+                'document_category' => $category,
+                'original_filename' => "{$category}.pdf",
+            ]);
+            GeneratedDocument::factory()->completed()->approved()->create([
+                'order_id' => $order->id,
+                'document_type' => DocumentType::PolishedClientDocument,
+                'intake_upload_id' => $upload->id,
+            ]);
+        }
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('Compliance & Ethics Program (reviewed)')
+            ->assertSee('HIPAA Privacy Policies (reviewed)')
+            ->assertSee('HIPAA Security Policies (reviewed)')
+            ->assertSee('Training Review Memo')
+            ->assertDontSee('Reviewed & Polished Document');
+    }
+
+    public function test_dashboard_shows_the_exclusions_screening_report_for_every_tier(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create([
+            'slug' => 'essential',
+            'is_active' => true,
+            'included_document_types' => [DocumentType::ExclusionsScreeningReport->value],
+        ]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Approved,
+        ]);
+        IntakeSubmission::factory()->approved()->create(['order_id' => $order->id]);
+        GeneratedDocument::factory()->completed()->approved()->create([
+            'order_id' => $order->id,
+            'document_type' => DocumentType::ExclusionsScreeningReport,
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('Exclusions Screening Report')
+            ->assertSee('Current');
     }
 
     /** Regression: the new practice intake wizard generates Professional/Advanced's manuals
@@ -2498,6 +2673,85 @@ class PortalTest extends TestCase
             ->test('portal')
             ->set('step', 5)
             ->call('switchOrder', $otherOrder->id);
+    }
+
+    // ── Step 5: "What's next" checklist ────────────────────────────────────
+
+    public function test_whats_next_shows_on_the_dashboard_with_zero_of_five_done(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee("What's next", false)
+            ->assertSee('0 of 5 done')
+            ->assertSee('Download your documents')
+            ->assertSee('Schedule your annual policy review');
+    }
+
+    public function test_toggling_a_next_step_marks_it_done_and_persists_to_the_practice(): void
+    {
+        $user = User::factory()->create();
+        $practice = Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->call('toggleNextStep', 'sign')
+            ->assertSee('1 of 5 done');
+
+        $this->assertSame(['sign'], $practice->fresh()->dashboard_next_steps);
+    }
+
+    public function test_toggling_an_already_done_next_step_marks_it_not_done(): void
+    {
+        $user = User::factory()->create();
+        $practice = Practice::factory()->locked()->create(['user_id' => $user->id, 'dashboard_next_steps' => ['sign']]);
+        $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->call('toggleNextStep', 'sign')
+            ->assertSee('0 of 5 done');
+
+        $this->assertSame([], $practice->fresh()->dashboard_next_steps);
+    }
+
+    public function test_mark_next_step_done_is_idempotent(): void
+    {
+        $user = User::factory()->create();
+        $practice = Practice::factory()->locked()->create(['user_id' => $user->id, 'dashboard_next_steps' => ['dl']]);
+        $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->call('markNextStepDone', 'dl')
+            ->assertSee('1 of 5 done');
+
+        $this->assertSame(['dl'], $practice->fresh()->dashboard_next_steps);
+    }
+
+    public function test_whats_next_collapses_to_an_all_done_message_once_every_step_is_marked(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create([
+            'user_id' => $user->id,
+            'dashboard_next_steps' => ['dl', 'share', 'sign', 'train', 'review'],
+        ]);
+        $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('5 of 5 done')
+            ->assertSee("You're all set for this year.", false)
+            ->assertDontSee('Download sign-off form');
     }
 
     // ── Step navigation ─────────────────────────────────────────────────────

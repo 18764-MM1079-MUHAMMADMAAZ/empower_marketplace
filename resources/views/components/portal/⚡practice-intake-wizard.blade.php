@@ -3,6 +3,8 @@
 use App\Enums\AiExtractionStatus;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
+use App\Enums\UserRole;
+use App\Mail\NewSpecialistCallRequestMail;
 use App\Models\IntakeQuestion;
 use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
@@ -10,11 +12,18 @@ use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Practice;
+use App\Models\SpecialistCallRequest;
+use App\Models\User;
+use App\Notifications\NewSpecialistCallRequestNotification;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Validate;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -144,8 +153,12 @@ new class extends Component
 
     // ── Navigation ────────────────────────────────────────────────────────
     /** 'documents' | 'b_profile' | 'b_providers' | 'b_address' | 'b_logo' | 't_practice' |
-     *  't_officers' | 't_it' | 't_hotline' | 't_leadership' | 'question' | 'done' */
+     *  't_officers' | 't_it' | 't_hotline' | 't_leadership' | 'question' | 'done' | 'intro' */
     public string $screen = 'documents';
+
+    /** Set by viewWhatYouNeed() so backToQuestions() knows where to return — null means the
+     *  'intro' screen is the first-time auto-advancing variant, not the revisited recap. */
+    public ?string $returnToScreen = null;
 
     public ?int $currentQuestionId = null;
 
@@ -220,6 +233,13 @@ new class extends Component
 
         if (! $this->includesWorkflowQuestionnaire && in_array($this->screen, [...self::TEAM_SUB_SCREENS, 'question'], true)) {
             $this->screen = 'done';
+        }
+
+        // First-ever visit to the wizard (nothing marked reached yet) — show the "Before you
+        // start" intro first, matching the prototype's screen between Step 1 and Step 2. Not
+        // persisted to wizard_screen, so it never replays once 'documents' gets marked reached.
+        if ($this->screen === 'documents' && empty($reached)) {
+            $this->screen = 'intro';
         }
 
         if ($this->screen === 'question') {
@@ -808,17 +828,7 @@ new class extends Component
         $this->advanceWizardScreen(['b_profile', 'b_providers'], 'b_providers');
     }
 
-    // ── Basics: 2) Providers ─────────────────────────────────────────────────
-
-    public function incrementProviders(): void
-    {
-        $this->billableProviders = min(9999, $this->billableProviders + 1);
-    }
-
-    public function decrementProviders(): void
-    {
-        $this->billableProviders = max(1, $this->billableProviders - 1);
-    }
+    // ── Basics: 2) Providers (read-only — confirmed at checkout in Step 1) ───────────────────
 
     public function backToProfile(): void
     {
@@ -826,23 +836,11 @@ new class extends Component
         $this->setWizardScreen('b_profile');
     }
 
-    public function continueFromProviders(bool $skipValidation = false, bool $stayOnScreen = false): void
+    /** No validation or persistence needed any more — the count was already saved to the
+     *  Practice at Step 1 checkout (⚡portal.blade.php's pay()/payFreeTrial()), which is also
+     *  what drove the price charged. This screen just confirms it before moving on. */
+    public function continueFromProviders(): void
     {
-        $this->justSaved = false;
-
-        if (! $skipValidation) {
-            $this->validate(['billableProviders' => 'required|integer|min:1|max:9999']);
-        }
-
-        $this->practice?->update(['billable_providers_count' => $this->billableProviders]);
-        unset($this->practice);
-
-        if ($stayOnScreen) {
-            $this->justSaved = true;
-
-            return;
-        }
-
         $this->screen = 'b_address';
         $this->advanceWizardScreen(['b_providers', 'b_address'], 'b_address');
     }
@@ -925,8 +923,10 @@ new class extends Component
             $this->screen = 't_practice';
             $this->advanceWizardScreen(['b_logo', 't_practice'], 't_practice');
         } else {
+            // Same cosmetic "saving" transition the workflow-questionnaire tiers get after their
+            // last question — not persisted, its own timer calls finishWizard().
             $this->markReached('b_logo');
-            $this->finishWizard();
+            $this->screen = 'saving';
         }
     }
 
@@ -1455,7 +1455,10 @@ new class extends Component
         $next = $this->remainingQueue[0] ?? null;
 
         if ($next === null) {
-            $this->finishWizard();
+            // Deliberately not persisted to wizard_screen — this is a few-second cosmetic
+            // transition, not a real resumable step. A refresh mid-animation just lands back on
+            // the last question, which re-triggers it.
+            $this->screen = 'saving';
 
             return;
         }
@@ -1479,10 +1482,162 @@ new class extends Component
         $this->loadQuestion($master[$position - 1]);
     }
 
-    private function finishWizard(): void
+    /** Called by the "saving" screen's own timer once its checklist animation finishes. */
+    public function finishWizard(): void
     {
         $this->screen = 'done';
         $this->setWizardScreen('done');
+
+        // Matches the reference prototype: skip the "you're through the intake" screen and go
+        // straight to Step 3 when nothing was left unanswered — it only needs to show when there
+        // are skipped questions the client might want to go back and answer.
+        if ($this->skippedQuestionIds === []) {
+            $this->continueToConfirm();
+        }
+    }
+
+    /** Called by the "intro" screen's own timer once its checklist animation finishes. */
+    public function continueFromIntro(): void
+    {
+        $this->screen = 'documents';
+        $this->markReached('documents');
+    }
+
+    /** "What you'll need" in the section-jump dropdown — reopens the intro screen as a static
+     *  reference recap (no loading animation, no auto-advance) instead of a popup, so it matches
+     *  the same screen a first-time visitor saw between Step 1 and Step 2. */
+    public function viewWhatYouNeed(): void
+    {
+        $this->returnToScreen = $this->screen;
+        $this->screen = 'intro';
+    }
+
+    /** The revisited intro screen's "Back to the questions" button. */
+    public function backToQuestions(): void
+    {
+        $this->screen = $this->returnToScreen ?? 'documents';
+        $this->returnToScreen = null;
+    }
+
+    // ── "Talk to a specialist" call booking ─────────────────────────────────
+    private const CALL_TIME_SLOTS = ['9:00 AM', '10:30 AM', '12:00 PM', '1:30 PM', '3:00 PM', '4:30 PM'];
+
+    private const CALL_TOPICS = [
+        'A question in the intake',
+        'Choosing the right package',
+        'Pricing or billing',
+        'Something else',
+    ];
+
+    public bool $callDialogOpen = false;
+
+    public bool $callBooked = false;
+
+    #[Validate('required|date')]
+    public ?string $callDate = null;
+
+    #[Validate('required|string')]
+    public ?string $callTime = null;
+
+    #[Validate('required|regex:/^\+?[1-9]\d{7,14}$/')]
+    public string $callPhone = '';
+
+    public string $callTopic = 'A question in the intake';
+
+    #[Validate('nullable|string|max:1000')]
+    public string $callNotes = '';
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'callPhone.regex' => 'Please enter a valid international phone number, digits only (e.g. +15551234567).',
+        ];
+    }
+
+    /** @return array<int, \Illuminate\Support\Carbon> the next 5 weekdays, starting tomorrow. */
+    #[Computed]
+    public function availableCallDays(): array
+    {
+        $days = [];
+        $cursor = now()->addDay();
+
+        while (count($days) < 5) {
+            if (! $cursor->isWeekend()) {
+                $days[] = $cursor->copy();
+            }
+
+            $cursor->addDay();
+        }
+
+        return $days;
+    }
+
+    /** @return array<int, string> */
+    public function availableCallTimes(): array
+    {
+        return self::CALL_TIME_SLOTS;
+    }
+
+    /** @return array<int, string> */
+    public function availableCallTopics(): array
+    {
+        return self::CALL_TOPICS;
+    }
+
+    public function openCallDialog(): void
+    {
+        $this->callDialogOpen = true;
+        $this->callBooked = false;
+        $this->callDate = $this->availableCallDays[0]->toDateString();
+        $this->callTime = self::CALL_TIME_SLOTS[0];
+        $this->callPhone = '';
+        $this->callTopic = self::CALL_TOPICS[0];
+        $this->callNotes = '';
+        $this->resetErrorBag();
+    }
+
+    public function closeCallDialog(): void
+    {
+        $this->callDialogOpen = false;
+        $this->callBooked = false;
+    }
+
+    public function bookSpecialistCall(): void
+    {
+        $this->validate();
+
+        $order = $this->batchOrders->first();
+
+        $callRequest = SpecialistCallRequest::create([
+            'user_id' => auth()->id(),
+            'order_id' => $order?->id,
+            'requested_date' => $this->callDate,
+            'requested_time' => $this->callTime,
+            'phone' => $this->callPhone,
+            'topic' => $this->callTopic,
+            'notes' => $this->callNotes ?: null,
+        ]);
+
+        $admins = User::where('role', UserRole::Admin)->get();
+
+        $admins->each(function (User $admin) use ($callRequest) {
+            try {
+                Mail::to($admin->email)->send(new NewSpecialistCallRequestMail($callRequest));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
+
+        try {
+            Notification::send($admins, new NewSpecialistCallRequestNotification($callRequest));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $this->callBooked = true;
     }
 
     /** "Review all answers" in the section-jump dropdown — lets the client preview Step 3's
@@ -1514,6 +1669,79 @@ new class extends Component
             'skippedCount' => count($this->skippedQuestionIds),
         ];
     @endphp
+
+    {{-- ── Intro: auto-advancing on a first-ever visit, or a static recap when revisited via
+         the "What you'll need" dropdown item ($returnToScreen set means the latter) ── --}}
+    @if($screen === 'intro')
+    @php $isRevisit = $returnToScreen !== null; @endphp
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        <div class="flex flex-col items-center text-center px-6 py-12 lg:py-16 max-w-xl mx-auto"
+            @unless($isRevisit)
+            x-data="{ progress: 0 }"
+            x-init="
+                setTimeout(() => progress = 100, 50);
+                setTimeout(() => $wire.continueFromIntro(), 1800);
+            "
+            @endunless
+            >
+            <h2 class="text-2xl font-extrabold text-[#0e1b30] mb-5">Before you start, here&rsquo;s what you&rsquo;ll
+                need</h2>
+
+            @if($isRevisit)
+            <p class="text-sm text-[#5d6e7f] mb-5 max-w-md">Your intake is ready. It takes about 5 minutes, and your
+                answers save as you go. Missing something? You can skip any question and come back to it.</p>
+            <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
+                <div class="h-full bg-[#0b9ed0] rounded-full"
+                    style="width: {{ $this->chapterProgress['totalItems'] > 0 ? round($this->chapterProgress['doneItems'] / $this->chapterProgress['totalItems'] * 100) : 0 }}%">
+                </div>
+            </div>
+            @else
+            <div class="flex items-center gap-2 text-sm font-semibold text-[#0b9ed0] mb-3">
+                <x-spinner class="h-4 w-4" />
+                <span>Getting your intake ready&hellip;</span>
+            </div>
+            <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
+                <div class="h-full bg-[#0b9ed0] rounded-full transition-all duration-[1600ms] ease-out"
+                    :style="`width: ${progress}%`"></div>
+            </div>
+            @endif
+
+            <div class="w-full space-y-3 text-left">
+                <div class="flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5">
+                    <span
+                        class="mt-0.5 h-5 w-5 rounded-full bg-[#e6f3fb] text-[#0b9ed0] flex items-center justify-center flex-shrink-0">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <div>
+                        <p class="text-sm font-bold text-[#173045]">Your current policies and training materials</p>
+                        <p class="text-xs text-[#5d6e7f] mt-0.5">Compliance & Ethics program, HIPAA Privacy and
+                            Security policies, and training materials. PDF, Word or Excel.</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5">
+                    <span
+                        class="mt-0.5 h-5 w-5 rounded-full bg-[#e6f3fb] text-[#0b9ed0] flex items-center justify-center flex-shrink-0">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <div>
+                        <p class="text-sm font-bold text-[#173045]">Practice name, specialty and address</p>
+                        <p class="text-xs text-[#5d6e7f] mt-0.5">Plus your logo if you&rsquo;d like it on the cover
+                            (optional).</p>
+                    </div>
+                </div>
+            </div>
+
+            @if($isRevisit)
+            <button type="button" wire:click="backToQuestions"
+                class="mt-8 w-full max-w-xs rounded bg-[#12304f] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">Back to the questions &rarr;</button>
+            @endif
+
+            <p class="text-sm text-[#5d6e7f] mt-5">Questions first? <button type="button" wire:click="openCallDialog"
+                    class="font-semibold text-[#0b9ed0] hover:underline">Book a 15-minute call with a
+                    specialist</button></p>
+        </div>
+    </div>
+    @endif
 
     {{-- ── Documents ── --}}
     @if($screen === 'documents')
@@ -1695,6 +1923,7 @@ new class extends Component
                     class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">{{ $label }}</span>
                 @endforeach
             </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
@@ -1759,6 +1988,7 @@ new class extends Component
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
             </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
@@ -1771,51 +2001,36 @@ new class extends Component
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
         <p class="text-xs font-extrabold uppercase tracking-widest text-[#1a7aad] mb-1.5">Practice basics &middot; 2 of 4</p>
-        <h2 class="text-lg font-semibold text-[#12304f] mb-1">How many billable providers do you have?</h2>
-        <p class="text-sm text-[#5d6e7f] mb-5">Physicians and non-physician practitioners who bill under your group NPI.</p>
+        <h2 class="text-lg font-semibold text-[#12304f] mb-1">Billable providers</h2>
+        <p class="text-sm text-[#5d6e7f] mb-5">Confirmed at checkout — physicians and non-physician practitioners who bill under your group NPI.</p>
 
-        <div class="inline-flex items-stretch rounded-xl border border-[#dbe4ee] overflow-hidden">
-            <button type="button" wire:click="decrementProviders" aria-label="Fewer providers"
-                class="w-12 flex items-center justify-center text-xl text-[#12304f] bg-[#f8fbfd] hover:bg-[#eef2f6] transition-colors">&minus;</button>
-            <input wire:model.live="billableProviders" type="number" min="1" max="9999" aria-label="Billable providers"
-                class="w-20 text-center text-lg font-semibold text-[#173045] border-x border-[#dbe4ee] focus:outline-none">
-            <button type="button" wire:click="incrementProviders" aria-label="More providers"
-                class="w-12 flex items-center justify-center text-xl text-[#12304f] bg-[#f8fbfd] hover:bg-[#eef2f6] transition-colors">+</button>
+        <div class="inline-flex items-center gap-2 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-5 py-3">
+            <span class="text-lg font-semibold text-[#173045]">{{ $billableProviders }}</span>
+            <span class="text-sm text-[#5d6e7f]">provider{{ $billableProviders === 1 ? '' : 's' }}</span>
         </div>
-        @error('billableProviders') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
         @if($this->providerInvoiceHint)
         <p class="mt-3 text-xs text-[#5d6e7f]">{!! $this->providerInvoiceHint !!}</p>
         @endif
 
-        @if($justSaved)
-        <p class="mt-3 text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up
-            where you left off.</p>
-        @endif
-
         <div class="flex justify-between items-center mt-5">
             <button wire:click="backToProfile" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">&larr; Back</button>
-            <div class="flex items-center gap-4">
-                <button wire:click="continueFromProviders(true)" wire:target="continueFromProviders"
-                    class="text-sm font-semibold text-[#1a7aad] hover:underline">Skip for now</button>
-                <button wire:click="continueFromProviders(true, true)" wire:target="continueFromProviders"
-                    class="text-sm font-semibold text-[#5d6e7f] hover:underline">Save &amp; continue later</button>
-                <button wire:click="continueFromProviders" wire:target="continueFromProviders" wire:loading.attr="disabled"
-                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
-                    <span wire:loading.remove wire:target="continueFromProviders">Continue &rarr;</span>
-                    <span wire:loading.inline-flex wire:target="continueFromProviders" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
-                </button>
-            </div>
+            <button wire:click="continueFromProviders" wire:target="continueFromProviders" wire:loading.attr="disabled"
+                class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                <span wire:loading.remove wire:target="continueFromProviders">Continue &rarr;</span>
+                <span wire:loading.inline-flex wire:target="continueFromProviders" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+            </button>
         </div>
         </div>
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Your final invoice reflects this count. Providers who join mid-term are prorated and trued up at renewal.</p>
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">Your invoice already reflects this count from checkout. Providers who join mid-term are prorated and trued up at renewal. Need to change it? Contact support.</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
             </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
@@ -1840,10 +2055,24 @@ new class extends Component
         </label>
 
         @unless($sameAsBillingAddress)
-        <div class="mt-4">
+        <div class="mt-4 relative" x-data="addressAutocomplete({ address1: 'practiceAddress' })">
             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Street address <span class="text-red-500">*</span></label>
-            <input wire:model.live="practiceAddress" type="text" placeholder="123 Main St, Springfield, IL" required maxlength="255"
+            <input type="text" placeholder="123 Main St, Springfield, IL" required maxlength="255" autocomplete="off"
+                role="combobox" aria-autocomplete="list" aria-expanded="open" data-ac-field="practiceAddress"
+                x-model="query" x-on:input="onAddressInput()"
+                x-on:keydown.down.prevent="move(1)" x-on:keydown.up.prevent="move(-1)"
+                x-on:keydown.enter.prevent="chooseHighlighted()" x-on:keydown.escape="close()"
+                x-on:blur="setTimeout(() => close(), 150)"
                 class="w-full rounded-xl border {{ $errors->has('practiceAddress') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            <ul x-show="open" x-cloak role="listbox"
+                class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-[#dbe4ee] bg-white shadow-lg py-1">
+                <template x-for="(suggestion, index) in suggestions" :key="suggestion.label">
+                    <li role="option" x-text="suggestion.label" x-on:mousedown.prevent="select(suggestion)"
+                        :class="index === highlightedIndex ? 'bg-[#f0f7fb]' : ''"
+                        class="px-4 py-2 text-sm text-[#173045] cursor-pointer hover:bg-[#f0f7fb]">
+                    </li>
+                </template>
+            </ul>
             @error('practiceAddress') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
         @endunless
@@ -1876,6 +2105,7 @@ new class extends Component
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
             </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
@@ -1954,6 +2184,7 @@ new class extends Component
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
             </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
@@ -1971,6 +2202,7 @@ new class extends Component
                     <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Privacy &middot; &sect;1</span>
                     <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">HIPAA Security &middot; &sect;1</span>
                 </div>
+                <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
             </aside>';
         };
     @endphp
@@ -2575,12 +2807,48 @@ new class extends Component
                 <li>&middot; {{ $policy->title }}</li>
                 @endforeach
             </ul>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
         </aside>
         </div>
     </div>
     @endif
 
     {{-- ── Done ── --}}
+    {{-- ── Saving (cosmetic transition between the last question and the done screen) ── --}}
+    @if($screen === 'saving')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        <div class="flex flex-col items-center text-center px-6 py-14 lg:py-20 max-w-xl mx-auto"
+            x-data="{
+                step: 0,
+                items: ['Saving your answers securely', 'Linking your answers to your policies', 'Preparing your review'],
+            }"
+            x-init="
+                setTimeout(() => step = 1, 500);
+                setTimeout(() => step = 2, 1000);
+                setTimeout(() => step = 3, 1500);
+                setTimeout(() => $wire.finishWizard(), 2200);
+            ">
+            <div
+                class="h-14 w-14 rounded-full border-[2.5px] border-[#0b9ed0] text-[#0b9ed0] flex items-center justify-center mb-5">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h2 class="text-2xl font-extrabold text-[#0e1b30] mb-1.5">Answers saved</h2>
+            <p class="text-sm text-[#5d6e7f] mb-6">Next, you&rsquo;ll review everything before you submit.</p>
+            <ul class="space-y-2.5 text-left">
+                <template x-for="(item, index) in items" :key="index">
+                    <li class="flex items-center gap-2.5 text-sm" :class="index < step ? 'text-[#173045] font-semibold' : 'text-[#9aabbd]'">
+                        <span class="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                            :class="index < step ? 'bg-[#e6f6ef] text-[#1f9d6b]' : 'bg-[#eef2f6]'">
+                            <svg x-show="index < step" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </span>
+                        <span x-text="item"></span>
+                    </li>
+                </template>
+            </ul>
+        </div>
+    </div>
+    @endif
+
     @if($screen === 'done')
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
@@ -2599,4 +2867,95 @@ new class extends Component
         </div>
     </div>
     @endif
+
+    {{-- "Talk to a specialist" call-booking dialog --}}
+    <div x-show="$wire.callDialogOpen" x-cloak x-on:keydown.escape.window="$wire.closeCallDialog()"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+        <div class="relative w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            x-on:click.outside="$wire.closeCallDialog()">
+            <div class="flex items-start justify-between px-6 pt-6 pb-4">
+                <div>
+                    <h3 class="text-lg font-extrabold text-[#0e1b30]">Talk to a compliance specialist</h3>
+                    @unless($callBooked)
+                    <p class="text-sm text-[#5d6e7f] mt-1">Book a free 15-minute call. We&rsquo;ll call you at the
+                        time you choose.</p>
+                    @endunless
+                </div>
+                <button type="button" wire:click="closeCallDialog" aria-label="Close"
+                    class="flex-shrink-0 text-[#5c778d] hover:text-[#0e3a61] transition-colors">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            @if($callBooked)
+            <div class="px-6 pb-8 text-center">
+                <div
+                    class="mx-auto mb-4 h-14 w-14 rounded-full bg-[#e6f6ef] text-[#1f9d6b] flex items-center justify-center">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <h4 class="text-base font-bold text-[#173045] mb-1">Call requested</h4>
+                <p class="text-sm text-[#5d6e7f]">We&rsquo;ll call {{ $callPhone }} on
+                    {{ Carbon::parse($callDate)->format('l, M j') }} at {{ $callTime }} Eastern.
+                </p>
+            </div>
+            @else
+            <div class="px-6 pb-6 border-t border-[#eef2f6] pt-4">
+                <p class="text-xs font-bold text-[#31465b] mb-2">Pick a day</p>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    @foreach($this->availableCallDays as $day)
+                    <button type="button" wire:click="$set('callDate', '{{ $day->toDateString() }}')"
+                        class="rounded-full border px-3.5 py-1.5 text-sm font-semibold transition-colors {{ $callDate === $day->toDateString() ? 'border-[#12304f] bg-[#12304f] text-white' : 'border-[#dbe4ee] text-[#173045] hover:border-[#0b9ed0]' }}">
+                        {{ $day->format('D, M j') }}</button>
+                    @endforeach
+                </div>
+
+                <p class="text-xs font-bold text-[#31465b] mb-2">Pick a time (Eastern)</p>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    @foreach($this->availableCallTimes() as $time)
+                    <button type="button" wire:click="$set('callTime', '{{ $time }}')"
+                        class="rounded-full border px-3.5 py-1.5 text-sm font-semibold transition-colors {{ $callTime === $time ? 'border-[#12304f] bg-[#12304f] text-white' : 'border-[#dbe4ee] text-[#173045] hover:border-[#0b9ed0]' }}">
+                        {{ $time }}</button>
+                    @endforeach
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-[#31465b] mb-1.5">Phone number</label>
+                        <input wire:model="callPhone" type="tel" placeholder="+1 555 123 4567"
+                            class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                        @error('callPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-[#31465b] mb-1.5">Topic</label>
+                        <select wire:model="callTopic"
+                            class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+                            @foreach($this->availableCallTopics() as $topic)
+                            <option value="{{ $topic }}">{{ $topic }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <label class="block text-xs font-bold text-[#31465b] mb-1.5">Anything we should know? <span
+                        class="font-normal text-[#5d6e7f]">(optional)</span></label>
+                <textarea wire:model="callNotes" rows="3"
+                    class="w-full rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"></textarea>
+                @error('callNotes') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+
+            <div class="flex items-center justify-between gap-3 bg-[#f8fafc] border-t border-[#eef2f6] px-6 py-4">
+                <button type="button" wire:click="closeCallDialog"
+                    class="rounded-full border border-[#dbe4ee] bg-white px-4 py-2 text-sm font-semibold text-[#173045] hover:bg-[#f5f7fa] transition-colors">Cancel</button>
+                <button type="button" wire:click="bookSpecialistCall" wire:loading.attr="disabled"
+                    wire:target="bookSpecialistCall"
+                    class="rounded-full bg-[#3a9bd5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">
+                    <span wire:loading.remove wire:target="bookSpecialistCall">Book call</span>
+                    <span wire:loading.inline-flex wire:target="bookSpecialistCall" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Booking&hellip;</span>
+                </button>
+            </div>
+            @endif
+        </div>
+    </div>
 </div>

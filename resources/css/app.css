@@ -60,3 +60,23 @@
         width: 40%;
     }
 }
+
+/* Package-picker quiz's "Compare all packages" pulse — a radar-ping ring on the recommended
+   pricing card, matching the client prototype's .quiz-pick/@keyframes quizPick exactly. */
+@keyframes quiz-pick {
+    0% {
+        box-shadow: 0 0 0 0 rgba(11, 158, 208, 0.55);
+    }
+
+    70% {
+        box-shadow: 0 0 0 14px rgba(11, 158, 208, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(11, 158, 208, 0);
+    }
+}
+
+.quiz-pick {
+    animation: quiz-pick 1.6s ease-out 2;
+}

@@ -251,6 +251,7 @@ class GenerateComplianceDocument implements ShouldQueue
         $html = match ($this->documentType) {
             DocumentType::SecurityRiskAssessment => $this->synthesizeSecurityRiskAssessment(),
             DocumentType::CodingMiniAuditReport => $this->synthesizeMiniAuditReport(),
+            DocumentType::ExclusionsScreeningReport => $this->synthesizeExclusionsScreeningReport(),
             default => throw new \RuntimeException("No AI synthesis defined for {$this->documentType->value}"),
         };
 
@@ -370,6 +371,36 @@ Encounter data:
 PROMPT;
 
         return $this->callOpenAiForHtmlReport($prompt, 'coding_mini_audit_report');
+    }
+
+    /**
+     * Synthesizes an Exclusions Screening Report — every paid tier's deliverable, not just
+     * Advanced's. We don't collect individual provider/staff names or NPIs anywhere today, so
+     * this can't be a real per-person OIG LEIE / SAM.gov lookup; it documents Empower's standard
+     * screening process and attestation at the practice level instead, scoped to what we actually
+     * know (billable provider count), and recommends per-person screening going forward.
+     */
+    private function synthesizeExclusionsScreeningReport(): string
+    {
+        $practice = $this->order->user->practice;
+        $providers = $practice?->billable_providers_count ?? 1;
+
+        $prompt = <<<PROMPT
+You are a healthcare compliance consultant producing an Exclusions Screening Report as part of a practice's compliance review. Write the report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li> — do not include <html>, <head> or <body> tags, and do not use markdown).
+
+Structure the report with these sections:
+<h2>Exclusions Screening Report</h2>
+<h3>Scope</h3> — state that this review covers the practice's {$providers} billable provider(s), and that it was performed as part of the practice's compliance program with Empower.
+<h3>Screening Process</h3> — describe, in general consulting language, that an OIG List of Excluded Individuals/Entities (LEIE) and SAM.gov exclusions check is part of Empower's standard review process, and that it should be repeated at hire and at least annually for every individual providing services for the practice.
+<h3>Recommendation</h3> — a short numbered list recommending the practice maintain a current roster of providers and staff (name and NPI where applicable) and screen each one individually, since this report is scoped at the practice level rather than by named individual.
+
+Rules:
+- Do not state or imply that any specific named individual was checked against the LEIE or SAM.gov exclusion lists — no individual names or NPIs were provided for this review.
+- Do not invent findings, exclusion results, or specific people. This is a process and scope report, not a per-person result.
+- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
+PROMPT;
+
+        return $this->callOpenAiForHtmlReport($prompt, 'exclusions_screening_report');
     }
 
     private function callOpenAiForHtmlReport(string $prompt, string $usagePurpose): string

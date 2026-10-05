@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Admin\GeneratedDocumentDownloadController;
 use App\Http\Controllers\Admin\IntakeUploadDownloadController;
 use App\Http\Controllers\Auth\AuthController;
@@ -22,7 +23,17 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     $packages = Package::where('is_active', true)->orderBy('sort_order')->get()->keyBy('slug');
 
-    return view('welcome', compact('packages'));
+    // "Welcome back" resume banner: the client's most recent order that's past payment but not
+    // yet fully approved — PendingPayment is excluded (that's "you still owe us money", a
+    // different message than "continue your intake").
+    $resumeOrder = auth()->check()
+        ? auth()->user()->orders()
+            ->whereIn('status', [OrderStatus::Paid, OrderStatus::IntakeSubmitted, OrderStatus::UnderReview])
+            ->latest()
+            ->first()
+        : null;
+
+    return view('welcome', compact('packages', 'resumeOrder'));
 })->name('home');
 Route::get('/contact', fn () => view('contact'))->name('contact');
 
@@ -31,6 +42,10 @@ Route::get('/login', fn () => view('auth.login'))->name('login');
 Route::get('/register', function (Request $request) {
     if ($request->filled('package')) {
         session(['intended_package' => $request->query('package')]);
+    }
+
+    if ($request->filled('billing_cycle')) {
+        session(['intended_billing_cycle' => $request->query('billing_cycle')]);
     }
 
     return view('auth.register');

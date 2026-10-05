@@ -48,8 +48,13 @@
             <span class="text-xs text-[#5d6e7f] whitespace-nowrap">{{ $chapter['done'] === $chapter['total'] ? '✓ ' : '' }}{{ $chapter['done'] }}/{{ $chapter['total'] }}</span>
         </button>
         @endforeach
-        <button type="button" wire:click="requestReview" x-on:click="sectionsOpen = false"
+        <button type="button" wire:click="viewWhatYouNeed" x-on:click="sectionsOpen = false"
             class="flex items-center justify-between gap-2.5 w-full text-left text-sm px-2.5 py-2 mt-1 rounded-lg border-t border-[#eef2f6] font-bold text-[#1a7aad] hover:bg-[#f2f8fd]">
+            <span>What you&rsquo;ll need</span>
+            <span class="text-xs whitespace-nowrap">Checklist</span>
+        </button>
+        <button type="button" wire:click="requestReview" x-on:click="sectionsOpen = false"
+            class="flex items-center justify-between gap-2.5 w-full text-left text-sm px-2.5 py-2 rounded-lg font-bold text-[#1a7aad] hover:bg-[#f2f8fd]">
             <span>Review all answers</span>
             <span class="text-xs whitespace-nowrap">&rarr;</span>
         </button>

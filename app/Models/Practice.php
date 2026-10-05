@@ -22,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'compliance_committee_members', 'compliance_governing_board_members',
     'legal_practice_name', 'dba_name', 'other_entities', 'main_phone', 'main_email', 'practice_locations',
     'it_mode', 'it_contact_name', 'it_contact_phone', 'it_contact_email',
-    'committee_none', 'board_mode',
+    'committee_none', 'board_mode', 'dashboard_next_steps',
 ])]
 class Practice extends Model
 {
@@ -52,6 +52,7 @@ class Practice extends Model
             'compliance_governing_board_members' => 'array',
             'practice_locations' => 'array',
             'committee_none' => 'boolean',
+            'dashboard_next_steps' => 'array',
         ];
     }
 

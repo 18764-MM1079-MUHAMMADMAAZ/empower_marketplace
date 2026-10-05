@@ -10,6 +10,8 @@ use App\Mail\ClientTrialCancelledMail;
 use App\Mail\ClientTrialEndingReminderMail;
 use App\Models\Order;
 use App\Models\Package;
+use App\Models\Practice;
+use App\Models\User;
 use App\Services\MtbcCardCipher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -117,6 +119,29 @@ class ProcessSubscriptionBillingTest extends TestCase
         $this->assertSame(0, $order->renewal_attempts);
         $this->assertEquals(89.0, (float) $order->amount_paid);
         $this->assertTrue($order->next_bill_date->isSameDay($originalNextBillDate->copy()->addMonth()));
+    }
+
+    public function test_renewal_charges_the_practices_current_provider_count_not_the_price_at_purchase(): void
+    {
+        Mail::fake();
+        $this->fakeDetokenizeAndCharge(chargeSucceeds: true);
+
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'billable_providers_count' => 3]);
+        $package = Package::factory()->create(['annual_price' => 100]);
+        $order = Order::factory()->convertedFromTrial()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            // Frozen at purchase time with only 1 provider — the practice has since grown.
+            'original_price' => 100,
+            'next_bill_date' => now()->subDays(2),
+        ]);
+
+        $this->artisan('subscriptions:process-billing');
+
+        $order->refresh();
+        $this->assertSame(PaymentStatus::Paid, $order->payment_status);
+        $this->assertEquals(300.0, (float) $order->amount_paid);
     }
 
     public function test_a_direct_pay_order_with_no_trial_history_renews_automatically(): void

@@ -12,7 +12,8 @@
 
         <div class="px-5 py-5">
             <h3 class="text-lg font-semibold text-[#173a59] mb-1">Sign Up</h3>
-            <p class="text-xs text-[#5c778d] mb-5">Create an account, then head over to Packages to purchase your first plan.</p>
+            <p class="text-xs text-[#5c778d] mb-5">Create the account that will manage your practice's Empower
+                portal. You'll set it up as part of checkout.</p>
             <livewire:auth.register-form :package="request()->query('package')" />
         </div>
     </div>
