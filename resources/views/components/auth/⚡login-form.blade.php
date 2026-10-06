@@ -215,14 +215,14 @@ new class extends Component
         <span class="text-xs font-semibold text-[#5c778d] uppercase tracking-wide">Sign in with</span>
         <div class="h-px flex-1 bg-[#e5edf3]"></div>
     </div>
-    <div class="grid grid-cols-1 gap-2.5 mb-5">
-        <button type="button" wire:click="selectSsoProvider('carecloud')"
-            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
-            <img src="{{ asset('images/carcloud-logo.png') }}" alt="" class="flex-shrink-0" style="width: 12rem;">
-        </button>
+    <div class="grid grid-cols-2 gap-2.5 mb-5">
         <button type="button" wire:click="selectSsoProvider('talkehr')"
             class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
             <img src="{{ asset('images/talk-logo.png') }}" alt="" class="flex-shrink-0" style="width: 12rem;">
+        </button>
+        <button type="button" wire:click="selectSsoProvider('carecloud')"
+            class="flex items-center justify-center gap-1.5 rounded-xl border border-[#d4e5f1] bg-white px-3 py-2.5 text-xs font-semibold text-[#173a59] hover:border-[#0b9ed0] hover:bg-[#f4f9fc] transition-colors">
+            <img src="{{ asset('images/carcloud-logo.png') }}" alt="" class="flex-shrink-0" style="width: 12rem;">
         </button>
     </div>
 
@@ -241,7 +241,8 @@ new class extends Component
     </button>
 
     <div class="flex items-center justify-center mb-5">
-        <img src="{{ asset('images/'.($ssoProvider === 'carecloud' ? 'carcloud-logo.png' : 'talk-logo.png')) }}" alt="" style="width: 10rem;">
+        <img src="{{ asset('images/'.($ssoProvider === 'carecloud' ? 'carcloud-logo.png' : 'talk-logo.png')) }}" alt=""
+            style="width: 10rem;">
     </div>
 
     <form wire:submit="loginViaSso" novalidate>
