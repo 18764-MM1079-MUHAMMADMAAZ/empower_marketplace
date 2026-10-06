@@ -20,6 +20,8 @@ new class extends Component
         DocumentType::HipaaSecurityManual,
         DocumentType::SecurityRiskAssessment,
         DocumentType::CodingMiniAuditReport,
+        DocumentType::ExclusionsScreeningReport,
+        DocumentType::TrainingPlanLmsEnrollment,
     ];
 
     public ?int $packageId = null;

@@ -39,6 +39,11 @@ enum DocumentType: string
     // isAiSynthesizedReport() and GenerateComplianceDocument::synthesizeExclusionsScreeningReport().
     case ExclusionsScreeningReport = 'exclusions_screening_report';
 
+    // Professional tier's deliverable in place of Advanced's full Employee Manual — synthesized
+    // by AI from the practice's own "Compliance & HIPAA training" workflow answer. See
+    // isAiSynthesizedReport() and GenerateComplianceDocument::synthesizeTrainingPlanReport().
+    case TrainingPlanLmsEnrollment = 'training_plan_lms_enrollment';
+
     public function label(): string
     {
         return match ($this) {
@@ -58,6 +63,7 @@ enum DocumentType: string
             self::SecurityRiskAssessment => 'Security Risk Assessment (SRA)',
             self::CodingMiniAuditReport => 'Coding & Documentation Mini Audit Report',
             self::ExclusionsScreeningReport => 'Exclusions Screening Report',
+            self::TrainingPlanLmsEnrollment => 'Training Plan & LMS Enrollment',
         };
     }
 
@@ -66,7 +72,8 @@ enum DocumentType: string
     public function isAiSynthesizedReport(): bool
     {
         return match ($this) {
-            self::SecurityRiskAssessment, self::CodingMiniAuditReport, self::ExclusionsScreeningReport => true,
+            self::SecurityRiskAssessment, self::CodingMiniAuditReport, self::ExclusionsScreeningReport,
+            self::TrainingPlanLmsEnrollment => true,
             default => false,
         };
     }

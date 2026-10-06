@@ -220,18 +220,19 @@ new class extends Component
         // has actually been reached; before that, the radio starts genuinely unanswered.
         $this->usesEhcpHotline = in_array('t_hotline', $reached, true) ? (bool) $practice?->uses_ehcp_hotline : null;
         $this->hotlineContact = $practice?->compliance_hotline_number ?: ($practice?->compliance_hotline_email ?? '');
-        $this->hotlinePosterCount = $practice?->hotline_poster_count;
+        $hotlineLocationCount = max(1, collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->count());
+        $this->hotlinePosterCount = $practice?->hotline_poster_count ?? ($hotlineLocationCount * 2);
 
         $this->committeeNone = (bool) ($practice?->committee_none ?? false);
         $this->complianceCommitteeMembers = $practice?->compliance_committee_members ?: [['name' => '', 'title' => '']];
         $this->boardMode = $practice?->board_mode ?? '';
         $this->complianceGoverningBoardMembers = $practice?->compliance_governing_board_members ?: [['name' => '', 'title' => '']];
 
-        $this->screen = in_array($submission->wizard_screen, ['documents', 'b_profile', 'b_providers', 'b_address', 'b_logo', 't_practice', 't_officers', 't_it', 't_hotline', 't_leadership', 'question', 'done'], true)
+        $this->screen = in_array($submission->wizard_screen, ['documents', 'b_profile', 'b_providers', 'b_address', 'b_logo', 't_practice', 't_officers', 't_it', 't_hotline', 't_leadership', 'services', 'gate', 'question', 'done'], true)
             ? $submission->wizard_screen
             : 'documents';
 
-        if (! $this->includesWorkflowQuestionnaire && in_array($this->screen, [...self::TEAM_SUB_SCREENS, 'question'], true)) {
+        if (! $this->includesWorkflowQuestionnaire && in_array($this->screen, [...self::TEAM_SUB_SCREENS, 'services', 'gate', 'question'], true)) {
             $this->screen = 'done';
         }
 
@@ -244,6 +245,15 @@ new class extends Component
 
         if ($this->screen === 'question') {
             $this->loadQuestion($this->remainingQueue[0] ?? null);
+        }
+
+        if ($this->screen === 'gate') {
+            $this->currentGateSectionId = $this->remainingSectionIds[0] ?? null;
+
+            if ($this->currentGateSectionId === null) {
+                // Stale resume (e.g. every gate got resolved by other means) — route forward properly.
+                $this->advanceToNextQuestion();
+            }
         }
 
         // Step 3's "Your answers" review passes this when the client clicks "Edit" on a
@@ -283,6 +293,60 @@ new class extends Component
     public function includesAdvancedDocumentCategories(): bool
     {
         return $this->batchOrders->contains(fn (Order $o) => $o->package?->includesAdvancedDocumentCategories());
+    }
+
+    /** The "Before you start" intro screen's checklist — tier-aware, transcribed from the
+     *  prototype's prepItems(): Essential sees 2 items, Professional 8, Advanced 9. */
+    #[Computed]
+    public function introItems(): array
+    {
+        $pro = $this->includesWorkflowQuestionnaire;
+        $adv = $this->includesAdvancedDocumentCategories;
+
+        $items = [
+            [
+                'title' => $pro ? 'Any current policies, manuals or training materials' : 'Your current policies and training materials',
+                'description' => $pro
+                    ? 'Optional. PDF, Word or Excel. We keep what already works.'
+                    : 'Compliance & Ethics program, HIPAA Privacy and Security policies, and training materials. PDF, Word or Excel.',
+            ],
+            ['title' => 'Practice name, specialty and address', 'description' => 'Plus your logo if you\'d like it on the cover (optional).'],
+        ];
+
+        if ($pro) {
+            $items = [...$items,
+                ['title' => 'Legal details and every location', 'description' => 'Legal name, any DBA, main phone and email, and the address of each site.'],
+                ['title' => 'Contact details for 4 compliance roles', 'description' => 'Name, phone and email for your Privacy Officer, Security Officer, Release of Information Officer and Compliance Officer. One person can hold several roles.'],
+                ['title' => 'Your IT company or IT person', 'description' => 'Company name, plus a contact phone and email.'],
+                ['title' => 'Compliance Committee and owners or board', 'description' => 'Names and titles, if you have them.'],
+                ['title' => 'The services you offer', 'description' => 'For example telehealth, lab tests, office Wi-Fi or remote access. One checklist covers it.'],
+                ['title' => 'Written procedures, if you have them', 'description' => 'Keep them open to copy from. Where you don\'t have one, the policy\'s best-practice language is used.'],
+            ];
+        }
+
+        if ($adv) {
+            $items[] = ['title' => 'Employee manual and encounter list', 'description' => 'Your current employee handbook, plus 10 recent encounters per provider for the coding audit.'];
+        }
+
+        return $items;
+    }
+
+    #[Computed]
+    public function introTimeEstimate(): string
+    {
+        return match (true) {
+            $this->includesAdvancedDocumentCategories => 'about 20–30 minutes',
+            $this->includesWorkflowQuestionnaire => 'about 15–25 minutes',
+            default => 'about 5 minutes',
+        };
+    }
+
+    /** Matches the prototype's clamp(items.length * 900, 5000, 9000) — a few seconds either way
+     *  depending on how much this tier's checklist has to show. */
+    #[Computed]
+    public function introAnimationDurationMs(): int
+    {
+        return max(5000, min(9000, count($this->introItems) * 900));
     }
 
     #[Computed]
@@ -382,7 +446,59 @@ new class extends Component
             : [...$missing, $key];
 
         $submission->update(['wizard_missing_document_categories' => $missing]);
-        unset($this->currentSubmission);
+        unset($this->currentSubmission, $this->missingDocumentCategories, $this->openDocumentCategories, $this->bulkMissingDocumentsLabel);
+    }
+
+    /** Categories still sitting at "needed" — neither uploaded/tagged nor already marked missing. */
+    #[Computed]
+    public function openDocumentCategories(): array
+    {
+        return collect($this->requiredDocumentCategories)
+            ->keys()
+            ->filter(fn ($key) => $this->documentCategoryStatus($key) === 'needed')
+            ->values()
+            ->all();
+    }
+
+    #[Computed]
+    public function hasAnyUploadedDocument(): bool
+    {
+        return $this->existingDocuments->isNotEmpty() || collect($this->documentFileTags)->filter()->isNotEmpty();
+    }
+
+    /** One-click alternative to marking each remaining category "I don't have this" — mirrors the
+     *  prototype's bulkNoneLabel(): Professional/Advanced (every category optional) also get a
+     *  "We don't have any of these" variant before anything's been uploaded at all; Essential
+     *  only offers the bulk action once at least one real upload exists. */
+    #[Computed]
+    public function bulkMissingDocumentsLabel(): ?string
+    {
+        $open = count($this->openDocumentCategories);
+
+        if ($open === 0) {
+            return null;
+        }
+
+        if ($this->hasAnyUploadedDocument) {
+            return "Mark the other {$open} as \"don't have\"";
+        }
+
+        return $this->includesWorkflowQuestionnaire ? "We don't have any of these →" : null;
+    }
+
+    public function markRemainingDocumentsMissing(): void
+    {
+        $submission = $this->currentSubmission;
+        $missing = $submission->wizard_missing_document_categories ?? [];
+
+        foreach ($this->openDocumentCategories as $key) {
+            if (! in_array($key, $missing, true)) {
+                $missing[] = $key;
+            }
+        }
+
+        $submission->update(['wizard_missing_document_categories' => $missing]);
+        unset($this->currentSubmission, $this->missingDocumentCategories, $this->openDocumentCategories, $this->bulkMissingDocumentsLabel);
     }
 
     /** Auto-tags a newly selected file by matching keywords in its filename against the still-
@@ -433,16 +549,47 @@ new class extends Component
         return IntakeSection::with('questions.policies')->orderBy('sort_order')->get();
     }
 
+    /** Only the questions whose section gate has actually been resolved as "some", and which the
+     *  practice picked — grows as gates get resolved, same honest-but-growing-total the prototype
+     *  itself uses. The IT combo's sentinel id counts as exactly one item here, the same as any
+     *  real question, even though saving it fans out to several real IntakeAnswer rows. */
     #[Computed]
     public function masterQuestionIds(): array
     {
-        return $this->sections->flatMap(fn (IntakeSection $s) => $s->questions)->pluck('id')->all();
+        $ids = [];
+
+        foreach ($this->sections as $section) {
+            $gate = $this->sectionGates[(string) $section->id] ?? null;
+
+            if (! $gate || ($gate['mode'] ?? null) !== 'some') {
+                continue;
+            }
+
+            $validIds = $this->gateTopicsForSection($section)->pluck('id')->all();
+
+            foreach ($gate['picked'] ?? [] as $id) {
+                if (in_array($id, $validIds, true) && ! in_array($id, $ids, true)) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return $ids;
     }
 
     #[Computed]
     public function answeredQuestionIds(): array
     {
-        return $this->currentSubmission->intakeAnswers()->pluck('intake_question_id')->all();
+        $ids = $this->currentSubmission->intakeAnswers()->pluck('intake_question_id')->all();
+
+        // The combo never gets its own IntakeAnswer row (saveCurrentAnswer() fans it out across
+        // every absorbed question's own row instead) — treat it answered once any of those is.
+        $kept = $this->itManagedKeptQuestionIds;
+        if ($kept->isNotEmpty() && in_array($kept->first(), $ids, true)) {
+            $ids[] = self::IT_COMBO_ID;
+        }
+
+        return $ids;
     }
 
     #[Computed]
@@ -478,6 +625,10 @@ new class extends Component
     #[Computed]
     public function currentQuestion(): ?IntakeQuestion
     {
+        if ($this->currentQuestionId === self::IT_COMBO_ID) {
+            return $this->comboQuestion();
+        }
+
         return $this->currentQuestionId
             ? IntakeQuestion::with('policies', 'section')->find($this->currentQuestionId)
             : null;
@@ -495,9 +646,316 @@ new class extends Component
         return (int) round((count($this->answeredQuestionIds) / $total) * 100);
     }
 
+    // ── Question tree: services checklist, per-section gates, IT-vendor consolidation ───────
+
+    #[Computed]
+    public function selectedServices(): array
+    {
+        return $this->currentSubmission->wizard_selected_services ?? [];
+    }
+
+    #[Computed]
+    public function servicesScreenDone(): bool
+    {
+        return in_array('services', $this->reachedScreens, true);
+    }
+
+    #[Computed]
+    public function isItOutsourced(): bool
+    {
+        return $this->practice?->it_mode === 'vendor';
+    }
+
+    /** Every policy code this section's topics map to, in topic order — duplicates included (a
+     *  policy fed by more than one topic, like PRV-36, is meant to show once per topic), matching
+     *  the prototype's `s.topics.flatMap(q => q.maps)`. */
+    public function gateUsedInPolicyCodes(Collection $gateTopics): array
+    {
+        $codes = [];
+
+        foreach ($gateTopics as $topic) {
+            foreach ($topic->policies as $policy) {
+                $codes[] = $policy->code;
+            }
+        }
+
+        return $codes;
+    }
+
+    /** Every policy code the services checklist can affect, across all 12 services regardless of
+     *  current checkbox state — the "Used in" chip list on the services screen's aside, matching
+     *  the prototype's `SERVICES.flatMap(...).flatMap(...)`. */
+    #[Computed]
+    public function servicesUsedInPolicyCodes(): array
+    {
+        $questionsByServiceKey = $this->sections
+            ->flatMap(fn (IntakeSection $s) => $s->questions)
+            ->filter(fn (IntakeQuestion $q) => $q->service_key !== null)
+            ->keyBy('service_key');
+
+        $codes = [];
+
+        foreach (array_keys(self::SERVICES) as $key) {
+            foreach ($questionsByServiceKey->get($key)?->policies ?? [] as $policy) {
+                $codes[] = $policy->code;
+            }
+        }
+
+        return $codes;
+    }
+
+    #[Computed]
+    public function itVendorLabel(): string
+    {
+        return trim((string) $this->practice?->it_vendor_name) ?: 'your IT company';
+    }
+
+    #[Computed]
+    public function hasNoCommittee(): bool
+    {
+        return (bool) $this->practice?->committee_none;
+    }
+
+    #[Computed]
+    public function sectionGates(): array
+    {
+        return $this->currentSubmission->wizard_section_gates ?? [];
+    }
+
+    #[Computed]
+    public function skippedSectionIds(): array
+    {
+        return $this->currentSubmission->wizard_skipped_section_ids ?? [];
+    }
+
+    /** Unresolved sections, in order — still-skipped ones are pushed to the end so "Skip for now"
+     *  on a gate screen defers that section without losing it, exactly mirroring
+     *  remainingQueue()'s treatment of skipped questions. */
+    #[Computed]
+    public function remainingSectionIds(): array
+    {
+        $unresolved = $this->sections
+            ->reject(fn (IntakeSection $s) => array_key_exists((string) $s->id, $this->sectionGates))
+            ->pluck('id')
+            ->all();
+
+        $skipped = $this->skippedSectionIds;
+
+        $unskipped = array_values(array_diff($unresolved, $skipped));
+        $stillSkipped = array_values(array_intersect($skipped, $unresolved));
+
+        return array_merge($unskipped, $stillSkipped);
+    }
+
+    private function isServiceExcluded(IntakeQuestion $question): bool
+    {
+        return $question->service_key
+            && $this->servicesScreenDone
+            && ! in_array($question->service_key, $this->selectedServices, true);
+    }
+
+    /** Every real IT-managed question the combo answers for — excludes one a service unchecked,
+     *  since that policy simply doesn't apply at all, combo or not. Empty when IT isn't outsourced
+     *  or every IT-managed question happens to be service-excluded. */
+    #[Computed]
+    public function itManagedKeptQuestionIds(): Collection
+    {
+        if (! $this->isItOutsourced) {
+            return collect();
+        }
+
+        return $this->sections
+            ->flatMap(fn (IntakeSection $s) => $s->questions)
+            ->filter(fn (IntakeQuestion $q) => $q->is_it_managed_topic && ! $this->isServiceExcluded($q))
+            ->pluck('id')
+            ->values();
+    }
+
+    /** A non-persisted stand-in for the combined "What your IT company manages" question, so it
+     *  can flow through the exact same question-screen Blade as any real IntakeQuestion. */
+    private function comboQuestion(): IntakeQuestion
+    {
+        $securitySection = $this->sections->firstWhere('key', 'security_systems_network');
+        $kept = $this->itManagedKeptQuestionIds;
+
+        $combo = new IntakeQuestion([
+            'intake_section_id' => $securitySection?->id,
+            'title' => 'What your IT company manages',
+            'prompt_summary' => "Describe how {$this->itVendorLabel} manages your practice's computers, network and security.",
+            'why_we_ask' => "Because {$this->itVendorLabel} runs your systems, {$kept->count()} technical security topics are combined into one answer. Cover each policy below; if {$this->itVendorLabel} provided documentation, you can summarize it here.",
+        ]);
+        $combo->id = self::IT_COMBO_ID;
+        $combo->setRelation('section', $securitySection);
+        $combo->setRelation(
+            'policies',
+            IntakeQuestion::whereIn('id', $kept)->with('policies')->get()->flatMap->policies->unique('id')->values()
+        );
+
+        return $combo;
+    }
+
+    /** Section-1 facts already on file that are relevant to this specific question, so the
+     *  practice isn't asked to repeat a name, phone or email it already gave us — matching the
+     *  prototype's knownFacts(). Keyed by question title since these are fixed, named questions. */
+    public function knownFactsForQuestion(IntakeQuestion $question): array
+    {
+        $person = fn (string $label, string $name, string $phone, string $email): ?string => trim($name) === ''
+            ? null
+            : $label.': '.collect([$name, $phone, $email])->filter(fn ($v) => trim($v) !== '')->implode(' · ');
+
+        $rowLine = fn (array $rows): string => collect($rows)
+            ->filter(fn ($row) => trim($row['name'] ?? '') !== '')
+            ->map(fn ($row) => trim($row['title'] ?? '') !== '' ? "{$row['name']} ({$row['title']})" : $row['name'])
+            ->implode(', ');
+
+        if ($question->id === self::IT_COMBO_ID) {
+            $line = collect([$this->itVendorName, $this->itContactName, $this->itContactPhone, $this->itContactEmail])
+                ->filter(fn ($v) => trim((string) $v) !== '')
+                ->implode(' · ');
+
+            return $this->itVendorName !== '' && $line !== '' ? ["IT company: {$line}"] : [];
+        }
+
+        $hotline = match (true) {
+            $this->usesEhcpHotline === true => 'Compliance hotline: Empower compliance hotline',
+            $this->usesEhcpHotline === false && $this->hotlineContact !== '' => "Compliance hotline: {$this->hotlineContact}",
+            default => null,
+        };
+
+        $committeeLine = $this->committeeNone ? null : $rowLine($this->complianceCommitteeMembers);
+        $boardLine = $this->boardMode !== '' ? $rowLine($this->complianceGoverningBoardMembers) : null;
+
+        $compliance = fn () => $person('Compliance Officer', $this->complianceOfficerName, $this->complianceOfficerPhone, $this->complianceOfficerEmail);
+        $privacy = fn () => $person('HIPAA Privacy Officer', $this->hipaaPrivacyOfficerName, $this->hipaaPrivacyOfficerPhone, $this->hipaaPrivacyOfficerEmail);
+        $security = fn () => $person('HIPAA Security Officer', $this->hipaaSecurityOfficerName, $this->hipaaSecurityOfficerPhone, $this->hipaaSecurityOfficerEmail);
+        $roi = fn () => $person('Release of Information Officer', $this->releaseOfInfoOfficerName, $this->releaseOfInfoOfficerPhone, $this->releaseOfInfoOfficerEmail);
+
+        $map = [
+            'Compliance Officer duties' => [$compliance()],
+            'Compliance Committee' => [$committeeLine ? "Committee members: {$committeeLine}" : null],
+            'Owner & board oversight' => [$boardLine ? ($this->boardMode === 'board' ? 'Governing board' : 'Owners with oversight').": {$boardLine}" : null],
+            'Reporting concerns' => [$hotline, $compliance(), $privacy()],
+            'Security Officer role' => [$security()],
+            'Security incidents & breaches' => [$security(), $privacy()],
+            'Patient access to records' => [$roi()],
+            'Requests to amend records' => [$roi()],
+            'Accounting of disclosures' => [$roi()],
+            'Routine uses & disclosures' => [$roi()],
+        ];
+
+        return array_values(array_filter($map[$question->title] ?? []));
+    }
+
+    /** A section's pickable topics on its gate screen: its own questions after committee/service/
+     *  IT filtering, with the one combined IT question appended wherever its absorbed questions
+     *  would otherwise have appeared — always "Security: systems & network", same as the
+     *  prototype's hardcoded chapter K. */
+    public function gateTopicsForSection(IntakeSection $section): Collection
+    {
+        $topics = $section->questions
+            ->reject(fn (IntakeQuestion $q) => $q->requires_compliance_committee && $this->hasNoCommittee)
+            ->reject(fn (IntakeQuestion $q) => $this->isServiceExcluded($q))
+            ->reject(fn (IntakeQuestion $q) => $q->is_it_managed_topic && $this->isItOutsourced)
+            ->values();
+
+        if ($section->key === 'security_systems_network' && $this->itManagedKeptQuestionIds->isNotEmpty()) {
+            $topics->push($this->comboQuestion());
+        }
+
+        return $topics;
+    }
+
     private const BASICS_SUB_SCREENS = ['b_profile', 'b_providers', 'b_address', 'b_logo'];
 
     private const TEAM_SUB_SCREENS = ['t_practice', 't_officers', 't_it', 't_hotline', 't_leadership'];
+
+    // The "Your services" checklist — each key gates exactly one workflow question
+    // (IntakeQuestion::service_key), transcribed from the prototype's SERVICES array.
+    private const SERVICES = [
+        'lab' => ['label' => 'We order or perform lab tests or diagnostic procedures', 'description' => 'In-office testing or tests sent to an outside lab.'],
+        'oon' => ['label' => 'We see Medicare Advantage or Medicaid plan patients while out of network with their plan', 'description' => ''],
+        'wc' => ['label' => 'We treat workers\' compensation patients', 'description' => ''],
+        'plan' => ['label' => 'We also act as a health plan or a healthcare clearinghouse', 'description' => 'Most practices are health care providers only.'],
+        'gov' => ['label' => 'We treat patients in custody or military service members', 'description' => 'Including requests from correctional facilities, military command or federal officials.'],
+        'research' => ['label' => 'We take part in research that uses patient information', 'description' => ''],
+        'data' => ['label' => 'We share de-identified data or limited data sets', 'description' => 'For example with registries, benchmarking or analytics vendors.'],
+        'fund' => ['label' => 'We use patient information for fundraising', 'description' => ''],
+        'tele' => ['label' => 'We offer telehealth visits', 'description' => ''],
+        'byod' => ['label' => 'Staff use personal phones, tablets or laptops for work', 'description' => ''],
+        'remote' => ['label' => 'Staff connect to our systems from outside the office', 'description' => 'For example VPN or remote desktop.'],
+        'wifi' => ['label' => 'We have Wi-Fi at our office', 'description' => ''],
+    ];
+
+    // Sentinel id for the synthetic "What your IT company manages" question — never a real
+    // intake_questions row, so it can't collide with one (ids start at 1).
+    private const IT_COMBO_ID = -1;
+
+    // Plain-English glossary — transcribed from the prototype's GLOSSARY. Each [pattern, term,
+    // definition]: pattern is a regex alternation (case-sensitive only when it starts with 2+
+    // capital letters, same rule the prototype uses to tell an acronym like "OIG" from a plain
+    // word), term is the display heading, definition is the plain-English explanation.
+    private const GLOSSARY = [
+        ['pattern' => 'Business Associate Agreements?|BAAs?', 'term' => 'Business Associate Agreement (BAA)', 'definition' => 'A contract HIPAA requires with any vendor that handles patient information for you, such as billing, IT or cloud storage. The vendor agrees to protect it.'],
+        ['pattern' => 'business associates?', 'term' => 'Business associate', 'definition' => 'A vendor or contractor that creates, receives, stores or sends patient information on your behalf.'],
+        ['pattern' => 'ePHI', 'term' => 'ePHI', 'definition' => 'Electronic protected health information: patient information that is stored or sent electronically.'],
+        ['pattern' => 'PHI|protected health information', 'term' => 'Protected health information (PHI)', 'definition' => 'Any health information that can identify a patient, such as a name with a diagnosis, a chart, or a bill.'],
+        ['pattern' => 'minimum necessary', 'term' => 'Minimum necessary', 'definition' => 'A HIPAA rule: use or share only the smallest amount of patient information needed for the task.'],
+        ['pattern' => 'OIG', 'term' => 'OIG', 'definition' => 'The HHS Office of Inspector General. It publishes compliance program guidance and the list of people excluded from federal health programs.'],
+        ['pattern' => 'exclusion screening|exclusion lists?', 'term' => 'Exclusion screening', 'definition' => 'Checking staff and vendors against government lists of people barred from Medicare, Medicaid and other federal health programs.'],
+        ['pattern' => 'Notice of Privacy Practices', 'term' => 'Notice of Privacy Practices', 'definition' => 'The notice you give patients that explains how you use their information and what their privacy rights are.'],
+        ['pattern' => 'accounting of disclosures', 'term' => 'Accounting of disclosures', 'definition' => 'A patient’s right to a list of certain disclosures of their information made for reasons other than treatment, payment or operations.'],
+        ['pattern' => 'personal representatives?', 'term' => 'Personal representative', 'definition' => 'Someone with legal authority to make health care decisions for a patient, such as a parent of a minor or a health care proxy.'],
+        ['pattern' => 'de-identified', 'term' => 'De-identified data', 'definition' => 'Information with identifiers removed so it no longer counts as protected health information.'],
+        ['pattern' => 'limited data sets?', 'term' => 'Limited data set', 'definition' => 'Patient information with direct identifiers removed. It can be shared for research, public health or operations under a data use agreement.'],
+        ['pattern' => 'covered entit(?:y|ies)', 'term' => 'Covered entity', 'definition' => 'Health plans, clearinghouses and health care providers that bill electronically. HIPAA applies to them directly.'],
+        ['pattern' => 'clearinghouses?', 'term' => 'Clearinghouse', 'definition' => 'A company that processes and forwards claims and other data between providers and payers.'],
+        ['pattern' => 'risk analysis|Security Risk Assessment|SRA', 'term' => 'Security risk analysis', 'definition' => 'A review of where your electronic patient information is kept and how it could be exposed. The HIPAA Security Rule requires one.'],
+        ['pattern' => 'multi-factor authentication|MFA', 'term' => 'Multi-factor authentication (MFA)', 'definition' => 'A sign-in that needs a second proof besides a password, such as a code sent to a phone.'],
+        ['pattern' => 'BYOD', 'term' => 'BYOD', 'definition' => '"Bring your own device": staff using personal phones, tablets or laptops for work.'],
+        ['pattern' => 'VPN', 'term' => 'VPN', 'definition' => 'A virtual private network: an encrypted connection to your office systems from outside the office.'],
+        ['pattern' => 'encryption|encrypted', 'term' => 'Encryption', 'definition' => 'Scrambling data so that only someone with the key can read it.'],
+        ['pattern' => 'medical necessity', 'term' => 'Medical necessity', 'definition' => 'Whether a service is reasonable and needed for the patient’s diagnosis or treatment, as the payer defines it.'],
+        ['pattern' => 'overpayments?', 'term' => 'Overpayment', 'definition' => 'Money a payer paid you in error. Identified Medicare and Medicaid overpayments must be reported and returned within 60 days.'],
+        ['pattern' => 'Compliance Committee', 'term' => 'Compliance Committee', 'definition' => 'A small group that helps the Compliance Officer oversee the compliance program.'],
+    ];
+
+    /** Wraps the first mention of each glossary term in plain text with a dotted-underlined
+     *  <abbr> whose native `title` shows the definition on hover, tap or keyboard focus — the
+     *  browser's own tooltip affordance rather than a hand-built floating one, good enough for a
+     *  hover/focus-capable glossary aid. Escapes the input itself, so pass plain text and echo
+     *  the result unescaped. */
+    public function glossify(string $plainText): string
+    {
+        $escaped = e($plainText);
+        $used = [];
+        $pattern = '/\b('.implode('|', array_column(self::GLOSSARY, 'pattern')).')\b/i';
+
+        $result = preg_replace_callback($pattern, function ($m) use (&$used) {
+            foreach (self::GLOSSARY as $i => $term) {
+                if (in_array($i, $used, true)) {
+                    continue;
+                }
+
+                $caseSensitive = (bool) preg_match('/^[A-Z]{2,}/', $term['pattern']);
+
+                if (! preg_match('/^(?:'.$term['pattern'].')$/'.($caseSensitive ? '' : 'i'), $m[1])) {
+                    continue;
+                }
+
+                $used[] = $i;
+
+                // x-on:click.stop.prevent keeps tapping a term inside a checkbox/radio label from
+                // also toggling that control — the empty handler body still applies the modifiers.
+                return '<abbr tabindex="0" title="'.e($term['definition']).'" x-data x-on:click.stop.prevent="" class="underline decoration-dotted decoration-[#9ba9b7] underline-offset-2 cursor-help">'.$m[1].'</abbr>';
+            }
+
+            return $m[1];
+        }, $escaped);
+
+        return $result ?? $escaped;
+    }
+
+    public ?int $currentGateSectionId = null;
 
     /** The chapter list for the "Section X of Y" header dropdown — screen-level chapters for
      *  documents/team (worth one "done" item each), "Practice basics" worth one item per sub-
@@ -529,13 +987,31 @@ new class extends Component
             'done' => collect(self::TEAM_SUB_SCREENS)->sum($screenDone),
         ];
 
+        $chapters[] = [
+            'key' => 'services',
+            'label' => 'Your services',
+            'total' => 1,
+            'done' => $screenDone('services'),
+        ];
+
         foreach ($this->sections as $section) {
-            $questionIds = $section->questions->pluck('id')->all();
+            $gate = $this->sectionGates[(string) $section->id] ?? null;
+
+            if ($gate === null) {
+                [$total, $done] = [1, 0];
+            } elseif (($gate['mode'] ?? null) !== 'some') {
+                [$total, $done] = [1, 1];
+            } else {
+                $picked = array_values(array_intersect($gate['picked'] ?? [], $this->gateTopicsForSection($section)->pluck('id')->all()));
+                $total = 1 + count($picked);
+                $done = 1 + count(array_intersect($picked, $this->answeredQuestionIds));
+            }
+
             $chapters[] = [
                 'key' => 'section:'.$section->id,
                 'label' => $section->label,
-                'total' => count($questionIds),
-                'done' => count(array_intersect($questionIds, $this->answeredQuestionIds)),
+                'total' => $total,
+                'done' => $done,
             ];
         }
 
@@ -623,6 +1099,7 @@ new class extends Component
     {
         return match (true) {
             $this->screen === 'question' => 'section:'.($this->currentQuestion?->intake_section_id ?? ''),
+            $this->screen === 'gate' => 'section:'.$this->currentGateSectionId,
             in_array($this->screen, self::BASICS_SUB_SCREENS, true) => 'basics',
             in_array($this->screen, self::TEAM_SUB_SCREENS, true) => 'team',
             default => $this->screen,
@@ -653,15 +1130,12 @@ new class extends Component
         }
 
         if (str_starts_with($key, 'section:')) {
-            $sectionId = (int) substr($key, strlen('section:'));
-            $sectionQuestionIds = $this->sections->firstWhere('id', $sectionId)?->questions->pluck('id')->all() ?? [];
+            $this->showGateScreen((int) substr($key, strlen('section:')));
 
-            $firstUnanswered = collect($this->remainingQueue)->first(fn ($id) => in_array($id, $sectionQuestionIds, true));
-            $target = $firstUnanswered ?? ($sectionQuestionIds[0] ?? null);
+            return;
+        }
 
-            $this->loadQuestion($target);
-            $this->screen = 'question';
-        } elseif ($key === 'basics') {
+        if ($key === 'basics') {
             $this->screen = collect(self::BASICS_SUB_SCREENS)
                 ->first(fn (string $s) => ! in_array($s, $this->reachedScreens, true)) ?? self::BASICS_SUB_SCREENS[0];
         } elseif ($key === 'team') {
@@ -671,7 +1145,7 @@ new class extends Component
             $this->screen = $key;
         }
 
-        $this->setWizardScreen($this->screen === 'question' ? 'question' : $this->screen);
+        $this->setWizardScreen($this->screen);
     }
 
     // ── Documents ─────────────────────────────────────────────────────────
@@ -920,6 +1394,13 @@ new class extends Component
         }
 
         if ($this->includesWorkflowQuestionnaire) {
+            // mount() only pre-fills this once, from whatever the practice name already was at
+            // page load — a practice name just typed on b_profile earlier in this same session
+            // never reaches it without this, since nothing remounts the component in between.
+            if ($this->legalPracticeName === '') {
+                $this->legalPracticeName = $this->practice?->name ?? '';
+            }
+
             $this->screen = 't_practice';
             $this->advanceWizardScreen(['b_logo', 't_practice'], 't_practice');
         } else {
@@ -1021,24 +1502,6 @@ new class extends Component
         return self::OFFICER_PREFIXES;
     }
 
-    /** People already known by this screen — the account holder plus any other officer that
-     *  already has a name — offered as "Same person as…" options for each officer card. */
-    #[Computed]
-    public function knownTeamPeople(): array
-    {
-        $people = ['you' => 'You ('.(auth()->user()?->name ?: 'you').')'];
-
-        foreach (self::OFFICER_PREFIXES as $prefix => $label) {
-            $name = $this->{$prefix.'Name'};
-
-            if (trim((string) $name) !== '') {
-                $people[$prefix] = "{$label} ({$name})";
-            }
-        }
-
-        return $people;
-    }
-
     /** Quick-add roster for the Compliance Committee / governing board lists — deduplicated by
      *  name, so a person holding several officer roles (or matching the account holder) gets
      *  exactly one pill instead of one per role, and their title pre-fills as every role they
@@ -1075,8 +1538,63 @@ new class extends Component
             ->all();
     }
 
+    /** Shared by quickAddOptionsForOfficer() and quickAddOptionsForIt() — the account holder plus
+     *  every officer role with a distinct typed name, deduplicated by name (case-insensitive) and
+     *  excluding whatever name the target field already has, mirroring the prototype's
+     *  personBlock(). $excludePrefix additionally drops that one officer role from the list (an
+     *  officer row never suggests itself; the IT row isn't an officer role, so it has none).
+     *
+     * @return array<int, array{source: string, label: string}>
+     */
+    private function quickAddOptions(string $currentName, ?string $excludePrefix = null): array
+    {
+        $seen = [];
+        $currentName = trim($currentName);
+
+        if ($currentName !== '') {
+            $seen[] = strtolower($currentName);
+        }
+
+        $options = [];
+        $accountName = trim((string) (auth()->user()?->name ?? ''));
+
+        if ($accountName !== '' && ! in_array(strtolower($accountName), $seen, true)) {
+            $options[] = ['source' => 'you', 'label' => "You ({$accountName})"];
+            $seen[] = strtolower($accountName);
+        }
+
+        foreach (self::OFFICER_PREFIXES as $prefix => $label) {
+            if ($prefix === $excludePrefix) {
+                continue;
+            }
+
+            $name = trim((string) $this->{$prefix.'Name'});
+
+            if ($name === '' || in_array(strtolower($name), $seen, true)) {
+                continue;
+            }
+
+            $options[] = ['source' => $prefix, 'label' => $name];
+            $seen[] = strtolower($name);
+        }
+
+        return $options;
+    }
+
+    /** @return array<int, array{source: string, label: string}> */
+    public function quickAddOptionsForOfficer(string $forPrefix): array
+    {
+        return $this->quickAddOptions($this->{$forPrefix.'Name'}, $forPrefix);
+    }
+
+    /** @return array<int, array{source: string, label: string}> */
+    public function quickAddOptionsForIt(): array
+    {
+        return $this->quickAddOptions($this->itContactName);
+    }
+
     /** Copies a name/phone/email from the account holder or another officer onto $toPrefix,
-     *  mirroring the prototype's "Same person as…" dropdown. */
+     *  mirroring the prototype's "Quick add" pills. */
     public function copyOfficerContact(string $toPrefix, string $source): void
     {
         if ($source === '' || ! array_key_exists($toPrefix, self::OFFICER_PREFIXES)) {
@@ -1352,18 +1870,190 @@ new class extends Component
             return;
         }
 
-        $first = $this->remainingQueue[0] ?? null;
+        $this->markReached('t_leadership');
+        $this->advanceToNextQuestion();
+    }
 
-        if ($first === null) {
-            $this->markReached('t_leadership');
-            $this->finishWizard();
+    // ── Your services ─────────────────────────────────────────────────────
+
+    public function toggleService(string $key): void
+    {
+        if (! array_key_exists($key, self::SERVICES)) {
+            return;
+        }
+
+        $services = $this->currentSubmission->wizard_selected_services ?? [];
+        $services = in_array($key, $services, true)
+            ? array_values(array_diff($services, [$key]))
+            : [...$services, $key];
+
+        $this->currentSubmission->update(['wizard_selected_services' => $services]);
+        unset($this->currentSubmission);
+        $this->resetErrorBag('services');
+    }
+
+    public function setServicesNone(): void
+    {
+        $this->currentSubmission->update(['wizard_selected_services' => []]);
+        unset($this->currentSubmission);
+        $this->resetErrorBag('services');
+    }
+
+    public function continueFromServices(): void
+    {
+        if ($this->currentSubmission->wizard_selected_services === null) {
+            $this->addError('services', 'Check each service your practice offers, or tick "None of these apply to us."');
 
             return;
         }
 
-        $this->loadQuestion($first);
-        $this->screen = 'question';
-        $this->advanceWizardScreen(['t_leadership', 'section:'.$this->currentQuestion->intake_section_id], 'question');
+        $this->markReached('services');
+        $this->setWizardScreen('services');
+        $this->advanceToNextQuestion();
+    }
+
+    public function backFromServices(): void
+    {
+        $this->screen = 't_leadership';
+        $this->setWizardScreen('t_leadership');
+    }
+
+    // ── Section gates ─────────────────────────────────────────────────────
+
+    private function showGateScreen(int $sectionId): void
+    {
+        $this->currentGateSectionId = $sectionId;
+        $this->screen = 'gate';
+        $this->advanceWizardScreen(['section:'.$sectionId], 'gate');
+    }
+
+    public function chooseGateMode(int $sectionId, string $mode): void
+    {
+        $gates = $this->currentSubmission->wizard_section_gates ?? [];
+        $existing = $gates[(string) $sectionId] ?? ['mode' => '', 'picked' => []];
+
+        $gates[(string) $sectionId] = ['mode' => $mode, 'picked' => $mode === 'some' ? ($existing['picked'] ?? []) : []];
+
+        $this->currentSubmission->update(['wizard_section_gates' => $gates]);
+        unset($this->currentSubmission);
+        $this->resetErrorBag('gate');
+
+        if ($mode === 'none') {
+            $skipped = $this->currentSubmission->wizard_skipped_section_ids ?? [];
+            if (in_array($sectionId, $skipped, true)) {
+                $this->currentSubmission->update(['wizard_skipped_section_ids' => array_values(array_diff($skipped, [$sectionId]))]);
+                unset($this->currentSubmission);
+            }
+
+            $section = $this->sections->firstWhere('id', $sectionId);
+            $this->dispatch('toast', message: "Policy defaults applied to {$section?->label}.", type: 'success');
+            $this->advanceToNextQuestion();
+        }
+    }
+
+    public function toggleGateTopic(int $sectionId, int $questionId): void
+    {
+        $gates = $this->currentSubmission->wizard_section_gates ?? [];
+        $key = (string) $sectionId;
+        $entry = $gates[$key] ?? ['mode' => 'some', 'picked' => []];
+        $picked = $entry['picked'] ?? [];
+
+        $entry['picked'] = in_array($questionId, $picked, true)
+            ? array_values(array_diff($picked, [$questionId]))
+            : [...$picked, $questionId];
+        $entry['mode'] = 'some';
+
+        $gates[$key] = $entry;
+        $this->currentSubmission->update(['wizard_section_gates' => $gates]);
+        unset($this->currentSubmission);
+        $this->resetErrorBag('gate');
+    }
+
+    /** "Skip for now" on a gate screen — matches every other "Skip for now" in this wizard that
+     *  defers a screen without resolving it: the draft mode/picks (if any) are left untouched, the
+     *  section is marked skipped, and remainingSectionIds() pushes it to the end of the queue so
+     *  it's revisited once everything else is done, instead of being asked again immediately. */
+    public function skipCurrentGate(int $sectionId): void
+    {
+        $submission = $this->currentSubmission;
+        $skipped = $submission->wizard_skipped_section_ids ?? [];
+
+        if (! in_array($sectionId, $skipped, true)) {
+            $skipped[] = $sectionId;
+        }
+
+        $submission->update(['wizard_skipped_section_ids' => $skipped]);
+        unset($this->currentSubmission);
+
+        $this->advanceToNextQuestion();
+    }
+
+    /** @param bool $stayOnScreen "Save & continue later" persists progress without advancing. */
+    public function continueFromGate(int $sectionId, bool $stayOnScreen = false): void
+    {
+        $this->justSaved = false;
+
+        if ($stayOnScreen) {
+            $this->justSaved = true;
+
+            return;
+        }
+
+        $gate = $this->sectionGates[(string) $sectionId] ?? null;
+        $hasValidMode = $gate && in_array($gate['mode'] ?? '', ['none', 'some'], true);
+
+        if (! $hasValidMode) {
+            $this->addError('gate', 'Choose No to use the policy defaults, or Yes to pick topics.');
+
+            return;
+        }
+
+        if ($gate['mode'] === 'some' && empty($gate['picked'])) {
+            $this->addError('gate', 'Pick at least one topic, or choose No to use the policy defaults for this section.');
+
+            return;
+        }
+
+        $skipped = $this->currentSubmission->wizard_skipped_section_ids ?? [];
+        if (in_array($sectionId, $skipped, true)) {
+            $this->currentSubmission->update(['wizard_skipped_section_ids' => array_values(array_diff($skipped, [$sectionId]))]);
+            unset($this->currentSubmission);
+        }
+
+        $this->advanceToNextQuestion();
+    }
+
+    public function backFromGate(): void
+    {
+        $index = $this->sections->search(fn (IntakeSection $s) => $s->id === $this->currentGateSectionId);
+        $previousSection = $index !== false && $index > 0 ? $this->sections[$index - 1] : null;
+
+        if ($previousSection !== null) {
+            $picked = $this->sectionGates[(string) $previousSection->id]['picked'] ?? [];
+            $lastPicked = collect($picked)->last();
+
+            if ($lastPicked !== null) {
+                $this->loadQuestion($lastPicked);
+                $this->screen = 'question';
+                $this->setWizardScreen('question');
+
+                return;
+            }
+
+            $this->showGateScreen($previousSection->id);
+
+            return;
+        }
+
+        if ($this->servicesScreenDone) {
+            $this->screen = 'services';
+            $this->setWizardScreen('services');
+
+            return;
+        }
+
+        $this->screen = 't_leadership';
+        $this->setWizardScreen('t_leadership');
     }
 
     // ── Questions ─────────────────────────────────────────────────────────
@@ -1380,7 +2070,11 @@ new class extends Component
             return;
         }
 
-        $existing = $this->currentSubmission->intakeAnswers()->where('intake_question_id', $questionId)->first();
+        // The combo never has its own IntakeAnswer row — any one of the real questions it fans
+        // out to reads back the identical response/choice, since saveCurrentAnswer() always
+        // writes the same values to every one of them together.
+        $lookupId = $questionId === self::IT_COMBO_ID ? $this->itManagedKeptQuestionIds->first() : $questionId;
+        $existing = $lookupId !== null ? $this->currentSubmission->intakeAnswers()->where('intake_question_id', $lookupId)->first() : null;
 
         $this->currentResponse = $existing?->response ?? '';
         $this->currentHasDocumentedProcess = $existing ? (bool) $existing->has_documented_process : null;
@@ -1415,15 +2109,24 @@ new class extends Component
 
         $submission = $this->currentSubmission;
 
-        $submission->intakeAnswers()->updateOrCreate(
-            ['intake_question_id' => $this->currentQuestionId],
-            [
-                'response' => $this->currentHasDocumentedProcess === true ? $response : null,
-                'has_documented_process' => $this->currentHasDocumentedProcess,
-                'skipped' => false,
-                'answered_at' => now(),
-            ]
-        );
+        // The combo fans its one response out across every real question it absorbs, so each
+        // keeps its own IntakeAnswer row for document generation/policy mapping exactly as if it
+        // had been asked individually.
+        $targetIds = $this->currentQuestionId === self::IT_COMBO_ID
+            ? $this->itManagedKeptQuestionIds->all()
+            : [$this->currentQuestionId];
+
+        foreach ($targetIds as $questionId) {
+            $submission->intakeAnswers()->updateOrCreate(
+                ['intake_question_id' => $questionId],
+                [
+                    'response' => $this->currentHasDocumentedProcess === true ? $response : null,
+                    'has_documented_process' => $this->currentHasDocumentedProcess,
+                    'skipped' => false,
+                    'answered_at' => now(),
+                ]
+            );
+        }
 
         $skipped = $submission->wizard_skipped_question_ids ?? [];
         if (in_array($this->currentQuestionId, $skipped, true)) {
@@ -1450,21 +2153,41 @@ new class extends Component
         $this->advanceToNextQuestion();
     }
 
+    /** The single "what comes next" router — walks the services checklist, then each section's
+     *  gate (and whatever it resolves to ask), in order, then the saving/done screen once every
+     *  section's gate has been resolved. Called after every forward action: finishing "Your
+     *  team", the services checklist, a gate decision, and saving/skipping a question. */
     private function advanceToNextQuestion(): void
     {
         $next = $this->remainingQueue[0] ?? null;
 
-        if ($next === null) {
-            // Deliberately not persisted to wizard_screen — this is a few-second cosmetic
-            // transition, not a real resumable step. A refresh mid-animation just lands back on
-            // the last question, which re-triggers it.
-            $this->screen = 'saving';
+        if ($next !== null) {
+            $this->loadQuestion($next);
+            $this->screen = 'question';
+            $this->advanceWizardScreen(['section:'.$this->currentQuestion->intake_section_id], 'question');
 
             return;
         }
 
-        $this->loadQuestion($next);
-        $this->advanceWizardScreen(['section:'.$this->currentQuestion->intake_section_id], 'question');
+        if (! $this->servicesScreenDone) {
+            $this->screen = 'services';
+            $this->setWizardScreen('services');
+
+            return;
+        }
+
+        $nextSectionId = $this->remainingSectionIds[0] ?? null;
+
+        if ($nextSectionId !== null) {
+            $this->showGateScreen($nextSectionId);
+
+            return;
+        }
+
+        // Deliberately not persisted to wizard_screen — this is a few-second cosmetic
+        // transition, not a real resumable step. A refresh mid-animation just lands back on
+        // the last question, which re-triggers it.
+        $this->screen = 'saving';
     }
 
     public function backOneQuestion(): void
@@ -1472,14 +2195,24 @@ new class extends Component
         $master = $this->masterQuestionIds;
         $position = array_search($this->currentQuestionId, $master, true);
 
-        if ($position === false || $position === 0) {
-            $this->screen = 't_leadership';
-            $this->setWizardScreen('t_leadership');
+        if ($position !== false && $position > 0) {
+            $this->loadQuestion($master[$position - 1]);
+            $this->screen = 'question';
 
             return;
         }
 
-        $this->loadQuestion($master[$position - 1]);
+        // First question of its section (or not found) — back goes to that section's own gate.
+        $sectionId = $this->currentQuestion?->intake_section_id;
+
+        if ($sectionId !== null) {
+            $this->showGateScreen($sectionId);
+
+            return;
+        }
+
+        $this->screen = 't_leadership';
+        $this->setWizardScreen('t_leadership');
     }
 
     /** Called by the "saving" screen's own timer once its checklist animation finishes. */
@@ -1666,21 +2399,26 @@ new class extends Component
             'doneItems' => $this->chapterProgress['doneItems'],
             'totalItems' => $this->chapterProgress['totalItems'],
             'minutesLeft' => $this->chapterProgress['minutesLeft'],
-            'skippedCount' => count($this->skippedQuestionIds),
+            'skippedCount' => count($this->skippedQuestionIds) + count($this->skippedSectionIds),
         ];
     @endphp
 
-    {{-- ── Intro: auto-advancing on a first-ever visit, or a static recap when revisited via
-         the "What you'll need" dropdown item ($returnToScreen set means the latter) ── --}}
+    {{-- ── Intro: a tier-aware checklist + an animated load on a first-ever visit, or a static
+         recap when revisited via the "What you'll need" dropdown item ($returnToScreen set means
+         the latter). Either way, it waits for an explicit "Continue to the intake" click — it
+         never auto-advances on its own. ── --}}
     @if($screen === 'intro')
-    @php $isRevisit = $returnToScreen !== null; @endphp
+    @php
+        $isRevisit = $returnToScreen !== null;
+        $introDuration = $this->introAnimationDurationMs;
+    @endphp
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         <div class="flex flex-col items-center text-center px-6 py-12 lg:py-16 max-w-xl mx-auto"
             @unless($isRevisit)
-            x-data="{ progress: 0 }"
+            x-data="{ progress: 0, ready: false }"
             x-init="
                 setTimeout(() => progress = 100, 50);
-                setTimeout(() => $wire.continueFromIntro(), 1800);
+                setTimeout(() => ready = true, {{ $introDuration }});
             "
             @endunless
             >
@@ -1688,7 +2426,7 @@ new class extends Component
                 need</h2>
 
             @if($isRevisit)
-            <p class="text-sm text-[#5d6e7f] mb-5 max-w-md">Your intake is ready. It takes about 5 minutes, and your
+            <p class="text-sm text-[#5d6e7f] mb-5 max-w-md">Your intake is ready. It takes {{ $this->introTimeEstimate }}, and your
                 answers save as you go. Missing something? You can skip any question and come back to it.</p>
             <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
                 <div class="h-full bg-[#0b9ed0] rounded-full"
@@ -1696,44 +2434,42 @@ new class extends Component
                 </div>
             </div>
             @else
-            <div class="flex items-center gap-2 text-sm font-semibold text-[#0b9ed0] mb-3">
+            <div class="flex items-center gap-2 text-sm font-semibold text-[#0b9ed0] mb-3" x-show="!ready">
                 <x-spinner class="h-4 w-4" />
                 <span>Getting your intake ready&hellip;</span>
             </div>
+            <p class="text-sm text-[#5d6e7f] mb-3 max-w-md" x-show="ready" x-cloak>Your intake is ready. It takes {{ $this->introTimeEstimate }}, and your
+                answers save as you go. Missing something? You can skip any question and come back to it.</p>
             <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
-                <div class="h-full bg-[#0b9ed0] rounded-full transition-all duration-[1600ms] ease-out"
-                    :style="`width: ${progress}%`"></div>
+                <div class="h-full bg-[#0b9ed0] rounded-full transition-all ease-out"
+                    style="transition-duration: {{ $introDuration }}ms" :style="`width: ${progress}%`"></div>
             </div>
             @endif
 
             <div class="w-full space-y-3 text-left">
+                @foreach($this->introItems as $item)
                 <div class="flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5">
                     <span
                         class="mt-0.5 h-5 w-5 rounded-full bg-[#e6f3fb] text-[#0b9ed0] flex items-center justify-center flex-shrink-0">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </span>
                     <div>
-                        <p class="text-sm font-bold text-[#173045]">Your current policies and training materials</p>
-                        <p class="text-xs text-[#5d6e7f] mt-0.5">Compliance & Ethics program, HIPAA Privacy and
-                            Security policies, and training materials. PDF, Word or Excel.</p>
+                        <p class="text-sm font-bold text-[#173045]">{{ $item['title'] }}</p>
+                        <p class="text-xs text-[#5d6e7f] mt-0.5">{!! $this->glossify($item['description']) !!}</p>
                     </div>
                 </div>
-                <div class="flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5">
-                    <span
-                        class="mt-0.5 h-5 w-5 rounded-full bg-[#e6f3fb] text-[#0b9ed0] flex items-center justify-center flex-shrink-0">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    </span>
-                    <div>
-                        <p class="text-sm font-bold text-[#173045]">Practice name, specialty and address</p>
-                        <p class="text-xs text-[#5d6e7f] mt-0.5">Plus your logo if you&rsquo;d like it on the cover
-                            (optional).</p>
-                    </div>
-                </div>
+                @endforeach
             </div>
 
             @if($isRevisit)
             <button type="button" wire:click="backToQuestions"
                 class="mt-8 w-full max-w-xs rounded bg-[#12304f] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">Back to the questions &rarr;</button>
+            @else
+            <button type="button" wire:click="continueFromIntro" x-show="ready" x-cloak wire:loading.attr="disabled"
+                class="mt-8 w-full max-w-xs rounded bg-[#12304f] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
+                <span wire:loading.remove wire:target="continueFromIntro">Continue to the intake &rarr;</span>
+                <span wire:loading.inline-flex wire:target="continueFromIntro" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Loading&hellip;</span>
+            </button>
             @endif
 
             <p class="text-sm text-[#5d6e7f] mt-5">Questions first? <button type="button" wire:click="openCallDialog"
@@ -1817,6 +2553,13 @@ new class extends Component
             @error('documentFiles') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
             @error('documentFiles.*') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
             <div wire:loading wire:target="documentFiles" class="mt-2 text-xs text-[#5d6e7f]">Uploading&hellip;</div>
+
+            @if($this->bulkMissingDocumentsLabel)
+            <button type="button" wire:click="markRemainingDocumentsMissing" wire:target="markRemainingDocumentsMissing" wire:loading.attr="disabled"
+                class="mt-3 w-full rounded-xl border border-dashed border-[#9ed3e9] bg-[#f2f9fd] px-4 py-2.5 text-sm font-semibold text-[#0b7ca8] hover:bg-[#e7f4fb] transition-colors disabled:opacity-50">
+                {{ $this->bulkMissingDocumentsLabel }}
+            </button>
+            @endif
 
             @if($this->existingDocuments->isNotEmpty() || ! empty($documentFiles))
             <ul class="mt-4 space-y-2" wire:loading.remove wire:target="documentFiles">
@@ -1907,15 +2650,12 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">
-                @if($this->includesWorkflowQuestionnaire)
-                Your existing documents show us where you're starting from. We compare them with your answers so the
-                new manuals keep what already works.
-                @else
-                At the Essential level we review and update your own documents rather than writing new ones, so we
-                need a copy of each.
-                @endif
-            </p>
+            @php
+                $documentsWhyText = $this->includesWorkflowQuestionnaire
+                    ? "Your existing documents show us where you're starting from. We compare them with your answers so the new manuals keep what already works."
+                    : "At the Essential level we review and update your own documents rather than writing new ones, so we need a copy of each.";
+            @endphp
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">{!! $this->glossify($documentsWhyText) !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 @foreach($this->requiredDocumentCategories as $label)
@@ -1983,7 +2723,7 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Your practice name appears on the cover and header of every document. Your specialty matches you to the right policy templates.</p>
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">{!! $this->glossify('Your practice name appears on the cover and header of every document. Your specialty matches you to the right policy templates.') !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
@@ -2025,7 +2765,7 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Your invoice already reflects this count from checkout. Providers who join mid-term are prorated and trued up at renewal. Need to change it? Contact support.</p>
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">{!! $this->glossify('Your invoice already reflects this count from checkout. Providers who join mid-term are prorated and trued up at renewal. Need to change it? Contact support.') !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
@@ -2100,7 +2840,7 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Your primary address appears in the header of every manual.</p>
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">{!! $this->glossify('Your primary address appears in the header of every manual.') !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
@@ -2179,7 +2919,7 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-sm text-[#173045] leading-relaxed mb-4">Branded documents look official to staff, payers and auditors.</p>
+            <p class="text-sm text-[#173045] leading-relaxed mb-4">{!! $this->glossify('Branded documents look official to staff, payers and auditors.') !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
             <div class="flex flex-wrap gap-1.5">
                 <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">All documents</span>
@@ -2192,10 +2932,11 @@ new class extends Component
 
     {{-- ── Team ── --}}
     @php
-        $teamAside = function (string $why) {
+        $self = $this;
+        $teamAside = function (string $why) use ($self) {
             return '<aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
                 <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-                <p class="text-sm text-[#173045] leading-relaxed mb-4">'.$why.' Asked once, and used in all three manuals.</p>
+                <p class="text-sm text-[#173045] leading-relaxed mb-4">'.$self->glossify($why).' Asked once, and used in all three manuals.</p>
                 <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
                 <div class="flex flex-wrap gap-1.5">
                     <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">Compliance &amp; Ethics &middot; &sect;1</span>
@@ -2305,22 +3046,28 @@ new class extends Component
         <div>
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#1a7aad] mb-1">Your team &middot; 2 of 5</p>
             <h2 class="text-lg font-semibold text-[#12304f] mb-1">Who fills your compliance roles?</h2>
-            <p class="text-sm text-[#5d6e7f]">One person can hold more than one role. Use "Same person as" to copy details.</p>
+            <p class="text-sm text-[#5d6e7f]">One person can hold more than one role. Use Quick add to reuse someone&rsquo;s details.</p>
         </div>
 
         @foreach($this->officerPrefixes as $prefix => $label)
+        @php
+            $quickAddOptions = $this->quickAddOptionsForOfficer($prefix);
+        @endphp
         <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4">
-            <div class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
                 <p class="text-sm font-semibold text-[#12304f]">{{ $label }}</p>
-                <select wire:change="copyOfficerContact('{{ $prefix }}', $event.target.value)"
-                    class="rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
-                    <option value="">Same person as&hellip;</option>
-                    @foreach($this->knownTeamPeople as $key => $personLabel)
-                        @if($key !== $prefix)
-                        <option value="{{ $key }}">{{ $personLabel }}</option>
-                        @endif
+                @if(count($quickAddOptions) > 0)
+                <span class="flex flex-wrap items-center gap-1.5 text-xs text-[#5d6e7f]">
+                    Quick add:
+                    @foreach($quickAddOptions as $option)
+                    <button type="button" wire:click="copyOfficerContact('{{ $prefix }}', '{{ $option['source'] }}')"
+                        wire:loading.attr="disabled" wire:target="copyOfficerContact"
+                        class="inline-flex items-center rounded-full border border-[#9ed3e9] bg-white px-2.5 py-1 text-xs font-semibold text-[#0b7ca8] hover:bg-[#eaf7fc] transition-colors disabled:opacity-50">
+                        + {{ $option['label'] }}
+                    </button>
                     @endforeach
-                </select>
+                </span>
+                @endif
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
@@ -2433,16 +3180,24 @@ new class extends Component
             </div>
         </div>
         @elseif($itMode === 'inhouse')
+        @php
+            $itQuickAddOptions = $this->quickAddOptionsForIt();
+        @endphp
         <div class="border border-[#eef2f6] rounded-xl p-4">
-            <div class="flex items-center justify-between gap-3 mb-2">
+            <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
                 <p class="text-sm font-semibold text-[#12304f]">Who handles IT?</p>
-                <select wire:change="copyItContact($event.target.value)"
-                    class="rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
-                    <option value="">Same person as&hellip;</option>
-                    @foreach($this->knownTeamPeople as $key => $personLabel)
-                    <option value="{{ $key }}">{{ $personLabel }}</option>
+                @if(count($itQuickAddOptions) > 0)
+                <span class="flex flex-wrap items-center gap-1.5 text-xs text-[#5d6e7f]">
+                    Quick add:
+                    @foreach($itQuickAddOptions as $option)
+                    <button type="button" wire:click="copyItContact('{{ $option['source'] }}')"
+                        wire:loading.attr="disabled" wire:target="copyItContact"
+                        class="inline-flex items-center rounded-full border border-[#9ed3e9] bg-white px-2.5 py-1 text-xs font-semibold text-[#0b7ca8] hover:bg-[#eaf7fc] transition-colors disabled:opacity-50">
+                        + {{ $option['label'] }}
+                    </button>
                     @endforeach
-                </select>
+                </span>
+                @endif
             </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -2686,11 +3441,187 @@ new class extends Component
     </div>
     @endif
 
+    {{-- ── Your services ── --}}
+    @if($screen === 'services')
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full">
+            <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-1">Which of these does your practice do?</h2>
+            <p class="text-sm text-[#5d6e7f] mb-4">Check everything that applies. We'll skip the questions that don't.</p>
+
+            <div class="space-y-2.5 mb-3">
+                @foreach(self::SERVICES as $key => $service)
+                @php
+                    $checked = in_array($key, $this->selectedServices, true);
+                @endphp
+                <label class="flex items-start gap-2.5 rounded-xl border {{ $checked ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
+                    <input type="checkbox" wire:click="toggleService('{{ $key }}')" wire:loading.attr="disabled" wire:target="toggleService,setServicesNone,continueFromServices" @checked($checked) class="mt-0.5 accent-[#12304f]">
+                    <span>
+                        <span class="block text-sm font-bold text-[#173045]">{!! $this->glossify($service['label']) !!}</span>
+                        @if($service['description'])
+                        <span class="block text-xs text-[#5d6e7f] mt-0.5">{!! $this->glossify($service['description']) !!}</span>
+                        @endif
+                    </span>
+                </label>
+                @endforeach
+            </div>
+
+            <label class="flex items-center gap-2.5 mb-4 cursor-pointer">
+                <input type="checkbox" wire:click="setServicesNone" wire:loading.attr="disabled" wire:target="toggleService,setServicesNone,continueFromServices" @checked($this->selectedServices === [] && $this->currentSubmission->wizard_selected_services !== null) class="accent-[#12304f]">
+                <span class="text-sm text-[#173045]">None of these apply to us</span>
+            </label>
+            @error('services') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
+
+            <div class="flex items-center justify-between mt-5">
+                <button wire:click="backFromServices" wire:loading.attr="disabled" wire:target="continueFromServices,backFromServices" class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors disabled:opacity-50">&larr; Back</button>
+                <button wire:click="continueFromServices" wire:loading.attr="disabled" wire:target="continueFromServices,backFromServices"
+                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
+                    <span wire:loading.remove wire:target="continueFromServices">Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="continueFromServices" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+        </div>
+
+        <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20">
+            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
+            <p class="text-xs text-[#173045] leading-snug mb-4">{!! $this->glossify("Some policies only apply to certain services. Anything you leave unchecked is skipped, and that policy's Practice Specific Workflow Description is removed. The policy's general guidelines remain.") !!}</p>
+            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
+            <div class="flex flex-wrap gap-1.5">
+                @foreach($this->servicesUsedInPolicyCodes as $code)
+                <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">{{ $code }}</span>
+                @endforeach
+            </div>
+            <p class="text-xs text-[#5d6e7f] mt-2">These policies depend on your answers here.</p>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
+        </aside>
+        </div>
+    </div>
+    @endif
+
+    {{-- ── Section gate ── --}}
+    @if($screen === 'gate' && $this->currentGateSectionId)
+    @php
+        $gateSection = $this->sections->firstWhere('id', $this->currentGateSectionId);
+        $gateTopics = $this->gateTopicsForSection($gateSection);
+        $gateEntry = $this->sectionGates[(string) $this->currentGateSectionId] ?? ['mode' => '', 'picked' => []];
+        $gateMode = $gateEntry['mode'] ?? '';
+        $gatePicked = $gateEntry['picked'] ?? [];
+        $gateTopicCount = $gateTopics->count();
+        $gateWasSkipped = in_array($this->currentGateSectionId, $this->skippedSectionIds, true);
+    @endphp
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+        @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
+        <div class="max-w-xl w-full">
+            <p class="text-xs font-extrabold uppercase tracking-widest text-[#1a7aad] mb-1.5 flex items-center gap-2 flex-wrap">
+                {{ $gateSection->label }} &middot; 1 of 1
+                @if($gateWasSkipped)
+                <span class="text-[10.5px] font-bold tracking-normal normal-case bg-[#fdf3e0] text-[#b7791f] px-2 py-0.5 rounded-full">Skipped earlier</span>
+                @endif
+            </p>
+            <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-2 leading-tight">{!! $this->glossify($gateSection->label) !!}</h2>
+            <p class="text-[15.5px] text-[#5d6e7f] leading-relaxed mb-4">{!! $this->glossify("Does your practice have documented procedures for any of these {$gateTopicCount} ".Str::plural('topic', $gateTopicCount).'?') !!}</p>
+
+            @if($gateMode !== 'some')
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 list-disc list-inside text-[13.5px] text-[#173045] space-y-1 mb-4 bg-[#f6f9fc] border border-[#e6edf4] rounded-xl px-4 py-3 marker:text-[#0b9ed0]">
+                @foreach($gateTopics as $topic)
+                <li>{!! $this->glossify($topic->title) !!}</li>
+                @endforeach
+            </ul>
+            @endif
+
+            <div class="space-y-2.5 mb-2" wire:loading.class="opacity-60 pointer-events-none" wire:target="chooseGateMode">
+                <label class="flex items-start gap-2.5 rounded-xl border {{ $gateMode === 'none' ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
+                    <input type="radio" name="gate_mode_{{ $this->currentGateSectionId }}" wire:click="chooseGateMode({{ $this->currentGateSectionId }}, 'none')" wire:loading.attr="disabled" @checked($gateMode === 'none') class="mt-0.5 accent-[#12304f]">
+                    <span>
+                        <span class="block text-sm font-bold text-[#173045]">No &mdash; use the policy defaults for this section</span>
+                        <span class="block text-xs text-[#5d6e7f] mt-0.5">The policy's best-practice language applies to {{ $gateTopicCount > 1 ? "all {$gateTopicCount} topics" : 'this topic' }}, and you move to the next section.</span>
+                        <span class="inline-block mt-1.5 text-[11.5px] font-bold text-[#1a7aad] bg-[#eaf5fb] rounded-full px-2 py-0.5">Takes a second</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-2.5 rounded-xl border {{ $gateMode === 'some' ? 'border-[#12304f] bg-[#f4f8fc]' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-4 py-3 cursor-pointer transition">
+                    <input type="radio" name="gate_mode_{{ $this->currentGateSectionId }}" wire:click="chooseGateMode({{ $this->currentGateSectionId }}, 'some')" wire:loading.attr="disabled" @checked($gateMode === 'some') class="mt-0.5 accent-[#12304f]">
+                    <span>
+                        <span class="block text-sm font-bold text-[#173045]">Yes &mdash; let me pick which ones</span>
+                        <span class="block text-xs text-[#5d6e7f] mt-0.5">Check the topics with documented procedures. You'll describe each one; the rest use the policy defaults.</span>
+                        <span class="inline-block mt-1.5 text-[11.5px] font-bold text-[#1a7aad] bg-[#eaf5fb] rounded-full px-2 py-0.5">About 2&ndash;3 min per topic you pick</span>
+                    </span>
+                </label>
+            </div>
+
+            @if($gateMode === 'some')
+            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4 mb-2">
+                <p class="text-xs font-extrabold uppercase tracking-wide text-[#12304f] mb-2">Which topics have documented procedures?</p>
+                <div class="space-y-2">
+                    @foreach($gateTopics as $topic)
+                    @php
+                        $isPicked = in_array($topic->id, $gatePicked, true);
+                    @endphp
+                    <label class="flex items-start gap-2.5 rounded-lg border {{ $isPicked ? 'border-[#12304f] bg-white' : 'border-[#dbe4ee] bg-white hover:border-[#9ed3e9]' }} px-3.5 py-2.5 cursor-pointer transition">
+                        <input type="checkbox" wire:click="toggleGateTopic({{ $this->currentGateSectionId }}, {{ $topic->id }})" wire:loading.attr="disabled" wire:target="toggleGateTopic" @checked($isPicked) class="mt-0.5 accent-[#12304f]">
+                        <span>
+                            <span class="block text-sm font-bold text-[#173045]">{{ $topic->title }}</span>
+                            @if($topic->prompt_summary)
+                            <span class="block text-xs text-[#5d6e7f] mt-0.5">{{ $topic->prompt_summary }}</span>
+                            @endif
+                        </span>
+                    </label>
+                    @endforeach
+                </div>
+                <p class="text-xs text-[#5d6e7f] mt-2.5">{{ count($gatePicked) }} of {{ $gateTopicCount }} picked &middot; unpicked topics use the policy defaults</p>
+            </div>
+            @endif
+
+            @if($justSaved)
+            <p class="mb-3 text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved &mdash; come back anytime to pick up where you left off.</p>
+            @endif
+            @error('gate') <p class="mb-3 text-xs text-red-600">{{ $message }}</p> @enderror
+
+            <button wire:click="continueFromGate({{ $this->currentGateSectionId }})" wire:loading.attr="disabled" wire:target="continueFromGate,backFromGate,skipCurrentGate"
+                class="w-full inline-flex items-center justify-center gap-1.5 rounded-[10px] bg-[#12304f] px-5 py-3.5 text-[15px] font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
+                <span wire:loading.remove wire:target="continueFromGate">Continue &rarr;</span>
+                <span wire:loading.inline-flex wire:target="continueFromGate" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+            </button>
+            <div class="flex items-center justify-between mt-3">
+                <button wire:click="backFromGate" wire:loading.attr="disabled" wire:target="continueFromGate,backFromGate,skipCurrentGate" class="text-sm font-semibold text-[#5d6e7f] hover:underline disabled:opacity-50">&larr; Back</button>
+                <div class="flex items-center gap-4">
+                    <button wire:click="skipCurrentGate({{ $this->currentGateSectionId }})" wire:loading.attr="disabled" wire:target="continueFromGate,backFromGate,skipCurrentGate" class="text-sm font-semibold text-[#1a7aad] hover:underline disabled:opacity-50">Skip for now</button>
+                    <button wire:click="continueFromGate({{ $this->currentGateSectionId }}, true)" wire:loading.attr="disabled" wire:target="continueFromGate,backFromGate,skipCurrentGate" class="text-sm font-semibold text-[#5d6e7f] hover:underline disabled:opacity-50">Save &amp; continue later</button>
+                </div>
+            </div>
+            <p class="text-xs text-[#5d6e7f] mt-3">Press
+                <kbd class="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded border border-[#dbe4ee] bg-[#f4f7fb] text-[11px] font-bold text-[#5d6e7f]">1</kbd>
+                <kbd class="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded border border-[#dbe4ee] bg-[#f4f7fb] text-[11px] font-bold text-[#5d6e7f]">2</kbd>
+                to choose &middot;
+                <kbd class="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded border border-[#dbe4ee] bg-[#f4f7fb] text-[11px] font-bold text-[#5d6e7f]">Enter</kbd>
+                to continue</p>
+        </div>
+
+        @php
+            $gateUsedInCodes = $this->gateUsedInPolicyCodes($gateTopics);
+        @endphp
+        <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20">
+            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
+            <p class="text-xs text-[#173045] leading-snug mb-4">{!! $this->glossify('Choose "No" if your practice doesn\'t have written procedures for these topics. Any topic you don\'t pick uses the policy\'s best-practice language, and its Practice Specific Workflow Description is removed.') !!}</p>
+            <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Used in</h4>
+            <p class="text-[12.5px] text-[#135f41] bg-[#e6f6ef] rounded-lg px-2.5 py-1.5 mb-2">This section covers <strong>{{ count($gateUsedInCodes) }} {{ Str::plural('policy', count($gateUsedInCodes)) }}</strong>.</p>
+            <div class="flex flex-wrap gap-1.5">
+                @foreach($gateUsedInCodes as $code)
+                <span class="text-[11.5px] font-bold bg-white border border-[#dbe4ee] text-[#12304f] rounded-full px-2.5 py-1">{{ $code }}</span>
+                @endforeach
+            </div>
+            <p class="text-xs text-[#5d6e7f] mt-4 pt-4 border-t border-[#e6edf4]">Stuck on this one? <button type="button" wire:click="openCallDialog" class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
+        </aside>
+        </div>
+    </div>
+    @endif
+
     {{-- ── Question ── --}}
     @if($screen === 'question' && $this->currentQuestion)
     @php
         $question = $this->currentQuestion;
-        $sectionQuestionIds = $question->section->questions->pluck('id')->all();
+        $sectionQuestionIds = $this->sectionGates[(string) $question->intake_section_id]['picked'] ?? [$question->id];
         $questionPosition = array_search($question->id, $sectionQuestionIds, true);
         $questionPosition = $questionPosition === false ? 0 : $questionPosition + 1;
         $wasSkipped = in_array($question->id, $this->skippedQuestionIds, true);
@@ -2709,9 +3640,9 @@ new class extends Component
             <span class="text-[10.5px] font-bold tracking-normal normal-case bg-[#e6f6ef] text-[#1f9d6b] px-2 py-0.5 rounded-full">Answered</span>
             @endif
         </p>
-        <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-1">{{ $question->title }}</h2>
+        <h2 class="text-[28px] font-extrabold text-[#0e1b30] mb-1">{!! $this->glossify($question->title) !!}</h2>
         @if($question->prompt_summary)
-        <p class="text-sm text-[#5d6e7f] mb-4">{{ $question->prompt_summary }}</p>
+        <p class="text-sm text-[#5d6e7f] mb-4">{!! $this->glossify($question->prompt_summary) !!}</p>
         @endif
 
         <div class="space-y-2.5 mb-4" wire:loading.class="opacity-60 pointer-events-none" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion">
@@ -2732,6 +3663,20 @@ new class extends Component
         </div>
 
         @if($currentHasDocumentedProcess === true)
+        @php
+            $knownFacts = $this->knownFactsForQuestion($question);
+        @endphp
+        @if(count($knownFacts))
+        <div class="rounded-xl bg-[#eef8f3] border border-[#cdebdc] border-l-[3px] border-l-[#1f9d6b] p-3.5 mb-3">
+            <p class="text-xs font-extrabold uppercase tracking-wide text-[#135f41] mb-1.5">Already on file from your intake</p>
+            <ul class="list-disc list-inside text-[13.5px] text-[#173045] space-y-0.5">
+                @foreach($knownFacts as $fact)
+                <li>{{ $fact }}</li>
+                @endforeach
+            </ul>
+            <p class="text-xs text-[#5d6e7f] mt-1.5">No need to repeat these in your response.</p>
+        </div>
+        @endif
         @if($question->policies->isNotEmpty())
         <div class="rounded-xl bg-[#f8fbfd] border-l-[3px] border-l-[#0b9ed0] border-y border-r border-y-[#e6edf4] border-r-[#e6edf4] p-4 mb-3">
             <p class="text-xs font-extrabold uppercase tracking-wide text-[#12304f] mb-2">Your response should cover{{ $question->policies->count() > 1 ? ' all '.$question->policies->count().' policies' : '' }}</p>
@@ -2742,13 +3687,13 @@ new class extends Component
                 @endif
                 <ul class="list-disc list-inside text-xs text-[#173045] space-y-1">
                     @foreach(($policy->requirements['bullets'] ?? []) as $bullet)
-                    <li>{{ $bullet }}</li>
+                    <li>{!! $this->glossify($bullet) !!}</li>
                     @endforeach
                 </ul>
                 @if($policy->requirements['full_question'] ?? null)
                 <details class="group mt-1.5">
                     <summary class="list-none [&::-webkit-details-marker]:hidden text-xs font-bold text-[#1a7aad] cursor-pointer before:content-['▸_'] group-open:before:content-['▾_']">Full question{{ $question->policies->count() > 1 ? ' for '.$policy->code : '' }}</summary>
-                    <p class="text-xs text-[#5d6e7f] leading-relaxed mt-1.5">{{ $policy->requirements['full_question'] }}</p>
+                    <p class="text-xs text-[#5d6e7f] leading-relaxed mt-1.5">{!! $this->glossify($policy->requirements['full_question']) !!}</p>
                 </details>
                 @endif
             </div>
@@ -2788,7 +3733,7 @@ new class extends Component
 
         <aside class="bg-[#f6f9fc] border border-[#e6edf4] rounded-2xl p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] overflow-y-auto">
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Why we ask</h4>
-            <p class="text-xs text-[#173045] leading-snug mb-4">{{ $question->why_we_ask ?: 'This answer feeds directly into your compliance manuals.' }}</p>
+            <p class="text-xs text-[#173045] leading-snug mb-4">{!! $this->glossify($question->why_we_ask ?: 'This answer feeds directly into your compliance manuals.') !!}</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">No documented answer?</h4>
             <p class="text-xs text-[#173045] leading-snug mb-4">Choose "We don't have a documented answer." The policy's best-practice language becomes your default and you move to the next question. If you do respond, your response is used as written.</p>
             <h4 class="text-[11.5px] font-extrabold uppercase tracking-wide text-[#5d6e7f] mb-1.5">Fills these policies</h4>

@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'reviewer_question', 'reviewer_question_asked_at', 'reviewer_question_reply', 'reviewer_question_replied_at',
     'certified_by_name', 'certified_by_title', 'certified_signature', 'certified_at',
     'wizard_screen', 'wizard_reached_screens', 'wizard_skipped_question_ids', 'wizard_missing_document_categories',
+    'wizard_selected_services', 'wizard_section_gates', 'wizard_skipped_section_ids',
 ])]
 class IntakeSubmission extends Model
 {
@@ -39,6 +40,9 @@ class IntakeSubmission extends Model
             'wizard_reached_screens' => 'array',
             'wizard_skipped_question_ids' => 'array',
             'wizard_missing_document_categories' => 'array',
+            'wizard_selected_services' => 'array',
+            'wizard_section_gates' => 'array',
+            'wizard_skipped_section_ids' => 'array',
         ];
     }
 

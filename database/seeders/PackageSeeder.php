@@ -50,6 +50,7 @@ class PackageSeeder extends Seeder
                     'compliance_ethics_manual',
                     'hipaa_privacy_policy',
                     'hipaa_security_manual',
+                    'training_plan_lms_enrollment',
                     'exclusions_screening_report',
                 ],
                 'is_active' => true,

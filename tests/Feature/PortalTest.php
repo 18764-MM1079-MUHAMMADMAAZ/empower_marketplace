@@ -18,8 +18,11 @@ use App\Mail\ClientPaymentReceiptMail;
 use App\Mail\ClientTrialCancelledMail;
 use App\Mail\ClientTrialStartedMail;
 use App\Mail\WelcomeCredentialsMail;
+use App\Models\CompliancePolicy;
 use App\Models\DiscountCode;
 use App\Models\GeneratedDocument;
+use App\Models\IntakeQuestion;
+use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
@@ -773,6 +776,33 @@ class PortalTest extends TestCase
             'success' => false,
             'message' => 'Your card was declined.',
         ]);
+    }
+
+    public function test_a_declined_charge_shows_both_a_field_reason_and_a_reassurance_banner(): void
+    {
+        Http::fake([
+            config('services.clover_mtbc.base_url') => Http::response([
+                'status' => false,
+                'message' => 'Insufficient funds.',
+                'data' => null,
+            ], 400),
+        ]);
+
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true);
+
+        $this->assertSame('Insufficient funds.', $component->errors()->first('cardNumber'));
+        $this->assertSame("Payment didn't go through. You haven't been charged.", $component->errors()->first('payment'));
     }
 
     public function test_a_declined_charge_for_a_guest_creates_no_account(): void
@@ -1850,6 +1880,53 @@ class PortalTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal')
             ->assertSet('step', 2);
+    }
+
+    public function test_step_3_answers_review_reflects_gate_decisions_and_excluded_questions(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id, 'committee_none' => true]);
+        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $policy = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $committeeQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Compliance Committee', 'requires_compliance_committee' => true]);
+        $committeeQuestion->policies()->sync([$policy->id]);
+        $keptQuestion = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 2, 'title' => 'Owner & board oversight']);
+        $keptQuestion->policies()->sync([$policy->id]);
+
+        // A second section whose gate hasn't been resolved yet (e.g. skipped for now) — its
+        // question must count as "Open", not get folded into the raw IntakeQuestion total.
+        $sectionTwo = IntakeSection::create(['key' => 'patient_privacy', 'label' => 'Patient privacy', 'sort_order' => 2]);
+        $openQuestion = IntakeQuestion::create(['intake_section_id' => $sectionTwo->id, 'sort_order' => 1, 'title' => 'Notice of Privacy Practices']);
+        $openQuestion->policies()->sync([$policy->id]);
+
+        IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
+            'wizard_selected_services' => [],
+            'wizard_section_gates' => [(string) $section->id => ['mode' => 'none', 'picked' => []]],
+        ]);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal')
+            ->assertSet('step', 3)
+            ->assertSee('Documented procedures (section gate)')
+            ->assertSee('No documented procedures · policy defaults for all 1')
+            ->assertSee('Skipped by your answers (section removed)')
+            ->assertSee('No Compliance Committee (from your intake)');
+
+        $this->assertSame(
+            ['answered' => 0, 'policyDefault' => 1, 'open' => 1],
+            $component->instance()->workflowAnswerCounts
+        );
     }
 
     public function test_draft_submission_with_wizard_done_routes_to_step_3_on_reload(): void

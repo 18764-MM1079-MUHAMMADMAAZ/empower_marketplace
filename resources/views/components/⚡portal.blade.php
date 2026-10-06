@@ -300,6 +300,25 @@ new class extends Component
 
     private const TEAM_SUB_SCREENS = ['t_practice', 't_officers', 't_it', 't_hotline', 't_leadership'];
 
+    /** Display labels for the wizard's services checklist, keyed the same as
+     *  IntakeQuestion::service_key — deliberately duplicated from
+     *  practice-intake-wizard.blade.php's SERVICES, same non-coupling as elsewhere in this file,
+     *  only used here to word a "not applicable" reason on the answers review. */
+    private const SERVICE_LABELS = [
+        'lab' => 'We order or perform lab tests or diagnostic procedures',
+        'oon' => 'We see Medicare Advantage or Medicaid plan patients while out of network with their plan',
+        'wc' => 'We treat workers\' compensation patients',
+        'plan' => 'We also act as a health plan or a healthcare clearinghouse',
+        'gov' => 'We treat patients in custody or military service members',
+        'research' => 'We take part in research that uses patient information',
+        'data' => 'We share de-identified data or limited data sets',
+        'fund' => 'We use patient information for fundraising',
+        'tele' => 'We offer telehealth visits',
+        'byod' => 'Staff use personal phones, tablets or laptops for work',
+        'remote' => 'Staff connect to our systems from outside the office',
+        'wifi' => 'We have Wi-Fi at our office',
+    ];
+
     #[Computed]
     public function basicsCompletedCount(): int
     {
@@ -514,10 +533,11 @@ new class extends Component
         ];
     }
 
-    /** @return array<int, array{label: string, value: string, done: bool, badge: array{label: string, class: string}, meta: ?string, screen: string}> */
-    private function sectionDetailRows(IntakeSection $section, array $answersByQuestionId): array
+    /** @param \Illuminate\Support\Collection<int, IntakeQuestion> $questions
+     *  @return array<int, array{label: string, value: string, done: bool, badge: array{label: string, class: string}, meta: ?string, screen: string}> */
+    private function sectionDetailRows($questions, array $answersByQuestionId): array
     {
-        return $section->questions->map(function (IntakeQuestion $question) use ($answersByQuestionId) {
+        return $questions->map(function (IntakeQuestion $question) use ($answersByQuestionId) {
             $answer = $answersByQuestionId[$question->id] ?? null;
 
             [$value, $badge] = match (true) {
@@ -535,6 +555,26 @@ new class extends Component
                 'screen' => 'question:'.$question->id,
             ];
         })->all();
+    }
+
+    /** A question is left out of its section's gate entirely (not merely deferred) when the
+     *  practice's committee/service answers rule it out — mirrors, rather than shares,
+     *  practice-intake-wizard.blade.php's isServiceExcluded()/requires_compliance_committee
+     *  checks, same deliberate non-coupling as chapterProgress() above. Returns null when the
+     *  question still applies. */
+    private function questionRemovedReason(IntakeQuestion $question, Practice $practice, array $selectedServices): ?string
+    {
+        if ($question->requires_compliance_committee && $practice->committee_none) {
+            return 'No Compliance Committee (from your intake)';
+        }
+
+        if ($question->service_key && ! in_array($question->service_key, $selectedServices, true)) {
+            $service = self::SERVICE_LABELS[$question->service_key] ?? $question->service_key;
+
+            return "Not applicable: \"{$service}\" was not checked";
+        }
+
+        return null;
     }
 
     #[Computed]
@@ -562,16 +602,79 @@ new class extends Component
             'total' => count(self::TEAM_SUB_SCREENS),
             'details' => $this->teamDetailRows(),
         ];
+        $rows[] = [
+            'label' => 'Your services',
+            'done' => in_array('services', $reached, true) ? 1 : 0,
+            'total' => 1,
+            'details' => [],
+        ];
 
+        $practice = $this->practice;
+        $selectedServices = $this->primarySubmission?->wizard_selected_services ?? [];
+        $sectionGates = $this->primarySubmission?->wizard_section_gates ?? [];
         $answersByQuestionId = $this->primarySubmission?->intakeAnswers()->get()->keyBy('intake_question_id')->all() ?? [];
+        $removed = [];
 
         foreach (IntakeSection::with('questions.policies')->orderBy('sort_order')->get() as $section) {
-            $questionIds = $section->questions->pluck('id')->all();
+            $eligibleQuestions = $section->questions->reject(function (IntakeQuestion $question) use ($practice, $selectedServices, &$removed) {
+                $reason = $this->questionRemovedReason($question, $practice, $selectedServices);
+
+                if ($reason !== null) {
+                    $removed[] = ['question' => $question, 'reason' => $reason];
+                }
+
+                return $reason !== null;
+            });
+
+            $gate = $sectionGates[(string) $section->id] ?? null;
+            $gateMode = $gate['mode'] ?? '';
+            $details = [];
+            $done = 0;
+            $total = 0;
+
+            if (in_array($gateMode, ['none', 'some'], true)) {
+                $total++;
+                $done++;
+                $details[] = [
+                    'label' => 'Documented procedures (section gate)',
+                    'value' => $gateMode === 'none'
+                        ? "No documented procedures · policy defaults for all {$eligibleQuestions->count()}"
+                        : 'Documented: '.$eligibleQuestions->whereIn('id', $gate['picked'] ?? [])->pluck('title')->implode(', ')
+                            .' · policy defaults for the other '.($eligibleQuestions->count() - count($gate['picked'] ?? [])),
+                    'done' => true,
+                    'badge' => ['label' => 'Done', 'class' => 'bg-[#d7f3ea] text-[#117a51]'],
+                    'meta' => null,
+                    'screen' => 'section:'.$section->id,
+                ];
+
+                if ($gateMode === 'some') {
+                    $pickedQuestions = $eligibleQuestions->whereIn('id', $gate['picked'] ?? []);
+                    $total += $pickedQuestions->count();
+                    $done += $pickedQuestions->filter(fn (IntakeQuestion $q) => isset($answersByQuestionId[$q->id]))->count();
+                    $details = [...$details, ...$this->sectionDetailRows($pickedQuestions, $answersByQuestionId)];
+                }
+            }
+
             $rows[] = [
                 'label' => $section->label,
-                'done' => count(array_intersect($questionIds, array_keys($answersByQuestionId))),
-                'total' => count($questionIds),
-                'details' => $this->sectionDetailRows($section, $answersByQuestionId),
+                'done' => $done,
+                'total' => $total,
+                'details' => $details,
+            ];
+        }
+
+        if (count($removed)) {
+            $rows[] = [
+                'label' => 'Skipped by your answers (section removed)',
+                'count' => count($removed),
+                'details' => collect($removed)->map(fn (array $r) => [
+                    'label' => $r['question']->title,
+                    'value' => $r['reason'],
+                    'done' => true,
+                    'badge' => ['label' => 'Removed', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]'],
+                    'meta' => $r['question']->policies->pluck('code')->implode(' · ') ?: null,
+                    'screen' => $r['question']->requires_compliance_committee ? 't_leadership' : 'services',
+                ])->all(),
             ];
         }
 
@@ -583,17 +686,45 @@ new class extends Component
     #[Computed]
     public function workflowAnswerCounts(): array
     {
-        $total = IntakeQuestion::count();
-        $answers = $this->primarySubmission?->intakeAnswers ?? collect();
+        $practice = $this->practice;
+        $selectedServices = $this->primarySubmission?->wizard_selected_services ?? [];
+        $sectionGates = $this->primarySubmission?->wizard_section_gates ?? [];
+        $answersByQuestionId = $this->primarySubmission?->intakeAnswers()->get()->keyBy('intake_question_id')->all() ?? [];
 
-        $answered = $answers->where('has_documented_process', true)->count();
-        $policyDefault = $answers->where('has_documented_process', false)->count();
+        $answered = 0;
+        $policyDefault = 0;
+        $open = 0;
 
-        return [
-            'answered' => $answered,
-            'policyDefault' => $policyDefault,
-            'open' => max(0, $total - $answered - $policyDefault),
-        ];
+        foreach (IntakeSection::with('questions')->orderBy('sort_order')->get() as $section) {
+            $eligibleQuestions = $section->questions->reject(
+                fn (IntakeQuestion $q) => $this->questionRemovedReason($q, $practice, $selectedServices) !== null
+            );
+            $gate = $sectionGates[(string) $section->id] ?? null;
+            $gateMode = $gate['mode'] ?? '';
+            $picked = $gate['picked'] ?? [];
+
+            foreach ($eligibleQuestions as $question) {
+                $answer = $answersByQuestionId[$question->id] ?? null;
+
+                if ($answer !== null) {
+                    $answer->has_documented_process ? $answered++ : $policyDefault++;
+
+                    continue;
+                }
+
+                if (! in_array($gateMode, ['none', 'some'], true)) {
+                    // Gate not yet resolved (including skipped for now) — we don't know yet
+                    // whether this topic will be asked or defaulted, so it counts as open.
+                    $open++;
+                } elseif ($gateMode === 'none' || ! in_array($question->id, $picked, true)) {
+                    $policyDefault++;
+                } else {
+                    $open++;
+                }
+            }
+        }
+
+        return compact('answered', 'policyDefault', 'open');
     }
 
     private function intakeSubmissionStatusLabel(?IntakeSubmissionStatus $status): string
@@ -1477,8 +1608,11 @@ new class extends Component
                 billingAddress: $billingAddress,
             );
 
-            $this->addError('payment', $chargeResult->declineMessage ?? 'Your card was declined. Please check your details and try again.');
-            $this->addError('cardNumber', $chargeResult->declineMessage ?? 'Your card was declined.');
+            // Two distinct messages, both shown at once: the field error explains why (the real
+            // gateway reason, e.g. a genuine decline or "could not reach the payment processor"),
+            // the banner reassures that nothing was actually charged.
+            $this->addError('cardNumber', $chargeResult->declineMessage ?? 'Your card was declined. Try a different card, or contact your bank.');
+            $this->addError('payment', "Payment didn't go through. You haven't been charged.");
 
             return;
         }
@@ -1700,7 +1834,8 @@ new class extends Component
                 message: 'Free trial signup failed to tokenize the card.',
             );
 
-            $this->addError('payment', 'We could not save your card. Please check your details and try again.');
+            $this->addError('cardNumber', 'We could not save your card. Please check your details and try again.');
+            $this->addError('payment', "Payment didn't go through. You haven't been charged.");
 
             return;
         }
@@ -2788,7 +2923,10 @@ $progressPct = ($milestone / 4) * 100;
                             </button>
                             @if($this->isFreeTrialCheckout)
                             <button type="button" wire:key="terms-confirm-payfreetrial"
-                                x-on:click="$wire.payFreeTrial($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
+                                x-on:click="
+                                    if (!navigator.onLine) { $dispatch('toast', { message: 'You\'re offline. Reconnect to the internet, then try again.', type: 'error' }); return; }
+                                    $wire.payFreeTrial($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)
+                                "
                                 :disabled="!termsAccepted"
                                 :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
                                 class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
@@ -2803,7 +2941,10 @@ $progressPct = ($milestone / 4) * 100;
                             </button>
                             @else
                             <button type="button" wire:key="terms-confirm-pay"
-                                x-on:click="$wire.pay($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)"
+                                x-on:click="
+                                    if (!navigator.onLine) { $dispatch('toast', { message: 'You\'re offline. Reconnect to the internet, then try again.', type: 'error' }); return; }
+                                    $wire.pay($refs.cardName.value, $refs.cardNumber.value, $refs.cardExpiry.value, $refs.cardCvc.value, termsAccepted).finally(() => showTerms = false)
+                                "
                                 :disabled="!termsAccepted"
                                 :class="!termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-dark'"
                                 class="inline-flex items-center gap-1 rounded bg-accent px-5 py-2 text-sm font-bold text-navy-dark transition-colors"
@@ -3132,6 +3273,9 @@ $progressPct = ($milestone / 4) * 100;
                     my answers</a>
                 @endif
             </div>
+            @if($this->batchOrders->contains(fn ($o) => $o->package?->includesWorkflowQuestionnaire()))
+            <p class="text-xs text-[#8592a1] mb-3">Your responses are used exactly as entered. Empower does not edit practice responses. Questions marked &ldquo;Policy default&rdquo; use the manual's best-practice language.</p>
+            @endif
             <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
                 @foreach($this->answerSummaryRows as $row)
                 <div @if(! empty($row['details'])) x-data="{ open: false }" @endif>
@@ -3148,8 +3292,13 @@ $progressPct = ($milestone / 4) * 100;
                             </svg>
                             @endif
                         </span>
-                        <span class="text-xs text-[#5d6e7f] flex-shrink-0">{{ $row['done'] }}/{{ $row['total'] }} {{
-                            $row['done'] === $row['total'] ? '✓' : '' }}</span>
+                        <span class="text-xs text-[#5d6e7f] flex-shrink-0">
+                            @if(isset($row['count']))
+                            {{ $row['count'] }}
+                            @else
+                            {{ $row['done'] }}/{{ $row['total'] }} {{ $row['done'] === $row['total'] ? '✓' : '' }}
+                            @endif
+                        </span>
                     </button>
                     @if(! empty($row['details']))
                     <div x-show="open" x-cloak x-transition class="px-4 pb-3 space-y-2.5">

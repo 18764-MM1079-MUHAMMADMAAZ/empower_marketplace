@@ -57,6 +57,188 @@ class PracticeIntakeWizardTest extends TestCase
         $q3->policies()->attach($policyC->id);
     }
 
+    /** A small gate-aware fixture — enough to exercise the services checklist, section gates,
+     *  the Compliance Committee skip and IT-vendor consolidation, without seeding the full real
+     *  66-question/101-policy production data. */
+    private function seedGatedQuestions(): array
+    {
+        $policyCommittee = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-04', 'title' => 'Compliance Committee', 'requirements' => []]);
+        $policyLab = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-11', 'title' => 'Medical necessity', 'requirements' => []]);
+        $policyPasswords = CompliancePolicy::create(['manual' => 'hipaa_security_manual', 'code' => 'SEC-17', 'title' => 'Passwords', 'requirements' => []]);
+        $policyFirewall = CompliancePolicy::create(['manual' => 'hipaa_security_manual', 'code' => 'SEC-33', 'title' => 'Firewall', 'requirements' => []]);
+
+        $sectionCompliance = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $sectionSecurity = IntakeSection::create(['key' => 'security_systems_network', 'label' => 'Security: systems & network', 'sort_order' => 2]);
+
+        $committeeQuestion = IntakeQuestion::create(['intake_section_id' => $sectionCompliance->id, 'sort_order' => 1, 'title' => 'Compliance Committee', 'requires_compliance_committee' => true]);
+        $committeeQuestion->policies()->attach($policyCommittee->id);
+
+        $labQuestion = IntakeQuestion::create(['intake_section_id' => $sectionCompliance->id, 'sort_order' => 2, 'title' => 'Medical necessity', 'service_key' => 'lab']);
+        $labQuestion->policies()->attach($policyLab->id);
+
+        $passwordsQuestion = IntakeQuestion::create(['intake_section_id' => $sectionSecurity->id, 'sort_order' => 1, 'title' => 'Passwords', 'is_it_managed_topic' => true]);
+        $passwordsQuestion->policies()->attach($policyPasswords->id);
+
+        $firewallQuestion = IntakeQuestion::create(['intake_section_id' => $sectionSecurity->id, 'sort_order' => 2, 'title' => 'Firewall', 'is_it_managed_topic' => true]);
+        $firewallQuestion->policies()->attach($policyFirewall->id);
+
+        return compact('sectionCompliance', 'sectionSecurity', 'committeeQuestion', 'labQuestion', 'passwordsQuestion', 'firewallQuestion');
+    }
+
+    public function test_services_screen_requires_a_choice_before_continuing(): void
+    {
+        $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 'services')
+            ->call('continueFromServices')
+            ->assertHasErrors(['services']);
+    }
+
+    public function test_unchecking_a_service_excludes_its_mapped_question_from_the_gate(): void
+    {
+        $fixture = $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 'services')
+            ->call('setServicesNone')
+            ->call('continueFromServices');
+
+        $topics = $component->instance()->gateTopicsForSection($fixture['sectionCompliance']->fresh());
+        $this->assertFalse($topics->contains('id', $fixture['labQuestion']->id));
+
+        $component->call('toggleService', 'lab');
+        $topicsAfter = $component->instance()->gateTopicsForSection($fixture['sectionCompliance']->fresh());
+        $this->assertTrue($topicsAfter->contains('id', $fixture['labQuestion']->id));
+    }
+
+    public function test_compliance_committee_question_is_skipped_without_a_committee(): void
+    {
+        $fixture = $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        $practice = Practice::factory()->create(['user_id' => $user->id, 'committee_none' => true]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]]);
+
+        $topics = $component->instance()->gateTopicsForSection($fixture['sectionCompliance']->fresh());
+        $this->assertFalse($topics->contains('id', $fixture['committeeQuestion']->id));
+
+        $practice->update(['committee_none' => false]);
+        $user->unsetRelation('practice');
+        unset($component->instance()->practice, $component->instance()->hasNoCommittee);
+        $topicsWithCommittee = $component->instance()->gateTopicsForSection($fixture['sectionCompliance']->fresh());
+        $this->assertTrue($topicsWithCommittee->contains('id', $fixture['committeeQuestion']->id));
+    }
+
+    public function test_it_managed_questions_combine_into_one_question_when_outsourced(): void
+    {
+        $fixture = $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'it_mode' => 'vendor', 'it_vendor_name' => 'Acme IT']);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('setServicesNone')
+            ->call('continueFromServices')
+            ->call('chooseGateMode', $fixture['sectionCompliance']->id, 'none');
+
+        $securityTopics = $component->instance()->gateTopicsForSection($fixture['sectionSecurity']->fresh());
+        $this->assertFalse($securityTopics->contains('id', $fixture['passwordsQuestion']->id));
+        $this->assertFalse($securityTopics->contains('id', $fixture['firewallQuestion']->id));
+        $combo = $securityTopics->firstWhere('id', -1);
+        $this->assertNotNull($combo);
+        $this->assertStringContainsString('Acme IT', $combo->prompt_summary);
+
+        $component->call('chooseGateMode', $fixture['sectionSecurity']->id, 'some')
+            ->call('toggleGateTopic', $fixture['sectionSecurity']->id, -1)
+            ->call('continueFromGate', $fixture['sectionSecurity']->id)
+            ->assertSet('currentQuestionId', -1)
+            ->set('currentResponse', 'Acme IT patches and firewalls everything monthly.')
+            ->call('chooseDocumentedProcess')
+            ->call('saveCurrentAnswer');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_question_id' => $fixture['passwordsQuestion']->id,
+            'response' => 'Acme IT patches and firewalls everything monthly.',
+        ]);
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_question_id' => $fixture['firewallQuestion']->id,
+            'response' => 'Acme IT patches and firewalls everything monthly.',
+        ]);
+    }
+
+    public function test_skip_for_now_on_a_gate_screen_defers_it_until_everything_else_is_resolved(): void
+    {
+        $fixture = $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('setServicesNone')
+            ->call('continueFromServices')
+            ->assertSet('currentGateSectionId', $fixture['sectionCompliance']->id);
+
+        // Skip for now leaves the gate unresolved (the draft, if any, is untouched) and moves on
+        // to the next section instead — it must not fall back to "apply the policy defaults".
+        $component->call('skipCurrentGate', $fixture['sectionCompliance']->id)
+            ->assertSet('currentGateSectionId', $fixture['sectionSecurity']->id);
+        $this->assertSame([$fixture['sectionCompliance']->id], $component->instance()->skippedSectionIds);
+        $this->assertArrayNotHasKey((string) $fixture['sectionCompliance']->id, $component->instance()->sectionGates);
+
+        // Resolving the only other section routes back to the skipped one instead of finishing.
+        $component->call('chooseGateMode', $fixture['sectionSecurity']->id, 'none')
+            ->assertSet('currentGateSectionId', $fixture['sectionCompliance']->id);
+        $this->assertSame([$fixture['sectionCompliance']->id], $component->instance()->skippedSectionIds);
+
+        // Finally resolving it clears the skip and finishes the wizard.
+        $component->call('chooseGateMode', $fixture['sectionCompliance']->id, 'none')
+            ->assertSet('screen', 'saving');
+        $this->assertSame([], $component->instance()->skippedSectionIds);
+    }
+
+    public function test_services_used_in_chips_list_every_service_mapped_policy(): void
+    {
+        $fixture = $this->seedGatedQuestions();
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 'services');
+
+        $this->assertSame(['CMP-11'], $component->instance()->servicesUsedInPolicyCodes);
+    }
+
+    public function test_glossify_wraps_the_first_mention_of_a_term_with_its_definition(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        $component = Livewire::actingAs($user)->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]]);
+
+        $html = $component->instance()->glossify('We also act as a health plan or a healthcare clearinghouse, since many clearinghouses do this.');
+
+        $this->assertStringContainsString('<abbr', $html);
+        $this->assertStringContainsString('title="A company that processes and forwards claims and other data between providers and payers."', $html);
+        // Only the first mention of "clearinghouse(s)" gets wrapped.
+        $this->assertSame(1, substr_count($html, '<abbr'));
+    }
+
     private function makeEssentialOrder(User $user): Order
     {
         $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
@@ -246,6 +428,49 @@ class PracticeIntakeWizardTest extends TestCase
         $component->call('toggleDocumentMissing', 'hipaa_privacy');
 
         $this->assertSame('needed', $component->instance()->documentCategoryStatus('hipaa_privacy'));
+    }
+
+    public function test_bulk_mark_remaining_documents_missing_appears_once_one_is_uploaded(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
+            ->set('documentFiles', [UploadedFile::fake()->create('training.pdf', 50, 'application/pdf')])
+            ->set('documentFileTags.0', 'training_materials')
+            ->assertSeeText('Mark the other 3 as "don\'t have"')
+            ->call('markRemainingDocumentsMissing');
+
+        $this->assertSame('declined', $component->instance()->documentCategoryStatus('compliance_ethics'));
+        $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_privacy'));
+        $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_security'));
+    }
+
+    public function test_professional_tier_offers_a_full_skip_before_any_upload(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
+            ->assertSeeText('We don\'t have any of these');
+    }
+
+    public function test_essential_tier_does_not_offer_a_full_skip_before_any_upload(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
+            ->assertDontSee('We don\'t have any of these');
     }
 
     public function test_skipping_the_documents_screen_bypasses_validation_and_advances(): void
@@ -507,6 +732,29 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertSet('screen', 't_practice');
     }
 
+    /** Regression: mount() only pre-fills legalPracticeName from whatever the practice's name
+     *  already was at page load — a name typed on b_profile earlier in the same uninterrupted
+     *  session never reached it, since nothing remounts the component between the two screens. */
+    public function test_legal_practice_name_prefills_from_a_name_typed_earlier_in_the_same_session(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'name' => '', 'legal_practice_name' => null]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
+            ->call('continueFromDocuments', true)
+            ->set('practiceName', 'Sunrise Family Medicine')
+            ->set('specialty', 'Family Medicine')
+            ->call('continueFromProfile')
+            ->call('continueFromProviders')
+            ->call('continueFromAddress', true)
+            ->call('continueFromLogo')
+            ->assertSet('screen', 't_practice')
+            ->assertSet('legalPracticeName', 'Sunrise Family Medicine');
+    }
+
     public function test_team_practice_screen_requires_legal_name_contact_and_a_location(): void
     {
         $user = User::factory()->create();
@@ -522,6 +770,18 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('practiceLocations', [''])
             ->call('continueFromPractice')
             ->assertHasErrors(['legalPracticeName', 'mainPhone', 'mainEmail', 'practiceLocations']);
+    }
+
+    public function test_hotline_poster_count_prefills_as_two_per_location(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id, 'hotline_poster_count' => null]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_hotline')
+            ->assertSet('hotlinePosterCount', 2);
     }
 
     public function test_team_hotline_screen_requires_hotline_contact_unless_using_the_shared_hotline(): void
@@ -559,6 +819,76 @@ class PracticeIntakeWizardTest extends TestCase
             'uses_ehcp_hotline' => true,
             'board_mode' => 'owners',
         ]);
+    }
+
+    public function test_officer_quick_add_pills_offer_the_account_holder_and_other_named_officers(): void
+    {
+        $user = User::factory()->create(['name' => 'Jane Provider']);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers')
+            ->set('hipaaPrivacyOfficerName', 'Alex Privacy');
+
+        $this->assertSame(
+            [
+                ['source' => 'you', 'label' => 'You (Jane Provider)'],
+                ['source' => 'hipaaPrivacyOfficer', 'label' => 'Alex Privacy'],
+            ],
+            $component->instance()->quickAddOptionsForOfficer('hipaaSecurityOfficer')
+        );
+
+        // The Privacy Officer's own row never suggests itself.
+        $privacyOptions = collect($component->instance()->quickAddOptionsForOfficer('hipaaPrivacyOfficer'));
+        $this->assertFalse($privacyOptions->contains('label', 'Alex Privacy'));
+    }
+
+    public function test_officer_quick_add_pill_copies_name_phone_and_email(): void
+    {
+        $user = User::factory()->create(['name' => 'Jane Provider', 'email' => 'jane@example.com']);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers')
+            ->set('complianceOfficerName', 'Jane Provider')
+            ->set('complianceOfficerPhone', '555-0100')
+            ->set('complianceOfficerEmail', 'jane@example.com')
+            ->call('copyOfficerContact', 'hipaaPrivacyOfficer', 'complianceOfficer')
+            ->assertSet('hipaaPrivacyOfficerName', 'Jane Provider')
+            ->assertSet('hipaaPrivacyOfficerPhone', '555-0100')
+            ->assertSet('hipaaPrivacyOfficerEmail', 'jane@example.com');
+    }
+
+    public function test_it_quick_add_pill_copies_name_phone_and_email(): void
+    {
+        $user = User::factory()->create(['name' => 'Jane Provider', 'email' => 'jane@example.com']);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_it')
+            ->set('itMode', 'inhouse')
+            ->set('complianceOfficerName', 'Alex Compliance')
+            ->set('complianceOfficerPhone', '555-0199')
+            ->set('complianceOfficerEmail', 'alex@example.com');
+
+        $this->assertSame(
+            [
+                ['source' => 'you', 'label' => 'You (Jane Provider)'],
+                ['source' => 'complianceOfficer', 'label' => 'Alex Compliance'],
+            ],
+            $component->instance()->quickAddOptionsForIt()
+        );
+
+        $component->call('copyItContact', 'complianceOfficer')
+            ->assertSet('itContactName', 'Alex Compliance')
+            ->assertSet('itContactPhone', '555-0199')
+            ->assertSet('itContactEmail', 'alex@example.com');
     }
 
     public function test_leadership_quick_add_dedupes_a_shared_name_and_joins_its_roles(): void
@@ -617,7 +947,7 @@ class PracticeIntakeWizardTest extends TestCase
 
     private function advanceToQuestions(User $user, Order $order): Testable
     {
-        return Livewire::actingAs($user)
+        $component = Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 't_practice')
             ->set('legalPracticeName', 'Sunrise Family Medicine LLC')
@@ -648,7 +978,35 @@ class PracticeIntakeWizardTest extends TestCase
             ->set('committeeNone', true)
             ->set('boardMode', 'owners')
             ->set('complianceGoverningBoardMembers.0.name', 'Jane Provider')
-            ->call('continueFromLeadership');
+            ->call('continueFromLeadership')
+            ->call('setServicesNone')
+            ->call('continueFromServices');
+
+        return $this->pickEveryGateTopic($component);
+    }
+
+    /** Walks every section's gate screen choosing "Yes" and picking every one of its topics —
+     *  the test-suite's stand-in for "answer the whole questionnaire", matching the pre-gate
+     *  behavior most of this file's tests were written against. */
+    private function pickEveryGateTopic(Testable $component): Testable
+    {
+        foreach (IntakeSection::orderBy('sort_order')->get() as $section) {
+            $questionIds = $section->questions()->orderBy('sort_order')->pluck('id')->all();
+
+            if ($questionIds === []) {
+                continue;
+            }
+
+            $component->call('chooseGateMode', $section->id, 'some');
+
+            foreach ($questionIds as $questionId) {
+                $component->call('toggleGateTopic', $section->id, $questionId);
+            }
+
+            $component->call('continueFromGate', $section->id);
+        }
+
+        return $component;
     }
 
     public function test_documented_process_answer_requires_response_text(): void
@@ -855,6 +1213,37 @@ class PracticeIntakeWizardTest extends TestCase
         ]);
         $submission = IntakeSubmission::where('order_id', $order->id)->first();
         $this->assertContains('documents', $submission->wizard_reached_screens);
+    }
+
+    public function test_intro_screen_checklist_is_tier_aware(): void
+    {
+        $essentialUser = User::factory()->create();
+        Practice::factory()->create(['user_id' => $essentialUser->id]);
+        Livewire::actingAs($essentialUser)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeEssentialOrder($essentialUser)->id]])
+            ->assertSet('screen', 'intro')
+            ->assertSeeText('about 5 minutes')
+            ->assertSeeText('Your current policies and training materials')
+            ->assertDontSee('Contact details for 4 compliance roles');
+
+        $proUser = User::factory()->create();
+        Practice::factory()->create(['user_id' => $proUser->id]);
+        Livewire::actingAs($proUser)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeProfessionalOrder($proUser)->id]])
+            ->assertSet('screen', 'intro')
+            ->assertSeeText('about 15')
+            ->assertSeeText('Any current policies, manuals or training materials')
+            ->assertSeeText('Contact details for 4 compliance roles')
+            ->assertSeeText('Compliance Committee and owners or board')
+            ->assertDontSee('Employee manual and encounter list');
+
+        $advUser = User::factory()->create();
+        Practice::factory()->create(['user_id' => $advUser->id]);
+        Livewire::actingAs($advUser)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeAdvancedOrder($advUser)->id]])
+            ->assertSet('screen', 'intro')
+            ->assertSeeText('about 20')
+            ->assertSeeText('Employee manual and encounter list');
     }
 
     public function test_a_later_visit_skips_the_intro_screen(): void

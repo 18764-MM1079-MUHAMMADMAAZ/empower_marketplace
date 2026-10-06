@@ -16,6 +16,12 @@ use Illuminate\Database\Seeder;
  * the prototype's Q(id, chapter, title, prompt, policyCodes, why, fields, extras) entries — only
  * the prototype's per-topic structured sub-fields (who/where/frequency/etc.) are intentionally
  * left out, since this wizard captures one free-text response per question instead.
+ *
+ * `service_key`, `is_it_managed_topic` and `requires_compliance_committee` implement the question
+ * tree from the "...Workflow, Policy Mapping & UX Enhancements" doc (2026-10-05): the 12-item
+ * "Your services" checklist, the IT-vendor consolidation, and the Compliance Committee question's
+ * own gate — all transcribed from the prototype's SERVICES/IT_IDS/removedReason() (2026-10-05
+ * `changes/updated/Proactive Compliance Marketplace.html`).
  */
 class IntakeSectionSeeder extends Seeder
 {
@@ -28,7 +34,7 @@ class IntakeSectionSeeder extends Seeder
                     ['title' => 'Owner & board oversight', 'policies' => ['CMP-01'], 'prompt_summary' => 'How do your owners or governing board oversee the compliance program?', 'why_we_ask' => 'OIG guidance expects leadership to actively oversee compliance, not just approve it once.'],
                     ['title' => "Management's role", 'policies' => ['CMP-02'], 'prompt_summary' => 'Which managers carry compliance duties, and how do they act on problems?', 'why_we_ask' => 'Managers turn policy into day-to-day practice. This names who supervises the program and who fixes problems.'],
                     ['title' => 'Compliance Officer duties', 'policies' => ['CMP-03'], 'prompt_summary' => 'How does your Compliance Officer carry out the role day to day?', 'why_we_ask' => 'Regulators look for a named, empowered Compliance Officer with a backup and a clear reporting line.'],
-                    ['title' => 'Compliance Committee', 'policies' => ['CMP-04'], 'prompt_summary' => 'How does your Compliance Committee work?', 'why_we_ask' => 'A committee spreads compliance across departments so issues surface early.'],
+                    ['title' => 'Compliance Committee', 'policies' => ['CMP-04'], 'prompt_summary' => 'How does your Compliance Committee work?', 'why_we_ask' => 'A committee spreads compliance across departments so issues surface early.', 'requires_compliance_committee' => true],
                     ['title' => 'Staff sign-offs', 'policies' => ['CMP-05', 'SEC-26'], 'prompt_summary' => 'How do staff sign off on your code of conduct and acceptable-use rules?', 'why_we_ask' => 'Signed acknowledgments prove each person was told the rules, including the duty to report problems.'],
                     ['title' => 'Compliance & HIPAA training', 'policies' => ['CMP-07', 'PRV-36', 'SEC-43'], 'prompt_summary' => 'How is compliance, HIPAA privacy and security training delivered and tracked?', 'why_we_ask' => 'All three manuals require training at hire and periodically after. One answer covers them all.'],
                     ['title' => 'Reporting concerns', 'policies' => ['CMP-08', 'PRV-11', 'PRV-36'], 'prompt_summary' => 'How can staff and patients report a compliance or privacy concern?', 'why_we_ask' => 'Staff need several safe ways to report, and must be protected from retaliation when they do, including whistleblowers.'],
@@ -42,9 +48,9 @@ class IntakeSectionSeeder extends Seeder
                 'questions' => [
                     ['title' => 'Contracts & referral relationships', 'policies' => ['CMP-06'], 'prompt_summary' => 'How do you review contracts and referral relationships for fraud and abuse risk?', 'why_we_ask' => 'Leases, directorships and referral arrangements are where Stark and Anti-Kickback risk usually hides.'],
                     ['title' => 'Coding & billing audits', 'policies' => ['CMP-09'], 'prompt_summary' => 'What audits do you run on coding, documentation and billing?', 'why_we_ask' => 'Your audit plan shows payers you catch errors yourself. It shapes the mini audit in the Advanced package.'],
-                    ['title' => 'Medical necessity', 'policies' => ['CMP-11'], 'prompt_summary' => 'How do you confirm medical necessity before tests and procedures?', 'why_we_ask' => 'Orders without a supporting diagnosis are a common audit finding. So are missing ABNs.'],
+                    ['title' => 'Medical necessity', 'policies' => ['CMP-11'], 'prompt_summary' => 'How do you confirm medical necessity before tests and procedures?', 'why_we_ask' => 'Orders without a supporting diagnosis are a common audit finding. So are missing ABNs.', 'service_key' => 'lab'],
                     ['title' => 'Claims workflow', 'policies' => ['CMP-12'], 'prompt_summary' => 'How does an encounter become a submitted claim?', 'why_we_ask' => 'This describes who codes, who checks and who releases claims, so the policy reflects your real workflow.'],
-                    ['title' => 'Out-of-network plan patients', 'policies' => ['CMP-13'], 'prompt_summary' => 'How do you handle Medicare Advantage or Medicaid plan patients when you’re out of network?', 'why_we_ask' => 'Out-of-network plan patients need specific notices and consent within set timeframes.'],
+                    ['title' => 'Out-of-network plan patients', 'policies' => ['CMP-13'], 'prompt_summary' => 'How do you handle Medicare Advantage or Medicaid plan patients when you’re out of network?', 'why_we_ask' => 'Out-of-network plan patients need specific notices and consent within set timeframes.', 'service_key' => 'oon'],
                     ['title' => 'Exclusion screening', 'policies' => ['CMP-14'], 'prompt_summary' => 'How do you screen staff, providers and vendors against exclusion lists?', 'why_we_ask' => 'Billing for services by an excluded person creates overpayments and penalties.'],
                     ['title' => 'Government visits & requests', 'policies' => ['CMP-16', 'PRV-19'], 'prompt_summary' => 'What do staff do when an investigator, auditor or surveyor arrives or calls?', 'why_we_ask' => 'A calm, scripted response protects the practice and patient privacy. One process covers investigations and oversight audits.'],
                 ],
@@ -64,7 +70,7 @@ class IntakeSectionSeeder extends Seeder
                     ['title' => 'Patient authorizations', 'policies' => ['PRV-14'], 'prompt_summary' => 'How do you check and file signed authorizations to release information?', 'why_we_ask' => 'Authorizations must have required elements. Psychotherapy notes and marketing need their own.'],
                     ['title' => 'Personal representatives', 'policies' => ['PRV-08'], 'prompt_summary' => 'How do you decide who can act for a patient, such as a guardian, POA or parent of a minor?', 'why_we_ask' => 'Representatives get the patient’s rights, so their authority must be checked and recorded.'],
                     ['title' => 'Family & caregivers', 'policies' => ['PRV-15'], 'prompt_summary' => 'How do you decide what to share with family members or caregivers?', 'why_we_ask' => 'Covers sharing when the patient is present, incapacitated or in an emergency.'],
-                    ['title' => 'Fundraising', 'policies' => ['PRV-28'], 'prompt_summary' => 'Does your practice use patient information for fundraising?', 'why_we_ask' => 'Most practices don’t fundraise. If you do, every message needs a simple opt-out.'],
+                    ['title' => 'Fundraising', 'policies' => ['PRV-28'], 'prompt_summary' => 'Does your practice use patient information for fundraising?', 'why_we_ask' => 'Most practices don’t fundraise. If you do, every message needs a simple opt-out.', 'service_key' => 'fund'],
                 ],
             ],
             'special_requests' => [
@@ -74,13 +80,13 @@ class IntakeSectionSeeder extends Seeder
                     ['title' => 'Public health reporting', 'policies' => ['PRV-16'], 'prompt_summary' => 'How do you file required public health reports?', 'why_we_ask' => 'Covers reportable diseases, child abuse reports, adverse events, school immunizations and employer notices.'],
                     ['title' => 'Abuse, neglect & domestic violence', 'policies' => ['PRV-17'], 'prompt_summary' => 'How do you handle reporting suspected abuse of an adult patient?', 'why_we_ask' => 'Staff need to know who authorizes a report and when the patient is told.'],
                     ['title' => 'Reproductive health requests', 'policies' => ['PRV-18'], 'prompt_summary' => 'How do you screen requests involving reproductive health care?', 'why_we_ask' => 'Some requests need a signed attestation before anything is released.'],
-                    ['title' => 'Research requests', 'policies' => ['PRV-21'], 'prompt_summary' => 'How do you handle requests to use patient information for research?', 'why_we_ask' => 'Research needs an authorization or an approved waiver. Most practices rarely see these.'],
+                    ['title' => 'Research requests', 'policies' => ['PRV-21'], 'prompt_summary' => 'How do you handle requests to use patient information for research?', 'why_we_ask' => 'Research needs an authorization or an approved waiver. Most practices rarely see these.', 'service_key' => 'research'],
                     ['title' => 'Serious threats to safety', 'policies' => ['PRV-22'], 'prompt_summary' => 'What happens when a clinician believes a patient is a serious threat to someone?', 'why_we_ask' => 'Duty-to-warn situations need a clear decision-maker and careful documentation.'],
-                    ['title' => 'Military, federal & correctional requests', 'policies' => ['PRV-23'], 'prompt_summary' => 'How do you handle requests from the military, federal officials or correctional facilities?', 'why_we_ask' => 'These requests are rare but need verified authority before release.'],
-                    ['title' => "Workers' compensation", 'policies' => ['PRV-24'], 'prompt_summary' => 'How do you release records for a workers’ comp claim?', 'why_we_ask' => 'Covers what is released to employers, carriers and the state board for a work injury.'],
-                    ['title' => 'De-identified & limited data', 'policies' => ['PRV-25', 'PRV-27'], 'prompt_summary' => 'How do you strip identifiers before sharing data for reports or analytics?', 'why_we_ask' => 'Covers fully de-identified data and limited data sets shared under a data use agreement.'],
+                    ['title' => 'Military, federal & correctional requests', 'policies' => ['PRV-23'], 'prompt_summary' => 'How do you handle requests from the military, federal officials or correctional facilities?', 'why_we_ask' => 'These requests are rare but need verified authority before release.', 'service_key' => 'gov'],
+                    ['title' => "Workers' compensation", 'policies' => ['PRV-24'], 'prompt_summary' => 'How do you release records for a workers’ comp claim?', 'why_we_ask' => 'Covers what is released to employers, carriers and the state board for a work injury.', 'service_key' => 'wc'],
+                    ['title' => 'De-identified & limited data', 'policies' => ['PRV-25', 'PRV-27'], 'prompt_summary' => 'How do you strip identifiers before sharing data for reports or analytics?', 'why_we_ask' => 'Covers fully de-identified data and limited data sets shared under a data use agreement.', 'service_key' => 'data'],
                     ['title' => 'Selling data & genetic information', 'policies' => ['PRV-02', 'PRV-29'], 'prompt_summary' => 'How do you prevent selling patient data or misusing genetic information?', 'why_we_ask' => 'Payment in exchange for patient data is prohibited, and genetic information can’t be used for underwriting.'],
-                    ['title' => 'Multiple covered functions', 'policies' => ['PRV-13'], 'prompt_summary' => 'Does your practice also act as a health plan or clearinghouse?', 'why_we_ask' => 'Only applies if you perform more than one HIPAA covered function. Most practices are providers only.'],
+                    ['title' => 'Multiple covered functions', 'policies' => ['PRV-13'], 'prompt_summary' => 'Does your practice also act as a health plan or clearinghouse?', 'why_we_ask' => 'Only applies if you perform more than one HIPAA covered function. Most practices are providers only.', 'service_key' => 'plan'],
                 ],
             ],
             'vendors_incidents' => [
@@ -98,8 +104,8 @@ class IntakeSectionSeeder extends Seeder
                     ['title' => 'Granting access & MFA', 'policies' => ['SEC-14', 'SEC-20', 'SEC-22'], 'prompt_summary' => 'How is a new user’s access approved and secured?', 'why_we_ask' => 'Covers access approval, unique user IDs and multi-factor authentication.'],
                     ['title' => 'When someone leaves', 'policies' => ['SEC-11', 'SEC-39'], 'prompt_summary' => 'What happens to access when a workforce member leaves?', 'why_we_ask' => 'Leftover accounts from former staff are a top audit finding.'],
                     ['title' => 'Job descriptions & access', 'policies' => ['SEC-12'], 'prompt_summary' => 'How do job descriptions line up with system access?', 'why_we_ask' => 'Covers how job descriptions relate to each role’s system access.'],
-                    ['title' => 'Reviewing system activity', 'policies' => ['SEC-09', 'SEC-16', 'SEC-19', 'SEC-21'], 'prompt_summary' => 'How do you review who is accessing your systems?', 'why_we_ask' => 'Four security policies require reviewing logs and user lists. One answer covers them all.'],
-                    ['title' => 'Passwords', 'policies' => ['SEC-17'], 'prompt_summary' => 'How are password rules enforced?', 'why_we_ask' => 'Your response becomes the practice-specific description in the policy.'],
+                    ['title' => 'Reviewing system activity', 'policies' => ['SEC-09', 'SEC-16', 'SEC-19', 'SEC-21'], 'prompt_summary' => 'How do you review who is accessing your systems?', 'why_we_ask' => 'Four security policies require reviewing logs and user lists. One answer covers them all.', 'is_it_managed_topic' => true],
+                    ['title' => 'Passwords', 'policies' => ['SEC-17'], 'prompt_summary' => 'How are password rules enforced?', 'why_we_ask' => 'Your response becomes the practice-specific description in the policy.', 'is_it_managed_topic' => true],
                     ['title' => 'Phishing tests', 'policies' => ['SEC-18'], 'prompt_summary' => 'Do you run phishing simulations and awareness campaigns?', 'why_we_ask' => 'Phishing is the most common way practices get breached.'],
                 ],
             ],
@@ -110,21 +116,21 @@ class IntakeSectionSeeder extends Seeder
                     ['title' => 'Visitors & vendors on site', 'policies' => ['SEC-06'], 'prompt_summary' => 'How are visitors and repair technicians signed in and escorted?', 'why_we_ask' => 'Unescorted visitors near workstations are an easy path to patient data.'],
                     ['title' => 'Security repairs', 'policies' => ['SEC-07'], 'prompt_summary' => 'How are repairs to locks, alarms and cameras recorded?', 'why_we_ask' => 'HIPAA expects a record of changes to physical security components.'],
                     ['title' => 'Workstations', 'policies' => ['SEC-23', 'SEC-24'], 'prompt_summary' => 'How are workstations used and protected?', 'why_we_ask' => 'Covers screen placement, screen locks, software installs and physical protection.'],
-                    ['title' => 'Devices & media', 'policies' => ['SEC-25'], 'prompt_summary' => 'How do you track devices with patient data and dispose of them safely?', 'why_we_ask' => 'Lost or improperly discarded devices are a frequent cause of breaches.'],
-                    ['title' => 'Personal devices (BYOD)', 'policies' => ['SEC-38'], 'prompt_summary' => 'Can staff use personal phones, tablets or laptops for work?', 'why_we_ask' => 'Personal devices need approval, management and remote wipe.'],
+                    ['title' => 'Devices & media', 'policies' => ['SEC-25'], 'prompt_summary' => 'How do you track devices with patient data and dispose of them safely?', 'why_we_ask' => 'Lost or improperly discarded devices are a frequent cause of breaches.', 'is_it_managed_topic' => true],
+                    ['title' => 'Personal devices (BYOD)', 'policies' => ['SEC-38'], 'prompt_summary' => 'Can staff use personal phones, tablets or laptops for work?', 'why_we_ask' => 'Personal devices need approval, management and remote wipe.', 'service_key' => 'byod'],
                 ],
             ],
             'security_systems_network' => [
                 'label' => 'Security: systems & network',
                 'questions' => [
-                    ['title' => 'Antivirus & malware', 'policies' => ['SEC-27'], 'prompt_summary' => 'How are your systems protected from malware?', 'why_we_ask' => 'Tell us what’s installed so the policy names real products.'],
-                    ['title' => 'Patching', 'policies' => ['SEC-34'], 'prompt_summary' => 'How do you keep systems patched?', 'why_we_ask' => 'Unpatched systems are a leading cause of ransomware.'],
-                    ['title' => 'Encryption', 'policies' => ['SEC-31'], 'prompt_summary' => 'How is data encrypted on laptops, servers and backups?', 'why_we_ask' => 'Encrypted devices can turn a lost laptop from a reportable breach into a non-event.'],
-                    ['title' => 'Firewall', 'policies' => ['SEC-33'], 'prompt_summary' => 'What firewall protects each location?', 'why_we_ask' => 'The policy lists the actual firewall and who controls it.'],
-                    ['title' => 'Wi-Fi', 'policies' => ['SEC-36', 'SEC-37'], 'prompt_summary' => 'How is your wireless network set up and secured?', 'why_we_ask' => 'Covers access points, guest separation and changing the Wi-Fi key.'],
-                    ['title' => 'Remote access & VPN', 'policies' => ['SEC-40', 'SEC-41'], 'prompt_summary' => 'How do staff connect to your systems from outside the office?', 'why_we_ask' => 'Covers VPN, two-factor login and requirements for home computers.'],
-                    ['title' => 'Telehealth', 'policies' => ['SEC-42'], 'prompt_summary' => 'How do you deliver telehealth securely?', 'why_we_ask' => 'Telehealth platforms need a BAA, identity checks and a private setting.'],
-                    ['title' => 'Backups', 'policies' => ['SEC-29'], 'prompt_summary' => 'How is your data backed up and restored?', 'why_we_ask' => 'Tested backups are what let a practice recover from ransomware.'],
+                    ['title' => 'Antivirus & malware', 'policies' => ['SEC-27'], 'prompt_summary' => 'How are your systems protected from malware?', 'why_we_ask' => 'Tell us what’s installed so the policy names real products.', 'is_it_managed_topic' => true],
+                    ['title' => 'Patching', 'policies' => ['SEC-34'], 'prompt_summary' => 'How do you keep systems patched?', 'why_we_ask' => 'Unpatched systems are a leading cause of ransomware.', 'is_it_managed_topic' => true],
+                    ['title' => 'Encryption', 'policies' => ['SEC-31'], 'prompt_summary' => 'How is data encrypted on laptops, servers and backups?', 'why_we_ask' => 'Encrypted devices can turn a lost laptop from a reportable breach into a non-event.', 'is_it_managed_topic' => true],
+                    ['title' => 'Firewall', 'policies' => ['SEC-33'], 'prompt_summary' => 'What firewall protects each location?', 'why_we_ask' => 'The policy lists the actual firewall and who controls it.', 'is_it_managed_topic' => true],
+                    ['title' => 'Wi-Fi', 'policies' => ['SEC-36', 'SEC-37'], 'prompt_summary' => 'How is your wireless network set up and secured?', 'why_we_ask' => 'Covers access points, guest separation and changing the Wi-Fi key.', 'service_key' => 'wifi', 'is_it_managed_topic' => true],
+                    ['title' => 'Remote access & VPN', 'policies' => ['SEC-40', 'SEC-41'], 'prompt_summary' => 'How do staff connect to your systems from outside the office?', 'why_we_ask' => 'Covers VPN, two-factor login and requirements for home computers.', 'service_key' => 'remote', 'is_it_managed_topic' => true],
+                    ['title' => 'Telehealth', 'policies' => ['SEC-42'], 'prompt_summary' => 'How do you deliver telehealth securely?', 'why_we_ask' => 'Telehealth platforms need a BAA, identity checks and a private setting.', 'service_key' => 'tele'],
+                    ['title' => 'Backups', 'policies' => ['SEC-29'], 'prompt_summary' => 'How is your data backed up and restored?', 'why_we_ask' => 'Tested backups are what let a practice recover from ransomware.', 'is_it_managed_topic' => true],
                     ['title' => 'Disaster recovery & emergency access', 'policies' => ['SEC-28', 'SEC-45', 'SEC-46'], 'prompt_summary' => 'What’s your plan if systems or the office are unavailable?', 'why_we_ask' => 'Covers critical systems, recovery times, who declares a disaster and emergency facility access.'],
                 ],
             ],
@@ -148,9 +154,17 @@ class IntakeSectionSeeder extends Seeder
                     'sort_order' => $questionOrder++,
                     'prompt_summary' => $questionData['prompt_summary'] ?? null,
                     'why_we_ask' => $questionData['why_we_ask'] ?? null,
+                    'service_key' => $questionData['service_key'] ?? null,
+                    'is_it_managed_topic' => $questionData['is_it_managed_topic'] ?? false,
+                    'requires_compliance_committee' => $questionData['requires_compliance_committee'] ?? false,
                 ]);
 
-                $policyIds = CompliancePolicy::whereIn('code', $questionData['policies'])->pluck('id');
+                // whereIn()->pluck('id') does not preserve $questionData['policies']' order, and
+                // that order is meaningful (e.g. "Notice of Privacy Practices" must list PRV-31
+                // before PRV-10, matching the client's mapping table) — so look up each code's id
+                // individually, in the order given, before syncing.
+                $policyIdsByCode = CompliancePolicy::whereIn('code', $questionData['policies'])->pluck('id', 'code');
+                $policyIds = collect($questionData['policies'])->map(fn (string $code) => $policyIdsByCode[$code])->all();
                 $question->policies()->sync($policyIds);
             }
         }

@@ -252,6 +252,7 @@ class GenerateComplianceDocument implements ShouldQueue
             DocumentType::SecurityRiskAssessment => $this->synthesizeSecurityRiskAssessment(),
             DocumentType::CodingMiniAuditReport => $this->synthesizeMiniAuditReport(),
             DocumentType::ExclusionsScreeningReport => $this->synthesizeExclusionsScreeningReport(),
+            DocumentType::TrainingPlanLmsEnrollment => $this->synthesizeTrainingPlanReport(),
             default => throw new \RuntimeException("No AI synthesis defined for {$this->documentType->value}"),
         };
 
@@ -401,6 +402,48 @@ Rules:
 PROMPT;
 
         return $this->callOpenAiForHtmlReport($prompt, 'exclusions_screening_report');
+    }
+
+    /**
+     * Synthesizes the Professional tier's Training Plan & LMS Enrollment report from the
+     * practice's own answer to the "Compliance & HIPAA training" workflow question — an actual
+     * training plan (what's assigned, to whom, on what cadence) rather than a restatement of the
+     * single answer.
+     */
+    private function synthesizeTrainingPlanReport(): string
+    {
+        $practice = $this->order->user->practice;
+        $submission = $this->order->intakeSubmission;
+
+        $question = IntakeSection::where('key', 'compliance_program')->first()
+            ?->questions->firstWhere('title', 'Compliance & HIPAA training');
+        $answer = $question ? $submission?->intakeAnswers()->where('intake_question_id', $question->id)->first() : null;
+
+        $response = match (true) {
+            $answer === null => 'Not yet answered.',
+            (bool) $answer->has_documented_process => (string) $answer->response,
+            default => 'No documented process — the policy default language applies.',
+        };
+
+        $prompt = <<<PROMPT
+You are a healthcare compliance consultant producing a Training Plan & LMS Enrollment report as part of a practice's compliance review. Using ONLY the practice's own answer below, write the report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li>, <table> — do not include <html>, <head> or <body> tags, and do not use markdown).
+
+Structure the report with these sections:
+<h2>Training Plan &amp; LMS Enrollment</h2>
+<h3>Current Training Process</h3> — restate, in consulting language, what the practice described for how compliance, HIPAA privacy and security training is delivered and tracked.
+<h3>Recommended Training Plan</h3> — a table with columns Course, Audience, Frequency, covering at minimum: HIPAA Privacy & Security Awareness, Compliance & Code of Conduct, and role-specific training where the practice's answer indicates extra training for certain staff.
+<h3>LMS Enrollment</h3> — a short numbered list of next steps to enroll staff in Empower's learning management system (LMS) and track completion, based on what the practice described (or, if nothing was described, as a fresh setup).
+
+Rules:
+- Base every statement strictly on the practice's own answer below. Do not invent systems, vendors, dates, or figures not present in it.
+- Where the answer is "Not yet answered" or says there is no documented process, treat the whole report as a fresh training plan recommendation rather than a description of an existing one.
+- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
+
+Practice's answer to "How is compliance, HIPAA privacy and security training delivered and tracked?":
+{$response}
+PROMPT;
+
+        return $this->callOpenAiForHtmlReport($prompt, 'training_plan_lms_enrollment');
     }
 
     private function callOpenAiForHtmlReport(string $prompt, string $usagePurpose): string

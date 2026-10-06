@@ -2146,6 +2146,32 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'package.updated']);
     }
 
+    /** Regression: every seeded package now ships with 'exclusions_screening_report' in
+     *  included_document_types — the edit form's checkbox list and its validation rule must both
+     *  recognize it, or every edit of an already-seeded package (e.g. just changing its price)
+     *  fails validation on a field the admin never touched. */
+    public function test_admin_can_edit_a_package_that_already_includes_the_exclusions_screening_report(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $package = Package::factory()->create([
+            'slug' => 'essential',
+            'included_document_types' => ['exclusions_screening_report'],
+        ]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.package-form', ['package' => $package])
+            ->assertSet('includedDocumentTypes', ['exclusions_screening_report'])
+            ->set('annualPrice', '1099')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('admin.packages'));
+
+        $this->assertDatabaseHas('packages', [
+            'id' => $package->id,
+            'annual_price' => 1099.00,
+        ]);
+    }
+
     public function test_admin_can_toggle_a_packages_active_status(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
