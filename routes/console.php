@@ -12,3 +12,8 @@ Schedule::command('subscriptions:process-billing')
     ->dailyAt('06:00')
     ->withoutOverlapping()
     ->onOneServer();
+
+Schedule::command('reports:finance-daily')
+    ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->onOneServer();

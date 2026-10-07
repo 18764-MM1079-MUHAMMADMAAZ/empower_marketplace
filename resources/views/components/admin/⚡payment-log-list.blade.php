@@ -1,12 +1,15 @@
 <?php
 
+use App\Exports\PaymentLogsExport;
 use App\Models\ActivityLog;
 use App\Models\PaymentLog;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
 
 new class extends Component
 {
@@ -41,8 +44,7 @@ new class extends Component
         $this->dispatch('toast', message: "Payment log {$label} deleted.", type: 'success');
     }
 
-    #[Computed]
-    public function logs(): LengthAwarePaginator
+    private function baseQuery(): Builder
     {
         return PaymentLog::query()
             ->with('user', 'package', 'order')
@@ -55,14 +57,37 @@ new class extends Component
                     ->orWhere('message', 'like', "%{$search}%")
                     ->orWhereHas('user', fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")));
             })
-            ->latest()
-            ->paginate(10);
+            ->latest();
+    }
+
+    #[Computed]
+    public function logs(): LengthAwarePaginator
+    {
+        return $this->baseQuery()->paginate(10);
+    }
+
+    public function export()
+    {
+        $rows = $this->baseQuery()->get()->map(fn (PaymentLog $log) => [
+            $log->created_at?->toDateTimeString(),
+            $log->user?->name ?? $log->guest_email ?? 'Guest',
+            $log->package?->name,
+            number_format((float) $log->amount, 2, '.', ''),
+            $log->success ? 'Successful' : 'Declined',
+            $log->transaction_id,
+            $log->message,
+            $log->order_id,
+        ]);
+
+        return Excel::download(new PaymentLogsExport($rows), 'payment-logs-'.now()->format('Y-m-d').'.xlsx');
     }
 };
 ?>
 
 <div class="space-y-4" x-data="{ confirmId: null, confirmLabel: '' }">
-    <div class="flex flex-wrap items-center gap-3 justify-end">
+    <div class="flex flex-wrap items-center gap-3 justify-between">
+        <h1 class="text-2xl font-bold text-navy">Payment Logs</h1>
+        <div class="flex flex-wrap items-center gap-3">
         <select wire:model.live="status"
             class="rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
             <option value="">All statuses</option>
@@ -72,6 +97,13 @@ new class extends Component
 
         <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search email, name, transaction ID…"
             class="w-full sm:w-80 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+
+        <button type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
+            class="inline-flex items-center gap-1 rounded-lg border border-empower-border bg-[#dff7f0] px-4 py-2 text-xs font-bold text-[#0f7a4f] hover:bg-[#c7ebdc] transition-colors disabled:opacity-50">
+            <span wire:loading.remove wire:target="export">Export to Excel</span>
+            <span wire:loading.inline-flex wire:target="export" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Exporting…</span>
+        </button>
+        </div>
     </div>
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">

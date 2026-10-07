@@ -26,6 +26,7 @@ use App\Models\IntakeQuestion;
 use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
+use App\Models\Lead;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\PaymentLog;
@@ -66,6 +67,13 @@ new class extends Component
 
     // Step 1
     public ?int $selectedPackageId = null;
+
+    // "Sign up for updates" — shown instead of the payment form while publicLaunchGateActive() is
+    // true, i.e. before config('app.public_launch_at'). Not restored by mount(), same as
+    // $newAccountEmail below: a one-request confirmation, not persisted state.
+    public string $updatesEmail = '';
+
+    public bool $signedUpForUpdates = false;
 
     public string $discountCodeInput = '';
 
@@ -858,6 +866,33 @@ new class extends Component
         }
 
         return $rows;
+    }
+
+    /** Gates Step 1's purchase form behind config('app.public_launch_at') — per the SSO
+     *  requirements doc §11, non-SSO users see "Sign up for updates" instead of the payment form
+     *  until the public launch date. Defaults to off (null) so this never activates unless
+     *  explicitly configured — there is no SSO-vs-organic distinction built yet, so this applies
+     *  to every not-yet-paid user uniformly until that carve-out exists. */
+    #[Computed]
+    public function publicLaunchGateActive(): bool
+    {
+        $launchAt = config('app.public_launch_at');
+
+        return $launchAt !== null && now()->lt($launchAt);
+    }
+
+    public function signUpForUpdates(): void
+    {
+        $this->validate(['updatesEmail' => 'required|email:rfc,filter|max:255'], [], ['updatesEmail' => 'email']);
+
+        Lead::create([
+            'name' => auth()->user()?->name ?: $this->updatesEmail,
+            'email' => $this->updatesEmail,
+            'package_interest' => $this->selectedPackage?->slug,
+            'message' => 'Signed up for updates from the Step 1 pre-launch gate.',
+        ]);
+
+        $this->signedUpForUpdates = true;
     }
 
     #[Computed]
@@ -2501,6 +2536,34 @@ $progressPct = ($milestone / 4) * 100;
     {{-- ── Step 1: Payment ── --}}
     @if($step === 1)
     <div class="space-y-3">
+        @if($this->publicLaunchGateActive && $milestone < 1)
+        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+            <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1</p>
+            <h2 class="text-lg font-semibold text-navy mb-1">We're not quite open to the public yet</h2>
+            <p class="text-sm text-empower-muted mb-4">
+                @if($this->selectedPackage)
+                {{ $this->selectedPackage->name }} isn't available for purchase yet.
+                @else
+                Purchasing isn't available yet.
+                @endif
+                Leave your email and we'll let you know the moment it is.
+            </p>
+            @if($signedUpForUpdates)
+            <p class="text-sm font-semibold text-[#117a51]">&#10003; Thanks — we'll email you as soon as this package is available.</p>
+            @else
+            <form wire:submit="signUpForUpdates" class="flex flex-col sm:flex-row gap-2.5 max-w-md">
+                <input wire:model="updatesEmail" type="email" required placeholder="you@practice.com"
+                    class="flex-1 rounded-xl border {{ $errors->has('updatesEmail') ? 'border-red-400' : 'border-empower-border' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                <button type="submit" wire:loading.attr="disabled" wire:target="signUpForUpdates"
+                    class="inline-flex items-center justify-center gap-1.5 rounded bg-accent px-5 py-2.5 text-sm font-bold text-navy-dark hover:bg-accent-dark transition-colors disabled:opacity-50">
+                    <span wire:loading.remove wire:target="signUpForUpdates">Sign up for updates</span>
+                    <span wire:loading.inline-flex wire:target="signUpForUpdates" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </form>
+            @error('updatesEmail') <p class="mt-1.5 text-xs text-red-600">{{ $message }}</p> @enderror
+            @endif
+        </div>
+        @else
         @if($milestone >= 1)
         @php
         $firstBatchOrder = $this->batchOrders->first();
@@ -2974,6 +3037,7 @@ $progressPct = ($milestone / 4) * 100;
                 </span>
             </button>
         </div>
+        @endif
     </div>
     @endif
 

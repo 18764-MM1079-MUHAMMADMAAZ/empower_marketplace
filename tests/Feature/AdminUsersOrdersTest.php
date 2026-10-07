@@ -522,6 +522,48 @@ class AdminUsersOrdersTest extends TestCase
             ->assertDontSee('Filterable Client');
     }
 
+    public function test_admin_can_filter_the_orders_list_by_date_range(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $package = Package::factory()->create();
+
+        $oldClient = User::factory()->create(['name' => 'Old Order Client']);
+        Order::factory()->create(['user_id' => $oldClient->id, 'package_id' => $package->id, 'created_at' => now()->subMonth()]);
+
+        $recentClient = User::factory()->create(['name' => 'Recent Order Client']);
+        Order::factory()->create(['user_id' => $recentClient->id, 'package_id' => $package->id, 'created_at' => now()]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.order-list')
+            ->assertSee('Old Order Client')
+            ->assertSee('Recent Order Client')
+            ->set('dateFrom', now()->subWeek()->toDateString())
+            ->assertDontSee('Old Order Client')
+            ->assertSee('Recent Order Client')
+            ->call('clearDateRange')
+            ->assertSee('Old Order Client')
+            ->assertSee('Recent Order Client');
+    }
+
+    public function test_admin_can_toggle_an_order_as_processed_for_finance(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+        $package = Package::factory()->create();
+        $order = Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.order-list')
+            ->assertSee('Mark processed')
+            ->call('toggleFinanceProcessed', $order->id);
+
+        $this->assertNotNull($order->fresh()->finance_processed_at);
+        $component->assertSee('Processed');
+
+        $component->call('toggleFinanceProcessed', $order->id);
+        $this->assertNull($order->fresh()->finance_processed_at);
+    }
+
     public function test_admin_can_update_an_orders_status_and_amount(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);

@@ -41,6 +41,11 @@
     .client-portal input[type='button']:disabled {
         cursor: not-allowed;
     }
+
+    a,
+    button {
+        cursor: pointer;
+    }
 }
 
 /* Indeterminate linear progress bar — for a background task with no known completion percentage

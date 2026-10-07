@@ -51,6 +51,13 @@ return [
         'msa_url' => env('CARECLOUD_MSA_URL', '#'),
     ],
 
+    // Recipient for the daily Finance report (sso.md §10). Falls back to every Admin-role user
+    // (SendFinanceDailyReport::recipients()) when unset, same as every other admin notification
+    // in this app — set this only if Finance should get it instead of/in addition to that list.
+    'finance' => [
+        'report_email' => env('FINANCE_REPORT_EMAIL'),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

@@ -1,12 +1,15 @@
 <?php
 
+use App\Exports\LeadsExport;
 use App\Models\ActivityLog;
 use App\Models\Lead;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
 
 new class extends Component
 {
@@ -46,29 +49,58 @@ new class extends Component
         $this->dispatch('toast', message: "{$name} deleted.", type: 'success');
     }
 
-    #[Computed]
-    public function leads(): LengthAwarePaginator
+    private function baseQuery(): Builder
     {
         return Lead::query()
             ->when($this->search !== '', function ($q) {
                 $search = $this->search;
                 $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
             })
-            ->latest()
-            ->paginate(10);
+            ->latest();
+    }
+
+    #[Computed]
+    public function leads(): LengthAwarePaginator
+    {
+        return $this->baseQuery()->paginate(10);
+    }
+
+    public function export()
+    {
+        $rows = $this->baseQuery()->get()->map(fn (Lead $lead) => [
+            $lead->name,
+            $lead->email,
+            $lead->phone,
+            $lead->package_interest,
+            $lead->message,
+            $lead->is_contacted ? 'Yes' : 'No',
+            $lead->contacted_at?->toDateTimeString(),
+            $lead->created_at?->toDateTimeString(),
+        ]);
+
+        return Excel::download(new LeadsExport($rows), 'leads-'.now()->format('Y-m-d').'.xlsx');
     }
 };
 ?>
 
 <div class="space-y-4" x-data="{ confirmId: null, confirmLabel: '' }">
-    <div class="flex flex-wrap items-center gap-3 justify-end">
+    <div class="flex flex-wrap items-center gap-3 justify-between">
+        <h1 class="text-2xl font-bold text-navy">Leads</h1>
+        <div class="flex flex-wrap items-center gap-3">
         <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search name or email…"
             class="w-full sm:w-64 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+
+        <button type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
+            class="inline-flex items-center gap-1 rounded-lg border border-empower-border bg-[#dff7f0] px-4 py-2 text-xs font-bold text-[#0f7a4f] hover:bg-[#c7ebdc] transition-colors disabled:opacity-50">
+            <span wire:loading.remove wire:target="export">Export to Excel</span>
+            <span wire:loading.inline-flex wire:target="export" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Exporting…</span>
+        </button>
 
         <a href="{{ route('admin.leads.create') }}" wire:navigate
             class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-xs font-bold text-white hover:bg-[#087fa9] transition-colors">
             + New Lead
         </a>
+        </div>
     </div>
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">

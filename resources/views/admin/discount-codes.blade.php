@@ -1,3 +1,3 @@
-<x-layouts.app title="Discount Codes">
+<x-layouts.app title="Discount Codes" :inline-heading="true">
     <livewire:admin.discount-code-list />
 </x-layouts.app>

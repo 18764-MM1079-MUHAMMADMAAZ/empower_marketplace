@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
     'trial_ends_at', 'trial_confirmed_at', 'trial_reminder_sent_at', 'clover_card_token',
     'card_expiry_month', 'card_expiry_year', 'card_last_four', 'mtbc_reference_number',
     'next_bill_date', 'renewal_attempts', 'last_renewal_attempt_at', 'last_renewal_error',
+    'finance_processed_at',
 ])]
 class Order extends Model
 {
@@ -52,6 +53,7 @@ class Order extends Model
             'paid_at' => 'datetime',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'finance_processed_at' => 'datetime',
             'terms_accepted_at' => 'datetime',
             'original_price' => 'decimal:2',
             'discount_amount' => 'decimal:2',

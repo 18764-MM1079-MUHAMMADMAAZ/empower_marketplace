@@ -55,7 +55,9 @@ new class extends Component
 ?>
 
 <div class="space-y-4" x-data="{ confirmId: null }">
-    <div class="flex flex-wrap items-center gap-2 justify-end">
+    <div class="flex flex-wrap items-center gap-2 justify-between">
+        <h1 class="text-2xl font-bold text-navy">Documents</h1>
+        <div class="flex flex-wrap items-center gap-2">
         @foreach([
             'all' => 'All',
             DocumentStatus::Completed->value => 'Completed',
@@ -70,6 +72,7 @@ new class extends Component
                 <span wire:loading wire:target="$set('status', '{{ $value }}')"><x-spinner class="h-3 w-3" /></span>
             </button>
         @endforeach
+        </div>
     </div>
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">

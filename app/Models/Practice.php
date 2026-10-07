@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'legal_practice_name', 'dba_name', 'other_entities', 'main_phone', 'main_email', 'practice_locations',
     'it_mode', 'it_contact_name', 'it_contact_phone', 'it_contact_email',
     'committee_none', 'board_mode', 'dashboard_next_steps',
+    'source_system', 'subscription_account_id', 'preferred_billing_option',
 ])]
 class Practice extends Model
 {

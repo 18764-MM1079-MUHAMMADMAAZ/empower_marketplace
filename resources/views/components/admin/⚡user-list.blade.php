@@ -2,16 +2,19 @@
 
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
+use App\Exports\UsersExport;
 use App\Models\ActivityLog;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\TrialBillingService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
 
 new class extends Component
 {
@@ -35,8 +38,7 @@ new class extends Component
         $this->resetPage();
     }
 
-    #[Computed]
-    public function users(): LengthAwarePaginator
+    private function baseQuery(): Builder
     {
         return User::query()
             ->withCount('orders')
@@ -47,8 +49,28 @@ new class extends Component
                 $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
             })
             ->when($this->role !== '', fn ($q) => $q->where('role', $this->role))
-            ->latest()
-            ->paginate(10);
+            ->latest();
+    }
+
+    #[Computed]
+    public function users(): LengthAwarePaginator
+    {
+        return $this->baseQuery()->paginate(10);
+    }
+
+    public function export()
+    {
+        $rows = $this->baseQuery()->get()->map(fn (User $user) => [
+            $user->name,
+            $user->email,
+            ucfirst($user->role->value),
+            $user->practice?->name,
+            $user->orders_count,
+            $user->is_active ? 'Active' : 'Inactive',
+            $user->created_at?->toDateTimeString(),
+        ]);
+
+        return Excel::download(new UsersExport($rows), 'users-'.now()->format('Y-m-d').'.xlsx');
     }
 
     /**
@@ -120,7 +142,9 @@ new class extends Component
         <div class="rounded-xl border border-[#bfe3d2] bg-[#eef8f3] px-4 py-3 text-sm text-[#0f7a4f]">{{ $endTrialSuccessMessage }}</div>
     @endif
 
-    <div class="flex flex-wrap items-center gap-3 justify-end">
+    <div class="flex flex-wrap items-center gap-3 justify-between">
+        <h1 class="text-2xl font-bold text-navy">Users</h1>
+        <div class="flex flex-wrap items-center gap-3">
         <select wire:model.live="role"
             class="rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
             <option value="">All roles</option>
@@ -132,10 +156,17 @@ new class extends Component
         <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search name or email…"
             class="w-full sm:w-64 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
 
+        <button type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
+            class="inline-flex items-center gap-1 rounded-lg border border-empower-border bg-[#dff7f0] px-4 py-2 text-xs font-bold text-[#0f7a4f] hover:bg-[#c7ebdc] transition-colors disabled:opacity-50">
+            <span wire:loading.remove wire:target="export">Export to Excel</span>
+            <span wire:loading.inline-flex wire:target="export" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Exporting…</span>
+        </button>
+
         <a href="{{ route('admin.users.create') }}" wire:navigate
             class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-xs font-bold text-white hover:bg-[#087fa9] transition-colors">
             + New User
         </a>
+        </div>
     </div>
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">

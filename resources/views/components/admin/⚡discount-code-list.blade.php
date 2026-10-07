@@ -61,7 +61,8 @@ new class extends Component
 ?>
 
 <div class="space-y-4" x-data="{ confirmId: null, confirmLabel: '' }">
-    <div class="flex justify-end">
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-navy">Discount Codes</h1>
         <a href="{{ route('admin.discount-codes.create') }}" wire:navigate
             class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-xs font-bold text-white hover:bg-[#087fa9] transition-colors">
             + New Discount Code

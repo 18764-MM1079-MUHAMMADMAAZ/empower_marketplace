@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Public Launch Date
+    |--------------------------------------------------------------------------
+    |
+    | Per the SSO requirements doc (sso.md §11): until this date, Step 1's
+    | purchase form is replaced with a "sign up for updates" form. Null (the
+    | default) disables the gate entirely — set PUBLIC_LAUNCH_AT to activate it.
+    |
+    */
+
+    'public_launch_at' => env('PUBLIC_LAUNCH_AT'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

@@ -84,6 +84,9 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
             @include('admin._nav')
         </aside>
         <main class="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6">
+            @unless(request()->routeIs('admin.dashboard') || ($inlineHeading ?? false))
+            <h1 class="text-2xl font-bold text-navy mb-4">{{ $title }}</h1>
+            @endunless
             {{ $slot }}
         </main>
     </div>

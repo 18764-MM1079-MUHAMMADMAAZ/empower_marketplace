@@ -237,6 +237,40 @@ class PortalTest extends TestCase
         ]);
     }
 
+    public function test_public_launch_gate_replaces_the_payment_form_with_sign_up_for_updates(): void
+    {
+        config(['app.public_launch_at' => now()->addMonth()]);
+
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->assertSee('not quite open to the public yet')
+            ->assertSee('Sign up for updates')
+            ->assertDontSee('Payment Details')
+            ->set('updatesEmail', 'interested@practice.com')
+            ->call('signUpForUpdates')
+            ->assertHasNoErrors()
+            ->assertSee('email you as soon as this package is available');
+
+        $this->assertDatabaseHas('leads', [
+            'email' => 'interested@practice.com',
+            'package_interest' => 'essential',
+        ]);
+    }
+
+    public function test_public_launch_gate_does_not_apply_once_the_date_passes(): void
+    {
+        config(['app.public_launch_at' => now()->subDay()]);
+
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->assertDontSee('not quite open to the public yet')
+            ->assertSee('Payment Details');
+    }
+
     public function test_guest_paying_emails_the_generated_password_and_it_works_for_login(): void
     {
         Mail::fake();
