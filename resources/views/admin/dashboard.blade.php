@@ -54,9 +54,11 @@
             @endforeach
         </div>
 
-        <livewire:admin.launch-gate />
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <livewire:admin.launch-gate />
 
-        <livewire:admin.call-settings />
+            <livewire:admin.call-settings />
+        </div>
 
         <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex items-start justify-between mb-4">

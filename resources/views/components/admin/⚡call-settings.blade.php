@@ -46,27 +46,36 @@ new class extends Component
 };
 ?>
 
-<div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5" x-data="{ open: false }">
-    <div class="flex items-center justify-between gap-4">
-        <div>
-            <h2 class="text-xs font-extrabold uppercase tracking-wider text-empower-muted">Specialist Call Booking</h2>
-            <p class="mt-1 text-sm font-semibold {{ $enabled ? 'text-[#117a51]' : 'text-[#9a6700]' }}">
-                {{ $enabled ? 'Open for booking' : 'Booking is switched off' }}
-                <a href="{{ route('admin.specialist-calls') }}" wire:navigate class="ml-2 font-semibold text-[#1a7aad] hover:underline">View requests</a>
-            </p>
-        </div>
-        <button type="button" x-on:click="open = !open"
-            class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-navy hover:bg-page">
-            <span x-text="open ? 'Hide settings' : 'Edit settings'"></span>
-        </button>
+<div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 h-full flex flex-col" x-data="{ open: false }">
+    <div class="flex items-start justify-between gap-3">
+        <h2 class="text-xs font-extrabold uppercase tracking-wider text-empower-muted">Specialist Call Booking</h2>
+        <span class="{{ $enabled ? 'inline-flex items-center gap-1.5 rounded-full bg-[#dff7f0] px-2.5 py-1 text-[0.68rem] font-extrabold uppercase tracking-wider text-[#0f7a4f]' : 'inline-flex items-center gap-1.5 rounded-full bg-[#fff3cd] px-2.5 py-1 text-[0.68rem] font-extrabold uppercase tracking-wider text-[#9a6700]' }}">
+            <span class="h-1.5 w-1.5 rounded-full {{ $enabled ? 'bg-[#0f7a4f]' : 'bg-[#9a6700]' }}"></span>
+            {{ $enabled ? 'Open' : 'Off' }}
+        </span>
     </div>
 
-    <div x-show="open" x-cloak class="mt-4 space-y-4 border-t border-empower-border pt-4">
+    <p class="mt-3 text-lg font-bold text-navy">{{ $enabled ? 'Clients can book calls' : 'Booking is switched off' }}</p>
+    <p class="mt-1 text-sm text-empower-muted">
+        {{ count(\App\Services\SpecialistCallSettings::timeSlots()) }} time slots across the next {{ $daysAhead }} weekdays, Eastern time.
+    </p>
+
+    <div class="mt-auto pt-4">
+        <div class="border-t border-empower-border pt-4 flex flex-wrap items-center gap-2">
+            <button type="button" x-on:click="open = !open"
+                class="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-opacity">
+                <span x-text="open ? 'Hide settings' : 'Edit settings'"></span>
+            </button>
+            <a href="{{ route('admin.specialist-calls') }}" wire:navigate
+                class="rounded-lg border border-empower-border px-4 py-2 text-sm font-semibold text-navy hover:bg-page transition-colors">View requests</a>
+        </div>
+
+    <div x-show="open" x-cloak class="mt-4 space-y-4">
         <label class="flex items-center gap-2 text-sm font-semibold text-navy">
             <input type="checkbox" wire:model.live="enabled" class="rounded border-empower-border"> Allow clients to book calls
         </label>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-xs font-bold text-navy mb-1">Time slots (Eastern, one per line)</label>
                 <textarea wire:model="timeSlots" rows="6"
@@ -89,5 +98,6 @@ new class extends Component
 
         <button type="button" wire:click="save"
             class="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Save settings</button>
+    </div>
     </div>
 </div>
