@@ -12,6 +12,7 @@ $mobile ??= false;
     'discount-codes' => ['admin.discount-codes', 'Discount Codes'],
     'intake-questions' => ['admin.intake-questions', 'Intake Questions'],
     'leads' => ['admin.leads', 'Leads'],
+    'specialist-calls' => ['admin.specialist-calls', 'Specialist Calls'],
     'users' => ['admin.users', 'Users'],
     'orders' => ['admin.orders', 'Orders'],
     'payment-logs' => ['admin.payment-logs', 'Payment Logs'],

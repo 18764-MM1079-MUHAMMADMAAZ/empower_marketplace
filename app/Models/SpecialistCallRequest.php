@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
+use App\Enums\SpecialistCallStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_id', 'order_id', 'requested_date', 'requested_time', 'phone', 'topic', 'notes'])]
+#[Fillable(['user_id', 'order_id', 'requested_date', 'requested_time', 'phone', 'topic', 'notes', 'status'])]
 class SpecialistCallRequest extends Model
 {
     /**
@@ -16,6 +17,7 @@ class SpecialistCallRequest extends Model
     {
         return [
             'requested_date' => 'date',
+            'status' => SpecialistCallStatus::class,
         ];
     }
 

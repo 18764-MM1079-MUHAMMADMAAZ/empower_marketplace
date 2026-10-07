@@ -87,6 +87,7 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
     Route::get('/document-generator', fn () => view('admin.document-generator'))->name('document-generator');
     Route::get('/generated-documents/{document}/download', [GeneratedDocumentDownloadController::class, 'show'])
         ->name('generated-documents.download');
+    Route::get('/specialist-calls', fn () => view('admin.specialist-calls'))->name('specialist-calls');
     Route::get('/leads', fn () => view('admin.leads'))->name('leads');
     Route::get('/leads/create', fn () => view('admin.leads-form'))->name('leads.create');
     Route::get('/leads/{lead}/edit', fn (Lead $lead) => view('admin.leads-form', compact('lead')))

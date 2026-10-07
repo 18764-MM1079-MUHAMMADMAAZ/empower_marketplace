@@ -56,6 +56,8 @@
 
         <livewire:admin.launch-gate />
 
+        <livewire:admin.call-settings />
+
         <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex items-start justify-between mb-4">
                 <div>

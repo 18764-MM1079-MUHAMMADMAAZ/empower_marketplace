@@ -4,6 +4,7 @@ use App\Enums\AiExtractionStatus;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
 use App\Enums\UserRole;
+use App\Mail\ClientSpecialistCallMail;
 use App\Mail\NewSpecialistCallRequestMail;
 use App\Models\IntakeQuestion;
 use App\Models\IntakeSection;
@@ -14,6 +15,7 @@ use App\Models\Package;
 use App\Models\Practice;
 use App\Models\SpecialistCallRequest;
 use App\Models\User;
+use App\Services\SpecialistCallSettings;
 use App\Notifications\NewSpecialistCallRequestNotification;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -2253,15 +2255,6 @@ new class extends Component
     }
 
     // ── "Talk to a specialist" call booking ─────────────────────────────────
-    private const CALL_TIME_SLOTS = ['9:00 AM', '10:30 AM', '12:00 PM', '1:30 PM', '3:00 PM', '4:30 PM'];
-
-    private const CALL_TOPICS = [
-        'A question in the intake',
-        'Choosing the right package',
-        'Pricing or billing',
-        'Something else',
-    ];
-
     public bool $callDialogOpen = false;
 
     public bool $callBooked = false;
@@ -2275,7 +2268,7 @@ new class extends Component
     #[Validate('required|regex:/^\+?[1-9]\d{7,14}$/')]
     public string $callPhone = '';
 
-    public string $callTopic = 'A question in the intake';
+    public string $callTopic = '';
 
     #[Validate('nullable|string|max:1000')]
     public string $callNotes = '';
@@ -2290,14 +2283,14 @@ new class extends Component
         ];
     }
 
-    /** @return array<int, \Illuminate\Support\Carbon> the next 5 weekdays, starting tomorrow. */
+    /** @return array<int, \Illuminate\Support\Carbon> the next N (admin-configured) weekdays, starting tomorrow. */
     #[Computed]
     public function availableCallDays(): array
     {
         $days = [];
         $cursor = now()->addDay();
 
-        while (count($days) < 5) {
+        while (count($days) < SpecialistCallSettings::daysAhead()) {
             if (! $cursor->isWeekend()) {
                 $days[] = $cursor->copy();
             }
@@ -2311,13 +2304,13 @@ new class extends Component
     /** @return array<int, string> */
     public function availableCallTimes(): array
     {
-        return self::CALL_TIME_SLOTS;
+        return SpecialistCallSettings::timeSlots();
     }
 
     /** @return array<int, string> */
     public function availableCallTopics(): array
     {
-        return self::CALL_TOPICS;
+        return SpecialistCallSettings::topics();
     }
 
     public function openCallDialog(): void
@@ -2325,9 +2318,9 @@ new class extends Component
         $this->callDialogOpen = true;
         $this->callBooked = false;
         $this->callDate = $this->availableCallDays[0]->toDateString();
-        $this->callTime = self::CALL_TIME_SLOTS[0];
+        $this->callTime = SpecialistCallSettings::timeSlots()[0];
         $this->callPhone = '';
-        $this->callTopic = self::CALL_TOPICS[0];
+        $this->callTopic = SpecialistCallSettings::topics()[0];
         $this->callNotes = '';
         $this->resetErrorBag();
     }
@@ -2340,6 +2333,10 @@ new class extends Component
 
     public function bookSpecialistCall(): void
     {
+        if (! SpecialistCallSettings::enabled()) {
+            return;
+        }
+
         $this->validate();
 
         $order = $this->batchOrders->first();
@@ -2353,6 +2350,12 @@ new class extends Component
             'topic' => $this->callTopic,
             'notes' => $this->callNotes ?: null,
         ]);
+
+        try {
+            Mail::to(auth()->user()->email)->send(new ClientSpecialistCallMail($callRequest, 'requested'));
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         $admins = User::where('role', UserRole::Admin)->get();
 
@@ -3876,6 +3879,11 @@ new class extends Component
                 <p class="text-sm text-[#5d6e7f]">We&rsquo;ll call {{ $callPhone }} on
                     {{ Carbon::parse($callDate)->format('l, M j') }} at {{ $callTime }} Eastern.
                 </p>
+            </div>
+            @elseif(! SpecialistCallSettings::enabled())
+            <div class="px-6 pb-8 pt-4 border-t border-[#eef2f6]">
+                <p class="text-sm text-[#5d6e7f]">Call booking isn&rsquo;t available right now. Please use the
+                    contact page and we&rsquo;ll get back to you.</p>
             </div>
             @else
             <div class="px-6 pb-6 border-t border-[#eef2f6] pt-4">
