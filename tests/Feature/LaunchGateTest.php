@@ -83,4 +83,17 @@ class LaunchGateTest extends TestCase
                 && str_contains($mail->render(), 'November 11, 2026');
         });
     }
+
+    public function test_pre_launch_sign_ups_are_tagged_as_subscribers(): void
+    {
+        Mail::fake();
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('updatesEmail', 'interested@practice.com')
+            ->call('signUpForUpdates');
+
+        $this->assertDatabaseHas('leads', ['email' => 'interested@practice.com', 'source' => 'subscriber']);
+    }
 }

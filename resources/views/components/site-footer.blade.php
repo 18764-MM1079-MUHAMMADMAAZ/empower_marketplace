@@ -1,4 +1,4 @@
-@props(['footerClass' => 'py-6', 'containerClass' => 'max-w-7xl'])
+@props(['footerClass' => 'py-6', 'containerClass' => 'max-w-7xl', 'contactLink' => false])
 
 <footer class="bg-white border-t border-[#d4e5f1] {{ $footerClass }}">
     <div class="mx-auto {{ $containerClass }} px-4 sm:px-6 lg:px-8">
@@ -20,6 +20,10 @@
             </span>
             <p class="text-xs text-[#5c778d] text-center">&copy; 2026 CareCloud, Inc. &middot; Empower Healthcare &amp;
                 Compliance Inc. &middot; carecloud.com &middot; empowerhci.com</p>
+            @if($contactLink)
+            <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'general' } }))"
+                class="text-xs font-semibold text-[#1a7aad] hover:underline">Contact us</button>
+            @endif
         </div>
     </div>
 </footer>

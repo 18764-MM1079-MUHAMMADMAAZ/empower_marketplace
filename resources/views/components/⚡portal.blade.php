@@ -892,6 +892,7 @@ new class extends Component
             'name' => auth()->user()?->name ?: $this->updatesEmail,
             'email' => $this->updatesEmail,
             'package_interest' => $this->selectedPackage?->slug,
+            'source' => 'subscriber',
             'message' => 'Signed up for updates from the Step 1 pre-launch gate.',
         ]);
 

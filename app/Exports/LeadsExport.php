@@ -18,6 +18,6 @@ class LeadsExport implements FromCollection, WithHeadings
 
     public function headings(): array
     {
-        return ['Name', 'Email', 'Phone', 'Package Interest', 'Message', 'Contacted', 'Contacted At', 'Received At'];
+        return ['Name', 'Email', 'Phone', 'Source', 'Practice', 'Billable Providers', 'Topic', 'Package Interest', 'Message', 'Contacted', 'Contacted At', 'Received At'];
     }
 }

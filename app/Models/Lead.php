@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'name', 'email', 'phone', 'message', 'package_interest',
+    'name', 'email', 'phone', 'message', 'package_interest', 'topic', 'source', 'practice_name', 'billable_providers',
     'is_contacted', 'contacted_at', 'contacted_by', 'admin_notes',
 ])]
 class Lead extends Model

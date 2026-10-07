@@ -296,9 +296,9 @@
                     <button type="button" @click="quizOpen = true; quizStep = 1"
                         class="inline-block whitespace-nowrap rounded-full bg-[#3a9bd5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">Take
                         the 3-question quiz</button>
-                    <a href="{{ route('contact') }}"
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'package' } }))"
                         class="inline-block whitespace-nowrap rounded-full border border-[#9ed3e9] bg-white px-4 py-2 text-sm font-semibold text-[#2b82b8] hover:bg-[#eaf5fb] transition-colors">Contact
-                        us</a>
+                        us</button>
                 </div>
             </div>
 
@@ -531,9 +531,9 @@
                         @endforeach
                     </ul>
                     @endif
-                    <a href="{{ route('contact') }}?package=complete"
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'quote' } }))"
                         class="block w-full rounded-full bg-[#1c3457] py-3 text-center text-sm font-semibold text-white hover:bg-[#162a46] transition-colors">Request
-                        a Quote</a>
+                        a Quote</button>
                 </div>
 
             </div>
@@ -581,9 +581,9 @@
                         </div>
                     </div>
                     <div class="lg:text-right shrink-0">
-                        <a href="{{ route('contact') }}?addon=legal-review"
+                        <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'legal' } }))"
                             class="inline-block rounded-full bg-[#1c3457] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#162a46] transition-colors">Contact
-                            us about this add-on</a>
+                            us about this add-on</button>
                     </div>
                 </div>
             </div>
@@ -811,9 +811,9 @@
                         <a href="#pricing"
                             class="inline-block rounded-full bg-[#3a9bd5] px-6 py-3 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors shadow-lg">Explore
                             Packages</a>
-                        <a href="{{ route('contact') }}"
+                        <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'general' } }))"
                             class="inline-block rounded-full border border-[#9ed3e9] bg-white px-6 py-3 text-sm font-semibold text-[#2b82b8] hover:bg-[#eaf5fb] transition-colors">Talk
-                            to the team</a>
+                            to the team</button>
                     </div>
                 </div>
 
@@ -1018,9 +1018,9 @@
                     right tier.
                 </p>
                 <div class="mt-8 flex flex-wrap justify-center gap-3">
-                    <a href="{{ route('contact') }}"
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-contact', { detail: { topic: 'general' } }))"
                         class="inline-block rounded-full bg-[#3a9bd5] px-8 py-3.5 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors shadow-lg">Contact
-                        Us</a>
+                        Us</button>
                     <a href="#pricing"
                         class="inline-block rounded-full border border-white/30 px-8 py-3.5 text-sm font-semibold text-white hover:bg-white/10 transition-colors">Start
                         onboarding</a>

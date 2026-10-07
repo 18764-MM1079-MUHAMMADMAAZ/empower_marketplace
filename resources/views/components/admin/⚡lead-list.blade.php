@@ -18,6 +18,14 @@ new class extends Component
     #[Url]
     public string $search = '';
 
+    #[Url]
+    public string $source = '';
+
+    public function updatedSource(): void
+    {
+        $this->resetPage();
+    }
+
     public function updatedSearch(): void
     {
         $this->resetPage();
@@ -54,8 +62,9 @@ new class extends Component
         return Lead::query()
             ->when($this->search !== '', function ($q) {
                 $search = $this->search;
-                $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"));
+                $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('practice_name', 'like', "%{$search}%"));
             })
+            ->when(in_array($this->source, ['contact_form', 'subscriber', 'manual'], true), fn ($q) => $q->where('source', $this->source))
             ->latest();
     }
 
@@ -71,6 +80,10 @@ new class extends Component
             $lead->name,
             $lead->email,
             $lead->phone,
+            ['contact_form' => 'Contact form', 'subscriber' => 'Subscriber', 'manual' => 'Added manually'][$lead->source] ?? $lead->source,
+            $lead->practice_name,
+            $lead->billable_providers,
+            $lead->topic,
             $lead->package_interest,
             $lead->message,
             $lead->is_contacted ? 'Yes' : 'No',
@@ -87,8 +100,16 @@ new class extends Component
     <div class="flex flex-wrap items-center gap-3 justify-between">
         <h1 class="text-2xl font-bold text-navy">Leads</h1>
         <div class="flex flex-wrap items-center gap-3">
-        <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search name or email…"
+        <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search name, email or practice…"
             class="w-full sm:w-64 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+
+        <select wire:model.live="source"
+            class="rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent">
+            <option value="">All sources</option>
+            <option value="contact_form">Contact form</option>
+            <option value="subscriber">Subscribers</option>
+            <option value="manual">Added manually</option>
+        </select>
 
         <button type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
             class="inline-flex items-center gap-1 rounded-lg border border-empower-border bg-[#dff7f0] px-4 py-2 text-xs font-bold text-[#0f7a4f] hover:bg-[#c7ebdc] transition-colors disabled:opacity-50">
@@ -105,12 +126,13 @@ new class extends Component
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[760px] text-sm">
+            <table class="w-full min-w-[960px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Name</th>
                     <th class="px-5 py-3">Contact</th>
-                    <th class="px-5 py-3">Package Interest</th>
+                    <th class="px-5 py-3">Topic / Package</th>
+                    <th class="px-5 py-3">Message</th>
                     <th class="px-5 py-3">Received</th>
                     <th class="px-5 py-3"></th>
                 </tr>
@@ -118,12 +140,30 @@ new class extends Component
             <tbody class="divide-y divide-empower-border">
                 @forelse($this->leads as $lead)
                     <tr class="hover:bg-page/60 transition-colors">
-                        <td class="px-5 py-3.5 font-semibold text-navy">{{ $lead->name }}</td>
+                        <td class="px-5 py-3.5">
+                            <div class="font-semibold text-navy">{{ $lead->name }}</div>
+                            @if($lead->practice_name)<div class="text-xs text-empower-muted">{{ $lead->practice_name }}{{ $lead->billable_providers ? ' · '.$lead->billable_providers.' provider'.($lead->billable_providers === 1 ? '' : 's') : '' }}</div>@endif
+                        </td>
                         <td class="px-5 py-3.5 text-empower-text">
                             <div>{{ $lead->email }}</div>
-                            <div class="text-xs text-empower-muted">{{ $lead->phone }}</div>
+                            @if($lead->phone)<div class="text-xs text-empower-muted">{{ $lead->phone }}</div>@endif
                         </td>
-                        <td class="px-5 py-3.5 text-empower-text">{{ $lead->package_interest ?: '—' }}</td>
+                        <td class="px-5 py-3.5 text-empower-text">
+                            @php
+                                $sourceStyles = [
+                                    'contact_form' => ['Contact form', 'bg-[#e6f3fb] text-[#087fa9]'],
+                                    'subscriber' => ['Subscriber', 'bg-[#fff3cd] text-[#9a6700]'],
+                                    'manual' => ['Manual', 'bg-[#eef1f5] text-[#5f6b7a]'],
+                                ][$lead->source] ?? [$lead->source, 'bg-[#eef1f5] text-[#5f6b7a]'];
+                            @endphp
+                            <span class="mb-1 inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-extrabold uppercase tracking-wider {{ $sourceStyles[1] }}">{{ $sourceStyles[0] }}</span>
+                            @if($lead->topic)<div>{{ ['general' => 'General question', 'package' => 'Choosing a package', 'quote' => 'Complete quote', 'legal' => 'Legal add-on'][$lead->topic] ?? ucfirst($lead->topic) }}</div>@endif
+                            @if($lead->package_interest)<div class="text-xs text-empower-muted">{{ ucfirst($lead->package_interest) }}</div>@endif
+                            @unless($lead->topic || $lead->package_interest)—@endunless
+                        </td>
+                        <td class="px-5 py-3.5 text-empower-muted text-xs max-w-xs">
+                            <div class="line-clamp-2" title="{{ $lead->message }}">{{ $lead->message ?: '—' }}</div>
+                        </td>
                         <td class="px-5 py-3.5 text-empower-muted text-xs">{{ $lead->created_at?->diffForHumans() }}</td>
                         <td class="px-5 py-3.5 text-right space-x-3 whitespace-nowrap">
                             @if($lead->is_contacted)
@@ -143,7 +183,7 @@ new class extends Component
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="px-5 py-10 text-center text-sm text-empower-muted italic">No leads yet.</td>
+                        <td colspan="7" class="px-5 py-10 text-center text-sm text-empower-muted italic">No leads yet.</td>
                     </tr>
                 @endforelse
             </tbody>

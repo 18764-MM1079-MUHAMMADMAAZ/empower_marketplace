@@ -1826,6 +1826,153 @@ class AdminPanelTest extends TestCase
         $this->assertSame('Followed up by phone.', $lead->admin_notes);
     }
 
+    public function test_admin_can_edit_the_contact_dialog_fields_of_a_lead(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $lead = Lead::factory()->create(['phone' => null, 'message' => null]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form', ['lead' => $lead])
+            ->set('practiceName', 'Provider Family Medicine')
+            ->set('billableProviders', 4)
+            ->set('topic', 'quote')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $lead->refresh();
+        $this->assertSame('Provider Family Medicine', $lead->practice_name);
+        $this->assertSame(4, $lead->billable_providers);
+        $this->assertSame('quote', $lead->topic);
+        $this->assertNull($lead->message);
+    }
+
+    public function test_lead_form_rejects_html_and_unknown_topics(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $lead = Lead::factory()->create();
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form', ['lead' => $lead])
+            ->set('practiceName', '<script>x</script>')
+            ->set('topic', 'bogus')
+            ->call('save')
+            ->assertHasErrors(['practiceName', 'topic']);
+    }
+
+    public function test_leads_index_shows_the_practice_topic_and_message(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Lead::factory()->create(['practice_name' => 'Sunrise Pediatrics', 'billable_providers' => 2, 'topic' => 'quote', 'message' => 'Need a custom quote please']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-list')
+            ->assertSee('Sunrise Pediatrics')
+            ->assertSee('2 providers')
+            ->assertSee('Complete quote')
+            ->assertSee('Need a custom quote please');
+    }
+
+    public function test_leads_can_be_filtered_by_source(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Lead::factory()->create(['name' => 'Cora Contact', 'source' => 'contact_form']);
+        Lead::factory()->create(['name' => 'Sam Subscriber', 'source' => 'subscriber']);
+        Lead::factory()->create(['name' => 'Mia Manual', 'source' => 'manual']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-list')
+            ->assertSee('Cora Contact')
+            ->assertSee('Sam Subscriber')
+            ->set('source', 'subscriber')
+            ->assertSee('Sam Subscriber')
+            ->assertDontSee('Cora Contact')
+            ->assertDontSee('Mia Manual')
+            ->set('source', 'contact_form')
+            ->assertSee('Cora Contact')
+            ->assertDontSee('Sam Subscriber')
+            ->set('source', 'manual')
+            ->assertSee('Mia Manual')
+            ->assertDontSee('Cora Contact');
+    }
+
+    public function test_leads_are_tagged_with_where_they_came_from(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form')
+            ->set('name', 'Mia Manual')
+            ->set('email', 'mia@practice.com')
+            ->call('save');
+
+        $this->assertDatabaseHas('leads', ['email' => 'mia@practice.com', 'source' => 'manual']);
+    }
+
+    public function test_leads_can_be_searched_by_name_email_or_practice(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Lead::factory()->create(['name' => 'Alice Alpha', 'email' => 'alice@a.test', 'practice_name' => null]);
+        Lead::factory()->create(['name' => 'Bob Beta', 'email' => 'bob@b.test', 'practice_name' => 'Sunrise Pediatrics']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-list')
+            ->set('search', 'alice@a')
+            ->assertSee('Alice Alpha')->assertDontSee('Bob Beta')
+            ->set('search', 'Sunrise')
+            ->assertSee('Bob Beta')->assertDontSee('Alice Alpha')
+            ->set('search', 'Bob')
+            ->assertSee('Bob Beta')->assertDontSee('Alice Alpha');
+    }
+
+    public function test_lead_can_be_created_with_only_a_name_and_email(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form')
+            ->set('name', 'Min Lead')
+            ->set('email', 'min@practice.com')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('admin.leads'));
+
+        $this->assertDatabaseHas('leads', ['email' => 'min@practice.com', 'phone' => null, 'message' => null, 'practice_name' => null]);
+    }
+
+    public function test_lead_form_validates_required_fields_and_formats(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form')
+            ->call('save')
+            ->assertHasErrors(['name', 'email']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form')
+            ->set('name', 'Jane123')
+            ->set('email', 'not-an-email')
+            ->set('phone', '12345')
+            ->set('billableProviders', 0)
+            ->call('save')
+            ->assertHasErrors(['name', 'email', 'phone', 'billableProviders']);
+
+        $this->assertDatabaseCount('leads', 0);
+    }
+
+    public function test_editing_a_lead_keeps_its_source(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $lead = Lead::factory()->create(['source' => 'subscriber']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.lead-form', ['lead' => $lead])
+            ->set('adminNotes', 'Called back.')
+            ->call('save');
+
+        $this->assertSame('subscriber', $lead->fresh()->source);
+    }
+
     public function test_admin_can_delete_a_lead(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);

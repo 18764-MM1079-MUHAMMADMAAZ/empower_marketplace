@@ -43,8 +43,8 @@ $sectionPrefix = $onHomePage ? '' : route('home');
                         class="text-sm font-medium text-[#5c778d] hover:text-[#0e3a61] transition-colors">Process</a>
                     <a href="{{ $sectionPrefix }}#pricing"
                         class="text-sm font-medium text-[#5c778d] hover:text-[#0e3a61] transition-colors">Pricing</a>
-                    <a href="{{ route('contact') }}"
-                        class="text-sm font-medium {{ $active === 'contact' ? 'text-[#0e3a61] hover:text-[#0b9ed0]' : 'text-[#5c778d] hover:text-[#0e3a61]' }} transition-colors">Contact</a>
+                    <a href="{{ $sectionPrefix }}#contact"
+                        class="text-sm font-medium text-[#5c778d] hover:text-[#0e3a61] transition-colors">Contact</a>
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -86,8 +86,8 @@ $sectionPrefix = $onHomePage ? '' : route('home');
                         class="rounded-lg px-3 py-2 text-sm font-medium text-[#5c778d] hover:bg-[#eef8fd] hover:text-[#0e3a61] transition-colors">Process</a>
                     <a href="{{ $sectionPrefix }}#pricing" x-on:click="open = false"
                         class="rounded-lg px-3 py-2 text-sm font-medium text-[#5c778d] hover:bg-[#eef8fd] hover:text-[#0e3a61] transition-colors">Pricing</a>
-                    <a href="{{ route('contact') }}" x-on:click="open = false"
-                        class="rounded-lg px-3 py-2 text-sm font-medium {{ $active === 'contact' ? 'text-[#0e3a61]' : 'text-[#5c778d]' }} hover:bg-[#eef8fd] hover:text-[#0b9ed0] transition-colors">Contact</a>
+                    <a href="{{ $sectionPrefix }}#contact" x-on:click="open = false"
+                        class="rounded-lg px-3 py-2 text-sm font-medium text-[#5c778d] hover:bg-[#eef8fd] hover:text-[#0e3a61] transition-colors">Contact</a>
                 </div>
             </div>
         </div>
@@ -97,7 +97,9 @@ $sectionPrefix = $onHomePage ? '' : route('home');
         {{ $slot }}
     </main>
 
-    <x-site-footer :footer-class="$footerClass" />
+    <x-site-footer :footer-class="$footerClass" :contact-link="true" />
+
+    <livewire:contact-dialog />
 
     @livewireScripts
 </body>

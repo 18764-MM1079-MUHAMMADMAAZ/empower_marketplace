@@ -35,7 +35,17 @@ Route::get('/', function () {
 
     return view('welcome', compact('packages', 'resumeOrder'));
 })->name('home');
-Route::get('/contact', fn () => view('contact'))->name('contact');
+// The contact form is a popup on the home page now; old links (including ?package=/?addon=) land there and open it.
+Route::get('/contact', function (Request $request) {
+    $topic = match (true) {
+        $request->query('package') === 'complete' => 'quote',
+        $request->query('addon') === 'legal-review' => 'legal',
+        $request->filled('package') => 'package',
+        default => 'general',
+    };
+
+    return redirect()->route('home', ['contact' => $topic]);
+})->name('contact');
 
 // Auth
 Route::get('/login', fn () => view('auth.login'))->name('login');
