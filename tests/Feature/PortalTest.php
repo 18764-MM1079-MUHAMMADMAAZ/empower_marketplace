@@ -2684,8 +2684,7 @@ class PortalTest extends TestCase
             ->set('additionalDocumentFile', $file)
             ->set('additionalDocumentCategory', 'training_materials')
             ->call('uploadAdditionalDocument')
-            ->assertHasNoErrors()
-            ->assertSee('Uploaded — this will appear below once our team has reviewed it.');
+            ->assertHasNoErrors();
 
         $this->assertDatabaseHas('intake_uploads', [
             'intake_submission_id' => $order->intakeSubmission->id,

@@ -17,6 +17,7 @@ use App\Mail\AdminIntakeSubmittedMail;
 use App\Mail\AdminPaymentReceivedMail;
 use App\Mail\ClientPaymentReceiptMail;
 use App\Mail\ClientTrialStartedMail;
+use App\Mail\PreLaunchSignupMail;
 use App\Mail\WelcomeCredentialsMail;
 use App\Models\ActivityLog;
 use App\Models\DiscountCode;
@@ -31,6 +32,7 @@ use App\Models\Order;
 use App\Models\Package;
 use App\Models\PaymentLog;
 use App\Models\Practice;
+use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\IntakeSubmittedNotification;
 use App\Notifications\PaymentReceivedNotification;
@@ -877,21 +879,27 @@ new class extends Component
     #[Computed]
     public function publicLaunchGateActive(): bool
     {
-        $launchAt = config('app.public_launch_at');
+        $launchAt = Setting::read('public_launch_at') ?? config('app.public_launch_at');
 
-        return $launchAt !== null && now()->lt($launchAt);
+        return filled($launchAt) && now()->lt($launchAt);
     }
 
     public function signUpForUpdates(): void
     {
         $this->validate(['updatesEmail' => 'required|email:rfc,filter|max:255'], [], ['updatesEmail' => 'email']);
 
-        Lead::create([
+        $lead = Lead::create([
             'name' => auth()->user()?->name ?: $this->updatesEmail,
             'email' => $this->updatesEmail,
             'package_interest' => $this->selectedPackage?->slug,
             'message' => 'Signed up for updates from the Step 1 pre-launch gate.',
         ]);
+
+        try {
+            Mail::to($lead->email)->send(new PreLaunchSignupMail($lead, $this->selectedPackage?->name));
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         $this->signedUpForUpdates = true;
     }
