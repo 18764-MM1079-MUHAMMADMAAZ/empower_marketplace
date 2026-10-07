@@ -31,9 +31,17 @@
 @endphp
 
 <x-layouts.app title="Admin Dashboard">
-    <div class="space-y-4">
+    <div class="space-y-4" x-data x-init="$nextTick(() => window.startAdminTour?.({ auto: true }))">
+        <div class="flex justify-end">
+            <button type="button" onclick="window.startAdminTour?.()"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-empower-border bg-white px-4 py-2 text-xs font-bold text-navy hover:bg-page transition-colors">
+                <svg class="h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Take a tour
+            </button>
+        </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+        <div data-tour="stats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             @foreach([
                 ['Pending Review', $pendingReview, route('admin.submissions')],
                 ['Total Orders', $totalOrders, route('admin.orders')],
@@ -55,12 +63,12 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-            <livewire:admin.launch-gate />
+            <div data-tour="purchase-gating" class="h-full"><livewire:admin.launch-gate /></div>
 
-            <livewire:admin.call-settings />
+            <div data-tour="call-booking" class="h-full"><livewire:admin.call-settings /></div>
         </div>
 
-        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+        <div data-tour="ai-usage" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex items-start justify-between mb-4">
                 <div>
                     <h2 class="text-xs font-extrabold uppercase tracking-wider text-empower-muted">OpenAI Usage</h2>

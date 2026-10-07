@@ -175,3 +175,5 @@ document.addEventListener('alpine:init', () => {
     window.addEventListener('online', () => { Alpine.store('connectivity').online = true; });
     window.addEventListener('offline', () => { Alpine.store('connectivity').online = false; });
 });
+
+import './admin-tour';

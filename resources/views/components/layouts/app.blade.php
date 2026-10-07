@@ -50,9 +50,9 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
 
                 <div class="flex items-center gap-3">
                     @if($isAdmin)
-                    <livewire:admin.notification-bell />
+                    <div data-tour="bell"><livewire:admin.notification-bell /></div>
                     @endif
-                    <livewire:header-account-menu />
+                    <div data-tour="account"><livewire:header-account-menu /></div>
                 </div>
             </div>
         </div>
@@ -79,7 +79,7 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
     </div>
 
     <div class="flex-1 flex mx-auto w-full {{ $containerClass }}">
-        <aside
+        <aside data-tour="sidebar"
             class="hidden lg:block w-56 shrink-0 border-r border-empower-border px-3 py-6 bg-white border border-empower-border shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
             @include('admin._nav')
         </aside>

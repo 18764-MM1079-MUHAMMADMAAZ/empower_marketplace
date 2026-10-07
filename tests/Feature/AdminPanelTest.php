@@ -90,6 +90,19 @@ class AdminPanelTest extends TestCase
             ->assertSessionHas('status', 'Please log in to access this page.');
     }
 
+    public function test_dashboard_exposes_every_element_the_guided_tour_points_at(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $response = $this->withoutVite()->actingAs($admin)->get(route('admin.dashboard'))
+            ->assertOk()
+            ->assertSee('Take a tour');
+
+        foreach (['sidebar', 'bell', 'stats', 'purchase-gating', 'call-booking', 'ai-usage', 'account'] as $target) {
+            $response->assertSee('data-tour="'.$target.'"', false);
+        }
+    }
+
     public function test_admin_can_view_dashboard(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
