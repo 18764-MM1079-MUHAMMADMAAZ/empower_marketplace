@@ -232,7 +232,7 @@ new class extends Component
     <div>{{ $this->users->links() }}</div>
 
     <div x-show="confirmId !== null" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmId = null">
             <h3 class="text-base font-semibold text-navy mb-2">Delete <span x-text="confirmLabel"></span>?</h3>
             <p class="text-sm text-empower-muted mb-5">This cannot be undone.</p>
@@ -253,7 +253,7 @@ new class extends Component
     </div>
 
     <div x-show="confirmEndTrialOrderId !== null" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmEndTrialOrderId = null">
             <h3 class="text-base font-semibold text-navy mb-2">End trial for <span x-text="confirmEndTrialLabel"></span>?</h3>
             <p class="text-sm text-empower-muted mb-5">This immediately charges the card on file via the real payment gateway — exactly as if the client had clicked "Proceed with Payment" themselves. Use this to verify the live payment integration is working.</p>

@@ -37,6 +37,7 @@ use App\Notifications\PaymentReceivedNotification;
 use App\Notifications\ReviewerQuestionReplyNotification;
 use App\Services\CloverChargeService;
 use App\Services\EmpowerPaymentApiClient;
+use App\Services\IntakeReviewStarter;
 use App\Services\TrialBillingService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -1156,11 +1157,71 @@ new class extends Component
         $this->step = 3;
     }
 
-    /** Step 3 "Your answers" row Edit link — reopens the wizard on that exact screen. */
+    /** Step 3 "Your answers" row Edit link — reopens the wizard on that exact screen. Still used
+     *  for every non-question row (basics/team fields) — only workflow-question answers get the
+     *  inline editor below, matching the prototype's own inlineEditor(), which is also
+     *  question-only. */
     public function editIntakeAnswer(string $screenKey): void
     {
         $this->editIntakeScreen = $screenKey;
         $this->goToStep(2);
+    }
+
+    // ── Step 3 inline answer editing (workflow questions only) ──────────────
+
+    public ?int $inlineEditQuestionId = null;
+
+    public bool $inlineEditHasDocumentedProcess = true;
+
+    public string $inlineEditResponse = '';
+
+    public function startInlineEdit(int $questionId): void
+    {
+        $answer = $this->primarySubmission?->intakeAnswers()->where('intake_question_id', $questionId)->first();
+
+        $this->inlineEditQuestionId = $questionId;
+        $this->inlineEditHasDocumentedProcess = $answer ? (bool) $answer->has_documented_process : true;
+        $this->inlineEditResponse = $answer?->response ?? '';
+        $this->resetErrorBag('inlineEditResponse');
+    }
+
+    public function cancelInlineEdit(): void
+    {
+        $this->inlineEditQuestionId = null;
+    }
+
+    public function saveInlineEdit(): void
+    {
+        $this->resetErrorBag('inlineEditResponse');
+
+        if ($this->inlineEditHasDocumentedProcess && trim($this->inlineEditResponse) === '') {
+            $this->addError('inlineEditResponse', 'Write your practice response, or choose "We don\'t have a documented answer."');
+
+            return;
+        }
+
+        $submission = $this->primarySubmission;
+
+        if (! $submission) {
+            return;
+        }
+
+        IntakeAnswer::updateOrCreate(
+            ['intake_submission_id' => $submission->id, 'intake_question_id' => $this->inlineEditQuestionId],
+            [
+                'response' => $this->inlineEditHasDocumentedProcess ? $this->inlineEditResponse : null,
+                'has_documented_process' => $this->inlineEditHasDocumentedProcess,
+                'skipped' => false,
+                'answered_at' => now(),
+            ]
+        );
+
+        ActivityLog::record('intake_answer.updated_inline', 'A workflow answer was updated from the review screen.', user: auth()->user());
+
+        $this->inlineEditQuestionId = null;
+        unset($this->primarySubmission);
+
+        $this->dispatch('toast', message: 'Answer saved.', type: 'success');
     }
 
     /** The wizard confirms it applied editIntakeScreen on mount — clears it so a later plain
@@ -2274,6 +2335,18 @@ new class extends Component
         IntakeUpload::whereIn('id', $reviewableUploadIds)->get()
             ->each(fn (IntakeUpload $upload) => ProcessIntakeUpload::dispatch($upload));
 
+        // Professional/Advanced go straight into review (and AI document generation) instead of
+        // waiting for an admin to click "Mark as Under Review"; Essential stays Submitted since
+        // there's nothing to generate for it.
+        $reviewStarter = app(IntakeReviewStarter::class);
+
+        foreach ($orders as $order) {
+            if ($order->package?->includesWorkflowQuestionnaire()) {
+                $reviewStarter->start(IntakeSubmission::where('order_id', $order->id)->first());
+            }
+        }
+
+        $primarySubmission->refresh();
         $primarySubmission->setRelation('order', $primaryOrder);
 
         $admins = User::where('role', UserRole::Admin)->get();
@@ -2535,6 +2608,7 @@ $progressPct = ($milestone / 4) * 100;
 
     {{-- ── Step 1: Payment ── --}}
     @if($step === 1)
+    <div wire:key="portal-step-1">
     <div class="space-y-3">
         @if($this->publicLaunchGateActive && $milestone < 1)
         <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
@@ -2962,7 +3036,7 @@ $progressPct = ($milestone / 4) * 100;
                 </div>
 
                 <div x-show="showTerms" x-cloak
-                    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
                     <div class="w-full max-w-md bg-white rounded-[1.25rem] shadow-xl p-6"
                         x-on:click.outside="showTerms = false">
                         <h3 class="text-base font-semibold text-navy mb-2">Review &amp; Accept Terms &amp; Conditions
@@ -3039,10 +3113,12 @@ $progressPct = ($milestone / 4) * 100;
         </div>
         @endif
     </div>
+    </div>
     @endif
 
     {{-- ── Step 2: Practice Intake ── --}}
     @if($step === 2)
+    <div wire:key="portal-step-2">
     @if($editingProfile)
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <div
@@ -3158,10 +3234,12 @@ $progressPct = ($milestone / 4) * 100;
     @endif
 
     <livewire:portal.osha-location-modal :practiceId="$this->practice?->id ?? 0" />
+    </div>
     @endif
 
     {{-- ── Step 3: Upload & Confirm ── --}}
     @if($step === 3)
+    <div wire:key="portal-step-3">
     @php
     $primarySub = $this->primarySubmission;
     $primaryOrder = $this->batchOrders->firstWhere('id', min($this->orderIds ?: [0]));
@@ -3296,13 +3374,23 @@ $progressPct = ($milestone / 4) * 100;
             @endif
 
             @if(! $isSubmitted)
-            <div class="rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
+            <div class="rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4" x-data="{ uploading: false, progress: 0 }"
+                x-on:livewire-upload-start.window="uploading = true; progress = 0"
+                x-on:livewire-upload-finish.window="uploading = false"
+                x-on:livewire-upload-error.window="uploading = false"
+                x-on:livewire-upload-progress.window="progress = $event.detail.progress">
                 <div class="flex flex-wrap items-start gap-2">
                     <div class="flex-1 min-w-[10rem]">
                         <input wire:model="step3DocumentFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.docx"
                             wire:loading.attr="disabled" wire:target="step3DocumentFile,uploadStep3Document"
                             class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
                         @error('step3DocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        <div x-show="uploading" x-cloak class="mt-2">
+                            <div class="h-1.5 rounded-full bg-[#e8eef4] overflow-hidden">
+                                <div class="h-full rounded-full bg-[#0b9ed0] transition-all duration-75" :style="`width: ${progress}%`"></div>
+                            </div>
+                            <p class="text-[11px] text-[#5c778d] mt-1">Uploading&hellip; <span x-text="progress"></span>%</p>
+                        </div>
                     </div>
                     <select wire:model="step3DocumentCategory"
                         class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
@@ -3370,7 +3458,40 @@ $progressPct = ($milestone / 4) * 100;
                         @php
                         $badge = $detail['badge'] ?? ($detail['done'] ? ['label' => 'Done', 'class' => 'bg-[#d7f3ea]
                         text-[#117a51]'] : ['label' => 'Pending', 'class' => 'bg-[#eef1f5] text-[#5d6e7f]']);
+                        $detailQuestionId = str_starts_with($detail['screen'] ?? '', 'question:')
+                            ? (int) substr($detail['screen'], strlen('question:'))
+                            : null;
                         @endphp
+                        @if($detailQuestionId !== null && $this->inlineEditQuestionId === $detailQuestionId)
+                        {{-- Inline editor — workflow-question answers only, matching the
+                             prototype's own inlineEditor(), which is also question-only. --}}
+                        <div class="rounded-xl border border-[#9ed3e9] bg-[#f2f9fd] p-3 space-y-2.5">
+                            <p class="text-xs font-semibold text-[#173045]">{{ $detail['label'] }}</p>
+                            <div class="space-y-1.5">
+                                <label class="flex items-center gap-2 text-xs text-[#173045] cursor-pointer">
+                                    <input type="radio" wire:model.live="inlineEditHasDocumentedProcess" value="1" class="accent-[#12304f]">
+                                    We have a documented process
+                                </label>
+                                <label class="flex items-center gap-2 text-xs text-[#173045] cursor-pointer">
+                                    <input type="radio" wire:model.live="inlineEditHasDocumentedProcess" value="0" class="accent-[#12304f]">
+                                    We don't have a documented answer
+                                </label>
+                            </div>
+                            @if($inlineEditHasDocumentedProcess)
+                            <textarea wire:model="inlineEditResponse" rows="4"
+                                class="w-full rounded-lg border {{ $errors->has('inlineEditResponse') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-3 py-2 text-xs text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"></textarea>
+                            @error('inlineEditResponse') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                            @endif
+                            <div class="flex items-center gap-3">
+                                <button type="button" wire:click="saveInlineEdit" wire:target="saveInlineEdit" wire:loading.attr="disabled"
+                                    class="inline-flex items-center gap-1.5 rounded bg-[#12304f] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
+                                    <span wire:loading.remove wire:target="saveInlineEdit">Save</span>
+                                    <span wire:loading.inline-flex wire:target="saveInlineEdit" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Saving&hellip;</span>
+                                </button>
+                                <button type="button" wire:click="cancelInlineEdit" class="text-xs font-semibold text-[#5d6e7f] hover:underline">Cancel</button>
+                            </div>
+                        </div>
+                        @else
                         <div class="flex items-center justify-between gap-3">
                             <div>
                                 <p class="text-xs font-semibold text-[#173045]">{{ $detail['label'] }}</p>
@@ -3384,13 +3505,18 @@ $progressPct = ($milestone / 4) * 100;
                                     class="rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide {{ $badge['class'] }}">
                                     {{ $badge['label'] }}
                                 </span>
-                                @if(! $isSubmitted && ! empty($detail['screen']))
+                                @if(! $isSubmitted && $detailQuestionId !== null)
+                                <button type="button" wire:click="startInlineEdit({{ $detailQuestionId }})"
+                                    wire:target="startInlineEdit"
+                                    class="text-xs font-bold text-[#1a7aad] hover:underline">Edit</button>
+                                @elseif(! $isSubmitted && ! empty($detail['screen']))
                                 <button type="button" wire:click="editIntakeAnswer('{{ $detail['screen'] }}')"
                                     wire:target="editIntakeAnswer"
                                     class="text-xs font-bold text-[#1a7aad] hover:underline">Edit</button>
                                 @endif
                             </div>
                         </div>
+                        @endif
                         @endforeach
                     </div>
                     @endif
@@ -3475,10 +3601,12 @@ $progressPct = ($milestone / 4) * 100;
             </div>
         </div>
     </div>
+    </div>
     @endif
 
     {{-- ── Step 4: Review ── --}}
     @if($step === 4)
+    <div wire:key="portal-step-4">
     @php
     $reviewStages = [
     ['Submitted', 'We received your intake and documents.'],
@@ -3734,11 +3862,33 @@ $progressPct = ($milestone / 4) * 100;
             </span>
         </button>
     </div>
+
+    {{-- Dashboard skeleton — masks the brief gap while Step 5's documents/activity/billing load,
+         matching the prototype's .sk shimmer treatment. Only ever visible during the goToStep(5)
+         request itself (Livewire re-renders the whole component atomically, so this can't be a
+         true progressive-load skeleton — it's a loading mask over the transition, not over partial
+         real content). --}}
+    <div wire:loading.block wire:target="goToStep(5)" class="space-y-4 mt-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            @for($i = 0; $i < 4; $i++)
+            <div class="bg-white border border-empower-border rounded-[1.25rem] p-5 space-y-3">
+                <div class="h-3 w-20 rounded bg-[#eef2f6] animate-pulse"></div>
+                <div class="h-7 w-16 rounded bg-[#eef2f6] animate-pulse"></div>
+            </div>
+            @endfor
+        </div>
+        <div class="bg-white border border-empower-border rounded-[1.25rem] p-5 space-y-3">
+            @for($i = 0; $i < 3; $i++)
+            <div class="h-10 rounded-lg bg-[#eef2f6] animate-pulse"></div>
+            @endfor
+        </div>
+    </div>
+    </div>
     @endif
 
 {{-- ── Step 5: Dashboard ── --}}
 @if($step === 5)
-<div x-data="{
+<div wire:key="portal-step-5" x-data="{
             confirmCancelOrderId: null,
             confirmCancelMessage: '',
             confirmCancel(orderId, message) { this.confirmCancelOrderId = orderId; this.confirmCancelMessage = message; },
@@ -4189,48 +4339,6 @@ $progressPct = ($milestone / 4) * 100;
                         @endif
                     </div>
 
-                    <div class="mt-4 rounded-xl border border-dashed border-[#dbe4ee] bg-[#f8fbfd] p-4">
-                        <p class="text-sm font-semibold text-[#173045] mb-1">Have another document you'd like reviewed?
-                        </p>
-                        <p class="text-xs text-[#5d6e7f] mb-3">Upload it and our team will review and polish it, same as
-                            your other
-                            documents — no need to redo your intake.</p>
-
-                        @if($additionalDocumentNotice)
-                        <p class="text-xs font-semibold text-[#117a51] mb-3">✓ {{ $additionalDocumentNotice }}</p>
-                        @endif
-
-                        <div class="flex flex-wrap items-start gap-2">
-                            <div class="flex-1 min-w-[10rem]">
-                                <input wire:model="additionalDocumentFile" type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png,.docx" wire:loading.attr="disabled"
-                                    wire:target="additionalDocumentFile,uploadAdditionalDocument"
-                                    class="block w-full text-xs text-[#5c778d] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#12304f] file:text-white hover:file:bg-[#0a2037] cursor-pointer">
-                                @error('additionalDocumentFile') <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
-                                @enderror
-                            </div>
-                            <select wire:model="additionalDocumentCategory"
-                                class="rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-1.5 text-xs text-[#173045]">
-                                <option value="">Document type…</option>
-                                @foreach($this->reviewDocumentCategories as $key => $label)
-                                <option value="{{ $key }}">{{ $label }}</option>
-                                @endforeach
-                                <option value="other">Other</option>
-                            </select>
-                            <button type="button" wire:click="uploadAdditionalDocument"
-                                wire:target="uploadAdditionalDocument" wire:loading.attr="disabled"
-                                wire:loading.class="opacity-70 cursor-not-allowed"
-                                class="text-xs font-bold rounded bg-[#12304f] text-white px-3.5 py-1.5 hover:bg-[#0a2037] transition-colors flex-shrink-0">
-                                <span wire:loading.remove wire:target="uploadAdditionalDocument">Upload for
-                                    Review</span>
-                                <span wire:loading.inline-flex wire:target="uploadAdditionalDocument"
-                                    class="inline-flex items-center gap-1.5">
-                                    <x-spinner class="h-3.5 w-3.5" /> Uploading…
-                                </span>
-                            </button>
-                        </div>
-                    </div>
-
                     <p class="text-xs text-[#5d6e7f] mt-2">For any queries, <a
                             href="{{ route('contact', ['package' => $this->currentOrder->package?->slug]) }}"
                             wire:navigate class="font-semibold text-[#1a7aad] hover:underline">contact us</a>.</p>
@@ -4353,7 +4461,7 @@ $progressPct = ($milestone / 4) * 100;
     (trial/past-due/active) that are siblings of each other, not nested. Kept outside the
     space-y-4 div above so it doesn't pick up sibling spacing while position:fixed. --}}
     <div x-show="confirmCancelOrderId !== null" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6"
             x-on:click.outside="confirmCancelOrderId = null">
             <h3 class="text-base font-semibold text-[#12304f] mb-2">Cancel your subscription?</h3>

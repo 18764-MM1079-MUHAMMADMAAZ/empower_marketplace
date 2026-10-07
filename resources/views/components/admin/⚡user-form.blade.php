@@ -709,7 +709,7 @@ new class extends Component
     @endif
 
     <div x-show="confirmDeleteUser" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmDeleteUser = false">
             <h3 class="text-base font-semibold text-navy mb-2">Delete {{ $name }} ({{ $email }})?</h3>
             <p class="text-sm text-empower-muted mb-5">This permanently deletes their practice, orders, submissions, uploads, and generated documents. This cannot be undone.</p>

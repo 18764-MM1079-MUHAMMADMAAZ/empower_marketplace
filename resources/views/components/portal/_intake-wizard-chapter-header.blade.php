@@ -5,7 +5,10 @@
     or not.
 
     Expects: $chapters (array<{key,label,total,done}>), $currentKey (string),
-    $reachedScreens (array<string>), $doneItems, $totalItems, $minutesLeft (int), $skippedCount (int)
+    $reachedScreens (array<string>), $doneItems, $totalItems, $minutesLeft (int), $skippedCount (int),
+    $lastSavedAt (?Carbon) — mirrors the prototype's qz-saved indicator. Every mutating wizard
+    action already updates the submission row, so its own updated_at is the save timestamp; no new
+    state to track.
 --}}
 @php
     $currentIndex = collect($chapters)->search(fn ($c) => $c['key'] === $currentKey);
@@ -24,14 +27,22 @@
         </svg>
     </button>
 
-    <span class="text-[12.5px] text-[#5d6e7f]">
-        {{ $doneItems }} of {{ $totalItems }} done
-        @if($doneItems < $totalItems)
-        &middot; about {{ $minutesLeft }} min left
+    <span class="inline-flex items-center gap-3">
+        @if($lastSavedAt)
+        <span class="inline-flex items-center gap-1 text-[12px] text-[#1f9d6b]">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Saved &middot; {{ $lastSavedAt->diffInSeconds(now()) < 60 ? 'just now' : $lastSavedAt->diffForHumans() }}
+        </span>
         @endif
-        @if($skippedCount > 0)
-        &middot; <strong class="text-[#b7791f]">{{ $skippedCount }} skipped</strong>
-        @endif
+        <span class="text-[12.5px] text-[#5d6e7f]">
+            {{ $doneItems }} of {{ $totalItems }} done
+            @if($doneItems < $totalItems)
+            &middot; about {{ $minutesLeft }} min left
+            @endif
+            @if($skippedCount > 0)
+            &middot; <strong class="text-[#b7791f]">{{ $skippedCount }} skipped</strong>
+            @endif
+        </span>
     </span>
 
     <div x-show="sectionsOpen" x-cloak x-transition

@@ -552,7 +552,7 @@ new class extends Component
         </div>
 
         <div x-show="confirmDeleteOrder" x-cloak
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
             <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmDeleteOrder = false">
                 <h3 class="text-base font-semibold text-navy mb-2">Delete test order #{{ $order->id }}?</h3>
                 <p class="text-sm text-empower-muted mb-5">This deletes the order and everything generated for it. This cannot be undone.</p>

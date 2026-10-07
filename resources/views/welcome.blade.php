@@ -274,25 +274,25 @@
             }">
             <div class="text-center mb-10">
                 <span class="text-xs font-bold tracking-widest uppercase text-[#3a9bd5]">Pricing</span>
-                <h2 class="mt-3 text-[34px] font-extrabold text-[#0e1b30]">Choose Your Compliance Package</h2>
+                <h2 class="mt-3 text-[28px] sm:text-[34px] font-extrabold text-[#0e1b30]">Choose Your Compliance Package</h2>
                 <p class="mt-4 text-[#4a5563] max-w-2xl mx-auto leading-relaxed">
                     Every package is billed per billable provider, per year (or monthly), and includes annual
                     renewal.
                 </p>
             </div>
 
-            <div class="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <div class="inline-flex self-start gap-1 rounded-full border border-[#dde3ea] bg-[#eef1f5] p-1">
                     <button type="button" @click="cycle = 'monthly'"
                         :class="cycle === 'monthly' ? 'bg-white text-[#1c3457] shadow-sm' : 'text-[#4a5563] hover:text-[#1c3457]'"
-                        class="rounded-full px-[22px] py-2.5 text-sm font-bold transition-colors">Billed monthly</button>
+                        class="rounded-full px-4 sm:px-[22px] py-2.5 text-sm font-bold transition-colors">Billed monthly</button>
                     <button type="button" @click="cycle = 'annual'"
                         :class="cycle === 'annual' ? 'bg-white text-[#1c3457] shadow-sm' : 'text-[#4a5563] hover:text-[#1c3457]'"
-                        class="rounded-full px-[22px] py-2.5 text-sm font-bold transition-colors">Billed annually
+                        class="rounded-full px-4 sm:px-[22px] py-2.5 text-sm font-bold transition-colors">Billed annually
                         <span class="ml-1.5 text-xs font-extrabold text-[#1f9d6b]">Save ~16%</span></button>
                 </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-sm text-[#4a5563]">Not sure what package is right?</span>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <span class="w-full sm:w-auto text-sm text-[#4a5563]">Not sure what package is right?</span>
                     <button type="button" @click="quizOpen = true; quizStep = 1"
                         class="inline-block whitespace-nowrap rounded-full bg-[#3a9bd5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2b82b8] transition-colors">Take
                         the 3-question quiz</button>
@@ -302,7 +302,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
 
                 {{-- Essential --}}
                 <div data-package-card="essential"
@@ -590,7 +590,7 @@
 
             {{-- Package-picker quiz --}}
             <div x-show="quizOpen" x-cloak x-on:keydown.escape.window="quizOpen = false"
-                class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+                class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
                 <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
                     x-on:click.outside="quizOpen = false">
 

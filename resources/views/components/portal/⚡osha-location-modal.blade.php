@@ -126,7 +126,7 @@ new class extends Component
 
 <div>
 @if($open)
-<div class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-10 px-4">
+<div class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-10 px-4">
     <div class="w-full max-w-xl bg-white rounded-[1.25rem] shadow-xl">
         {{-- Modal header --}}
         <div class="flex items-center justify-between px-6 py-4 border-b border-[#dbe4ee]">

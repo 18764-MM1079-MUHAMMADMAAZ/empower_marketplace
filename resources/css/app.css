@@ -85,3 +85,91 @@
 .quiz-pick {
     animation: quiz-pick 1.6s ease-out 2;
 }
+
+/* Phase 6 — screen transitions, ported exactly from the client prototype's @keyframes qzInFwd /
+   pIn (see `changes/updated/Proactive Compliance Marketplace.html` lines ~651-657). Targeted by
+   wire:key prefix rather than a class: Livewire only mounts a genuinely new element (and so only
+   plays the animation) when a step/screen's wire:key actually changes — re-renders of the same
+   step/screen (typing, toggles) morph in place and never replay it, matching the prototype's own
+   "re-renders of the same screen are not animated" rule with zero JS needed. Exit/outro animations
+   (the prototype's qzOutFwd/pOut, played before the next screen slides in) are intentionally not
+   ported — Livewire's synchronous morph removes the old element immediately, so reproducing a
+   timed two-phase exit-then-enter would need the same leaveThen()-style JS orchestration the
+   prototype uses, not just a CSS class; the entrance animation alone is the visible majority of
+   this effect. */
+@keyframes portal-step-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes wizard-screen-in {
+    from {
+        opacity: 0;
+        transform: translateX(22px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+[wire\:key^="portal-step-"] {
+    animation: portal-step-in .36s cubic-bezier(.22, .8, .24, 1) backwards;
+}
+
+[wire\:key^="wizscreen-"] {
+    animation: wizard-screen-in .34s cubic-bezier(.22, .8, .24, 1) backwards;
+}
+
+/* New fields revealed in place by a choice (e.g. a gate's topic picker, "same as billing"
+   unchecking) fade+slide down, matching the prototype's @keyframes revealIn exactly. These ARE
+   genuinely new DOM nodes on first appearance (the @if block didn't render before), so a plain
+   class is enough — no wire:key trick needed. */
+@keyframes reveal-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.reveal-in {
+    animation: reveal-in .3s cubic-bezier(.22, .8, .24, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    [wire\:key^="portal-step-"],
+    [wire\:key^="wizscreen-"],
+    .reveal-in {
+        animation: none !important;
+    }
+}
+
+/* Sticky mobile Continue — ported from the prototype's "Sticky Continue on phones"
+   (@media max-width:640px) { .qz-continue { position:sticky; bottom:12px; ... } }). Applied to a
+   phone-only duplicate action bar rather than the real in-flow button (see
+   practice-intake-wizard.blade.php's question screen), so desktop's existing Back/Skip/Save row is
+   untouched. */
+@media (max-width: 640px) {
+    .sticky-mobile-bar {
+        position: sticky;
+        bottom: 12px;
+        z-index: 6;
+        margin-top: 12px;
+        box-shadow: 0 10px 24px rgba(18, 48, 79, .28);
+        border-radius: 10px;
+    }
+}

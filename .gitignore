@@ -26,8 +26,6 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
-plan.md
-sso.md
-workflow-changes.md
 /changes
 /tmp_tpl_check
+*.md

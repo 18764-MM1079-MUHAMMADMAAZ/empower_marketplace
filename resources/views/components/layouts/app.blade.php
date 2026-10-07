@@ -61,7 +61,7 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
     @if($isAdmin)
     {{-- Mobile nav drawer --}}
     <div x-show="adminSidebarOpen" x-cloak class="lg:hidden fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
-        <div class="fixed inset-0 bg-black/40" x-on:click="adminSidebarOpen = false"></div>
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" x-on:click="adminSidebarOpen = false"></div>
         <div class="relative w-64 max-w-[80vw] bg-white h-full overflow-y-auto p-4 shadow-xl"
             x-on:click.outside="adminSidebarOpen = false">
             <div class="flex items-center justify-between mb-4">
@@ -97,6 +97,19 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
     @endif
 
     <x-site-footer footer-class="py-4" :container-class="$containerClass" />
+
+    {{-- Persistent offline banner — ported from the prototype's #netBanner (fixed bottom-center,
+    same copy/colors), backed by the `connectivity` Alpine store in resources/js/app.js. Unlike a
+    one-off toast, this stays visible for the whole time the connection is down, on every page. --}}
+    <div x-data x-show="!$store.connectivity.online" x-cloak role="status" aria-live="polite"
+        class="fixed left-1/2 bottom-[18px] -translate-x-1/2 z-[9000] flex items-start gap-2.5 w-[min(560px,calc(100vw-32px))] px-3.5 py-3 rounded-2xl bg-[#0e1b30] text-[#e8eef5] text-[13.5px] leading-relaxed shadow-[0_16px_40px_rgba(10,32,55,0.35)]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="flex-shrink-0 mt-0.5 text-[#f3b74f]">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+            <path d="M12 8v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <circle cx="12" cy="16" r="1" fill="currentColor" />
+        </svg>
+        <span><strong class="text-white">You're offline.</strong> Your answers are saved on this device. Uploads, payment and submitting will work again once you reconnect.</span>
+    </div>
 
     {{-- Global toast — any Livewire component on any page can trigger this with
     $this->dispatch('toast', message: '...', type: 'success' | 'error'), and pure Alpine code can

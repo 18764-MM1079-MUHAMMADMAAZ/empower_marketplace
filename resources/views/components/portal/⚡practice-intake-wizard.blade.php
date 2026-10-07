@@ -341,12 +341,12 @@ new class extends Component
         };
     }
 
-    /** Matches the prototype's clamp(items.length * 900, 5000, 9000) — a few seconds either way
+    /** Longer than the prototype's clamp(items.length * 900, 5000, 9000) — a few seconds either way
      *  depending on how much this tier's checklist has to show. */
     #[Computed]
     public function introAnimationDurationMs(): int
     {
-        return max(5000, min(9000, count($this->introItems) * 900));
+        return max(8000, min(12000, count($this->introItems) * 1500));
     }
 
     #[Computed]
@@ -2400,6 +2400,7 @@ new class extends Component
             'totalItems' => $this->chapterProgress['totalItems'],
             'minutesLeft' => $this->chapterProgress['minutesLeft'],
             'skippedCount' => count($this->skippedQuestionIds) + count($this->skippedSectionIds),
+            'lastSavedAt' => $this->currentSubmission->updated_at,
         ];
     @endphp
 
@@ -2412,7 +2413,7 @@ new class extends Component
         $isRevisit = $returnToScreen !== null;
         $introDuration = $this->introAnimationDurationMs;
     @endphp
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         <div class="flex flex-col items-center text-center px-6 py-12 lg:py-16 max-w-xl mx-auto"
             @unless($isRevisit)
             x-data="{ progress: 0, ready: false }"
@@ -2441,14 +2442,16 @@ new class extends Component
             <p class="text-sm text-[#5d6e7f] mb-3 max-w-md" x-show="ready" x-cloak>Your intake is ready. It takes {{ $this->introTimeEstimate }}, and your
                 answers save as you go. Missing something? You can skip any question and come back to it.</p>
             <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
-                <div class="h-full bg-[#0b9ed0] rounded-full transition-all ease-out"
+                <div class="h-full bg-[#0b9ed0] rounded-full transition-all ease-linear"
                     style="transition-duration: {{ $introDuration }}ms" :style="`width: ${progress}%`"></div>
             </div>
             @endif
 
             <div class="w-full space-y-3 text-left">
                 @foreach($this->introItems as $item)
-                <div class="flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5">
+                <div class="reveal-in flex items-start gap-3 rounded-xl border border-[#dbe4ee] px-4 py-3.5"
+                    style="animation-delay: {{ $loop->index * 150 }}ms"
+                    @unless($isRevisit) x-show="ready" x-cloak @endunless>
                     <span
                         class="mt-0.5 h-5 w-5 rounded-full bg-[#e6f3fb] text-[#0b9ed0] flex items-center justify-center flex-shrink-0">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -2481,7 +2484,7 @@ new class extends Component
 
     {{-- ── Documents ── --}}
     @if($screen === 'documents')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -2534,25 +2537,40 @@ new class extends Component
             </div>
             @endif
 
-            <div x-data="{ dragging: false }"
+            <div x-data="{ dragging: false, uploading: false, progress: 0 }"
                 x-on:dragover.prevent="dragging = true" x-on:dragleave.prevent="dragging = false"
                 x-on:drop.prevent="dragging = false; $refs.documentFilesInput.files = $event.dataTransfer.files; $refs.documentFilesInput.dispatchEvent(new Event('change'))"
                 x-on:click="$refs.documentFilesInput.click()"
+                x-on:livewire-upload-start.window="uploading = true; progress = 0"
+                x-on:livewire-upload-finish.window="uploading = false"
+                x-on:livewire-upload-error.window="uploading = false"
+                x-on:livewire-upload-progress.window="progress = $event.detail.progress"
                 x-bind:class="dragging ? 'border-[#009bde] bg-[#edf6ff]' : 'border-[#b9cfe0] bg-[#f7fbfd]'"
                 class="border-2 border-dashed rounded-[1rem] p-6 text-center cursor-pointer transition-colors">
-                <div
-                    class="w-9 h-9 rounded-full bg-white border border-[#b9cfe0] mx-auto mb-2 flex items-center justify-center text-[#12304f]">
-                    &#8593;
-                </div>
-                <p class="text-sm text-[#173045]"><strong class="font-semibold">Click to upload files</strong> or drag
-                    them here</p>
-                <p class="text-xs text-[#8592a1] mt-1">PDF, DOCX or XLSX</p>
+                <template x-if="!uploading">
+                    <div>
+                        <div
+                            class="w-9 h-9 rounded-full bg-white border border-[#b9cfe0] mx-auto mb-2 flex items-center justify-center text-[#12304f]">
+                            &#8593;
+                        </div>
+                        <p class="text-sm text-[#173045]"><strong class="font-semibold">Click to upload files</strong> or drag
+                            them here</p>
+                        <p class="text-xs text-[#8592a1] mt-1">PDF, DOCX or XLSX</p>
+                    </div>
+                </template>
+                <template x-if="uploading">
+                    <div class="max-w-xs mx-auto" x-on:click.stop="">
+                        <p class="text-sm text-[#173045] mb-2">Uploading&hellip; <span x-text="progress"></span>%</p>
+                        <div class="h-1.5 rounded-full bg-[#e8eef4] overflow-hidden">
+                            <div class="h-full rounded-full bg-[#0b9ed0] transition-all duration-75" :style="`width: ${progress}%`"></div>
+                        </div>
+                    </div>
+                </template>
                 <input x-ref="documentFilesInput" type="file" wire:model="documentFiles" multiple
                     accept=".pdf,.jpg,.jpeg,.png,.docx,.xls,.xlsx" class="hidden">
             </div>
             @error('documentFiles') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
             @error('documentFiles.*') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
-            <div wire:loading wire:target="documentFiles" class="mt-2 text-xs text-[#5d6e7f]">Uploading&hellip;</div>
 
             @if($this->bulkMissingDocumentsLabel)
             <button type="button" wire:click="markRemainingDocumentsMissing" wire:target="markRemainingDocumentsMissing" wire:loading.attr="disabled"
@@ -2671,7 +2689,7 @@ new class extends Component
 
     {{-- ── Basics: 1) Profile ── --}}
     @if($screen === 'b_profile')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromProfile" class="max-w-xl w-full">
@@ -2736,7 +2754,7 @@ new class extends Component
 
     {{-- ── Basics: 2) Providers ── --}}
     @if($screen === 'b_providers')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -2778,7 +2796,7 @@ new class extends Component
 
     {{-- ── Basics: 3) Address ── --}}
     @if($screen === 'b_address')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromAddress" class="max-w-xl w-full">
@@ -2853,7 +2871,7 @@ new class extends Component
 
     {{-- ── Basics: 4) Logo ── --}}
     @if($screen === 'b_logo')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -2950,7 +2968,7 @@ new class extends Component
 
     {{-- ── Team 1/5: Your practice's legal details ── --}}
     @if($screen === 't_practice')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromPractice" class="max-w-xl w-full space-y-5">
@@ -3039,7 +3057,7 @@ new class extends Component
 
     {{-- ── Team 2/5: Who fills your compliance roles? ── --}}
     @if($screen === 't_officers')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromOfficers" class="max-w-xl w-full space-y-5">
@@ -3122,7 +3140,7 @@ new class extends Component
 
     {{-- ── Team 3/5: Who handles your IT? ── --}}
     @if($screen === 't_it')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromIt" class="max-w-xl w-full space-y-5">
@@ -3252,7 +3270,7 @@ new class extends Component
 
     {{-- ── Team 4/5: How can staff reach a compliance hotline? ── --}}
     @if($screen === 't_hotline')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <form wire:submit="continueFromHotline" class="max-w-xl w-full space-y-5">
@@ -3326,7 +3344,7 @@ new class extends Component
 
     {{-- ── Team 5/5: Who leads compliance oversight? ── --}}
     @if($screen === 't_leadership')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full space-y-5">
@@ -3443,7 +3461,7 @@ new class extends Component
 
     {{-- ── Your services ── --}}
     @if($screen === 'services')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -3510,7 +3528,7 @@ new class extends Component
         $gateTopicCount = $gateTopics->count();
         $gateWasSkipped = in_array($this->currentGateSectionId, $this->skippedSectionIds, true);
     @endphp
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -3551,7 +3569,7 @@ new class extends Component
             </div>
 
             @if($gateMode === 'some')
-            <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4 mb-2">
+            <div class="reveal-in rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4 mb-2">
                 <p class="text-xs font-extrabold uppercase tracking-wide text-[#12304f] mb-2">Which topics have documented procedures?</p>
                 <div class="space-y-2">
                     @foreach($gateTopics as $topic)
@@ -3627,7 +3645,7 @@ new class extends Component
         $wasSkipped = in_array($question->id, $this->skippedQuestionIds, true);
         $isAnswered = in_array($question->id, $this->answeredQuestionIds, true);
     @endphp
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
         <div class="max-w-xl w-full">
@@ -3728,6 +3746,20 @@ new class extends Component
                 </button>
                 @endif
             </div>
+
+            {{-- Sticky mobile Continue — mirrors the prototype's "Sticky Continue on phones"
+                 (@media max-width:640px, .qz-continue { position:sticky; bottom:12px }). Phones
+                 only: the row above already handles desktop, this just keeps the primary action
+                 reachable without scrolling back up on a long question screen. --}}
+            @if($currentHasDocumentedProcess === true)
+            <div class="sm:hidden sticky-mobile-bar">
+                <button wire:click="saveCurrentAnswer" wire:loading.attr="disabled" wire:target="chooseDocumentedProcess,chooseNoDocumentedProcess,saveCurrentAnswer,skipCurrentQuestion,backOneQuestion"
+                    class="w-full inline-flex items-center justify-center gap-1.5 rounded-[10px] bg-[#12304f] px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+                    <span wire:loading.remove wire:target="saveCurrentAnswer">Save &amp; Continue &rarr;</span>
+                    <span wire:loading.inline-flex wire:target="saveCurrentAnswer" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Saving&hellip;</span>
+                </button>
+            </div>
+            @endif
         </div>
         </div>
 
@@ -3761,7 +3793,7 @@ new class extends Component
     {{-- ── Done ── --}}
     {{-- ── Saving (cosmetic transition between the last question and the done screen) ── --}}
     @if($screen === 'saving')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         <div class="flex flex-col items-center text-center px-6 py-14 lg:py-20 max-w-xl mx-auto"
             x-data="{
                 step: 0,
@@ -3795,7 +3827,7 @@ new class extends Component
     @endif
 
     @if($screen === 'done')
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
+    <div wire:key="wizscreen-{{ $screen }}-{{ $currentQuestionId ?? 0 }}-{{ $currentGateSectionId ?? 0 }}" class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="flex flex-col items-center text-center px-6 py-14 lg:py-20 max-w-xl mx-auto">
             <div class="w-14 h-14 rounded-full flex items-center justify-center mb-5 bg-[#e6f6ef] text-[#1f9d6b]">
@@ -3815,7 +3847,7 @@ new class extends Component
 
     {{-- "Talk to a specialist" call-booking dialog --}}
     <div x-show="$wire.callDialogOpen" x-cloak x-on:keydown.escape.window="$wire.closeCallDialog()"
-        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="relative w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
             x-on:click.outside="$wire.closeCallDialog()">
             <div class="flex items-start justify-between px-6 pt-6 pb-4">

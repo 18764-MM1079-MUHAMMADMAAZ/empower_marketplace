@@ -167,4 +167,11 @@ document.addEventListener('alpine:init', () => {
             this.highlightedIndex = -1;
         },
     }));
+
+    // Persistent offline banner (components/layouts/app.blade.php) — a global store rather than a
+    // per-page listener, since it's one banner shared across the whole app, not a per-screen
+    // concern. Matches the prototype's own navigator.onLine + online/offline listener approach.
+    Alpine.store('connectivity', { online: navigator.onLine });
+    window.addEventListener('online', () => { Alpine.store('connectivity').online = true; });
+    window.addEventListener('offline', () => { Alpine.store('connectivity').online = false; });
 });

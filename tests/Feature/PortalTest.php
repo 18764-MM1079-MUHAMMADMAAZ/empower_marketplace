@@ -1963,6 +1963,69 @@ class PortalTest extends TestCase
         );
     }
 
+    public function test_admin_can_edit_a_workflow_answer_inline_from_the_review_screen(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
+        $order = Order::factory()->create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'payment_status' => PaymentStatus::SimulatedPaid,
+            'status' => OrderStatus::Paid,
+        ]);
+
+        $section = IntakeSection::create(['key' => 'compliance_program', 'label' => 'Compliance program', 'sort_order' => 1]);
+        $policy = CompliancePolicy::create(['manual' => 'compliance_ethics_manual', 'code' => 'CMP-01', 'title' => 'Oversight', 'requirements' => []]);
+        $question = IntakeQuestion::create(['intake_section_id' => $section->id, 'sort_order' => 1, 'title' => 'Owner & board oversight']);
+        $question->policies()->sync([$policy->id]);
+
+        $submission = IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'status' => IntakeSubmissionStatus::Draft,
+            'wizard_screen' => 'done',
+            'wizard_selected_services' => [],
+            'wizard_section_gates' => [(string) $section->id => ['mode' => 'some', 'picked' => [$question->id]]],
+        ]);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal')
+            ->assertSet('step', 3)
+            ->call('startInlineEdit', $question->id)
+            ->assertSet('inlineEditQuestionId', $question->id)
+            ->set('inlineEditHasDocumentedProcess', true)
+            ->set('inlineEditResponse', '')
+            ->call('saveInlineEdit')
+            ->assertHasErrors('inlineEditResponse')
+            ->set('inlineEditResponse', 'The managing partners review compliance quarterly.')
+            ->call('saveInlineEdit')
+            ->assertHasNoErrors()
+            ->assertSet('inlineEditQuestionId', null)
+            ->assertSee('The managing partners review compliance quarterly.');
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_submission_id' => $submission->id,
+            'intake_question_id' => $question->id,
+            'response' => 'The managing partners review compliance quarterly.',
+            'has_documented_process' => 1,
+        ]);
+
+        // Editing again pre-fills from the saved answer, then switching to "no documented answer"
+        // clears the stored response instead of leaving the old text behind.
+        $component->call('startInlineEdit', $question->id)
+            ->assertSet('inlineEditResponse', 'The managing partners review compliance quarterly.')
+            ->set('inlineEditHasDocumentedProcess', false)
+            ->call('saveInlineEdit')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('intake_answers', [
+            'intake_submission_id' => $submission->id,
+            'intake_question_id' => $question->id,
+            'response' => null,
+            'has_documented_process' => 0,
+        ]);
+    }
+
     public function test_draft_submission_with_wizard_done_routes_to_step_3_on_reload(): void
     {
         $user = User::factory()->create();
@@ -2209,7 +2272,7 @@ class PortalTest extends TestCase
             ->assertSet('step', 4);
 
         $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'status' => IntakeSubmissionStatus::UnderReview->value]);
 
         $this->assertDatabaseCount('intake_uploads', 2);
         $this->assertDatabaseHas('intake_uploads', ['original_filename' => 'handbook.pdf']);

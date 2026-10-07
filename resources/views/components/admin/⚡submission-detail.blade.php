@@ -6,7 +6,6 @@ use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
-use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Mail\ClientDocumentsApprovedMail;
 use App\Mail\ClientReviewerQuestionMail;
@@ -19,6 +18,7 @@ use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\Practice;
+use App\Services\IntakeReviewStarter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -576,25 +576,11 @@ new class extends Component
 
     public function startReview(): void
     {
-        $submission = $this->submission;
-
-        if ($submission->status !== IntakeSubmissionStatus::Submitted) {
+        if ($this->submission->status !== IntakeSubmissionStatus::Submitted) {
             return;
         }
 
-        $submission->update(['status' => IntakeSubmissionStatus::UnderReview, 'under_review_started_at' => now()]);
-
-        ActivityLog::record(
-            'submission.under_review',
-            "Submission for order #{$submission->order_id} moved to under review.",
-            user: auth()->user(),
-            order: $submission->order,
-            subject: $submission,
-        );
-
-        // Kicks off AI generation as soon as review starts, rather than waiting for the final
-        // Approve — otherwise there's nothing yet for the admin to actually review below.
-        $this->generateIncludedDocuments($submission->order);
+        app(IntakeReviewStarter::class)->start($this->submission);
 
         unset($this->submission);
 
@@ -912,7 +898,7 @@ new class extends Component
             subject: $submission,
         );
 
-        $this->generateIncludedDocuments($submission->order);
+        app(IntakeReviewStarter::class)->dispatchIncludedDocuments($submission->order);
 
         // Approving the submission is the only approval action now — finalize every document
         // that already has a file ready to go (AI-generated or custom) in the same step, rather
@@ -950,45 +936,6 @@ new class extends Component
         unset($this->submission);
 
         $this->dispatch('toast', message: $this->notice ?? 'Submission approved and the client notified.', type: $this->notice ? 'error' : 'success');
-    }
-
-    /**
-     * Dispatches generation for every one of the package's included document types that
-     * doesn't already have a document row for this order yet — first-time generation only.
-     * A document that already exists (from an earlier approval) is left as-is; regenerating
-     * it after the fact is the existing explicit "Regenerate" admin/client action, not
-     * something approving the submission does implicitly.
-     */
-    private function generateIncludedDocuments(Order $order): void
-    {
-        $includedTypes = $order->package?->included_document_types ?? [];
-
-        // Excludes Pending rows deliberately — ensureExpectedDocumentsExist() pre-creates those
-        // as placeholders the moment this page loads, well before approval, so their presence
-        // alone can't mean "already generated." Only a status past Pending means generation was
-        // actually attempted at least once.
-        $alreadyGeneratedTypes = GeneratedDocument::where('order_id', $order->id)
-            ->where('status', '!=', DocumentStatus::Pending)
-            ->pluck('document_type');
-
-        $hasEncounterList = $order->intakeSubmission?->intakeUploads
-            ->contains(fn (IntakeUpload $u) => $u->document_category === 'encounter_list') ?? false;
-
-        foreach ($includedTypes as $typeValue) {
-            $documentType = DocumentType::tryFrom($typeValue);
-
-            if ($documentType === null || $alreadyGeneratedTypes->contains($documentType)) {
-                continue;
-            }
-
-            // No point dispatching a Mini Audit report that will just fail — see
-            // ensureExpectedDocumentsExist(), which already keeps its placeholder from existing.
-            if ($documentType === DocumentType::CodingMiniAuditReport && ! $hasEncounterList) {
-                continue;
-            }
-
-            GenerateComplianceDocument::dispatch($order, $documentType);
-        }
     }
 
     /** Marks each document approved, as part of approving the submission as a whole. Does NOT
@@ -1703,7 +1650,7 @@ new class extends Component
     {{-- Shared confirmation modal — text/label/danger-styling per action is looked up from modalText so
          adding a new confirmAction doesn't require touching a giant per-attribute ternary chain. --}}
     <div x-show="confirmAction !== null" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="w-full max-w-sm bg-white rounded-[1.25rem] shadow-xl p-6" x-on:click.outside="confirmAction = null">
             <h3 class="text-base font-semibold text-navy mb-2" x-text="modalText[confirmAction]?.title"></h3>
             <p class="text-sm text-empower-muted mb-5" x-text="modalText[confirmAction]?.body"></p>
