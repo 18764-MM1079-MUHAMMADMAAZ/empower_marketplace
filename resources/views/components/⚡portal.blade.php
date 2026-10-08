@@ -13,6 +13,7 @@ use App\Enums\UserRole;
 use App\Exceptions\EmpowerPaymentApiException;
 use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
+use App\Jobs\ProvisionLmsAccount;
 use App\Mail\AdminIntakeSubmittedMail;
 use App\Mail\AdminPaymentReceivedMail;
 use App\Mail\ClientPaymentReceiptMail;
@@ -2353,6 +2354,13 @@ new class extends Component
             if ($order->package?->includesWorkflowQuestionnaire()) {
                 $reviewStarter->start(IntakeSubmission::where('order_id', $order->id)->first());
             }
+        }
+
+        // Intake submission is what unlocks the LMS: enrol the client in the training courses (plus
+        // the course for the practice's state) once, if any package in this batch includes access.
+        if ($orders->contains(fn (Order $order) => $order->package?->includesLmsAccess())) {
+            $practiceAddress = auth()->user()->practice?->address ?: ($primaryOrder->billing_address['state'] ?? null);
+            ProvisionLmsAccount::dispatch(auth()->user(), $practiceAddress);
         }
 
         $primarySubmission->refresh();

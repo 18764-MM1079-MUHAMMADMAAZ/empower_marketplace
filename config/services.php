@@ -58,6 +58,16 @@ return [
         'report_email' => env('FINANCE_REPORT_EMAIL'),
     ],
 
+    // Empower LMS (Moodle). Course ids are the shared training courses every LMS-enabled client gets;
+    // the state-specific course is added on top, chosen from the practice's state.
+    'moodle' => [
+        'base_url' => env('MOODLE_BASE_URL', 'https://education.empowerhci.com'),
+        'token' => env('MOODLE_TOKEN'),
+        'student_role_id' => env('MOODLE_STUDENT_ROLE_ID', 5),
+        'general_course_ids' => [6, 12, 13, 14, 15, 16, 18],
+        'state_course_ids' => ['TX' => 7, 'NC' => 8, 'NY' => 9, 'IL' => 10, 'CO' => 11],
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

@@ -59,6 +59,11 @@ class Package extends Model
         return $this->tier()->includesWorkflowQuestionnaire();
     }
 
+    public function includesLmsAccess(): bool
+    {
+        return $this->tier()->includesLmsAccess();
+    }
+
     public function includesAdvancedDocumentCategories(): bool
     {
         return $this->tier()->includesAdvancedDocumentCategories();

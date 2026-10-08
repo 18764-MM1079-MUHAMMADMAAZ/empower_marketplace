@@ -32,6 +32,12 @@ enum PackageTier: string
         return $this !== self::Essential;
     }
 
+    /** Whether the package includes access to the Empower LMS (training courses in Moodle). */
+    public function includesLmsAccess(): bool
+    {
+        return $this !== self::Essential;
+    }
+
     /** Whether the Practice Intake wizard's one-question-per-screen workflow questionnaire
      *  applies to this tier. Essential only captures documents + practice basics — we don't
      *  generate compliance documents at that price point, so there's nothing for the 66
