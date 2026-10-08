@@ -37,11 +37,14 @@ new class extends Component
         $call->update(['status' => $newStatus]);
 
         if ($call->user && in_array($newStatus, [SpecialistCallStatus::Scheduled, SpecialistCallStatus::Cancelled], true)) {
-            try {
-                Mail::to($call->user->email)->send(new ClientSpecialistCallMail($call, $newStatus->value));
-            } catch (\Throwable $e) {
-                report($e);
-            }
+            // After the response, so the slow SMTP round trip doesn't hold up the badge update.
+            defer(function () use ($call, $newStatus) {
+                try {
+                    Mail::to($call->user->email)->send(new ClientSpecialistCallMail($call, $newStatus->value));
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            });
         }
 
         unset($this->calls);
@@ -118,7 +121,7 @@ new class extends Component
                 </thead>
                 <tbody class="divide-y divide-empower-border">
                     @forelse($this->calls as $call)
-                    <tr wire:key="call-{{ $call->id }}" class="hover:bg-page/60 transition-colors align-top">
+                    <tr wire:key="call-{{ $call->id }}" x-data="{ busy: false }" class="hover:bg-page/60 transition-colors align-top">
                         <td class="px-5 py-3">
                             <div class="font-semibold text-navy">{{ $call->user?->name ?? 'Unknown' }}</div>
                             <div class="text-xs text-empower-muted">{{ $call->user?->email }}</div>
@@ -131,16 +134,21 @@ new class extends Component
                         <td class="px-5 py-3 whitespace-nowrap">{{ $call->phone }}</td>
                         <td class="px-5 py-3">{{ $call->topic }}</td>
                         <td class="px-5 py-3">
-                            <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-bold
+                            <div class="flex items-center gap-2">
+                            <span x-bind:class="busy && 'opacity-40'" class="inline-flex rounded-full px-2.5 py-1 text-xs font-bold
                                 {{ match($call->status) {
                                     App\Enums\SpecialistCallStatus::Pending => 'bg-[#fff3cd] text-[#9a6700]',
                                     App\Enums\SpecialistCallStatus::Scheduled => 'bg-[#e6f3fb] text-[#087fa9]',
                                     App\Enums\SpecialistCallStatus::Completed => 'bg-[#dff7f0] text-[#0f7a4f]',
                                     App\Enums\SpecialistCallStatus::Cancelled => 'bg-[#eef1f5] text-[#5f6b7a]',
                                 } }}">{{ $call->status->label() }}</span>
+                            <span x-show="busy" x-cloak class="inline-flex items-center gap-1 text-xs font-semibold text-empower-muted" role="status">
+                                <x-spinner class="h-3.5 w-3.5" /> Updating&hellip;
+                            </span>
+                            </div>
                         </td>
                         <td class="px-5 py-3">
-                            <select wire:change="setStatus({{ $call->id }}, $event.target.value)"
+                            <select x-on:change="busy = true; $wire.setStatus({{ $call->id }}, $event.target.value).finally(() => busy = false)" x-bind:disabled="busy"
                                 class="rounded-lg border border-empower-border bg-white px-2 py-1 text-xs text-empower-text">
                                 <option value="">Change status…</option>
                                 @foreach(App\Enums\SpecialistCallStatus::cases() as $case)

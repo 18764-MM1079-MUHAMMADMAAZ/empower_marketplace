@@ -252,7 +252,7 @@ new class extends Component
             return collect();
         }
 
-        return Order::with(['package', 'intakeSubmission.intakeUploads'])
+        return Order::with(['package', 'intakeSubmission.intakeUploads', 'intakeSubmission.reviewerQuestions'])
             ->whereIn('id', $this->orderIds)
             ->get();
     }
@@ -2450,24 +2450,31 @@ new class extends Component
         }
     }
 
-    public function replyToReviewerQuestion(int $submissionId): void
+    public function replyToReviewerQuestion(int $questionId): void
     {
-        $reply = trim($this->reviewerReplyText[$submissionId] ?? '');
+        $reply = trim(strip_tags($this->reviewerReplyText[$questionId] ?? ''));
 
         if ($reply === '') {
-            $this->addError("reviewerReplyText.{$submissionId}", 'Type a reply first.');
+            $this->addError("reviewerReplyText.{$questionId}", 'Type a reply first.');
 
             return;
         }
 
-        $submission = $this->batchOrders->pluck('intakeSubmission')->firstWhere('id', $submissionId);
+        if (mb_strlen($reply) > 2000) {
+            $this->addError("reviewerReplyText.{$questionId}", 'Please keep your reply under 2000 characters.');
 
-        abort_unless($submission, 404);
+            return;
+        }
 
-        $submission->update([
-            'reviewer_question_reply' => $reply,
-            'reviewer_question_replied_at' => now(),
-        ]);
+        $question = $this->batchOrders->pluck('intakeSubmission')->filter()
+            ->flatMap(fn (IntakeSubmission $submission) => $submission->reviewerQuestions)
+            ->firstWhere('id', $questionId);
+
+        abort_unless($question && ! $question->isAnswered(), 404);
+
+        $question->update(['reply' => $reply, 'replied_at' => now()]);
+
+        $submission = $question->intakeSubmission;
 
         ActivityLog::record(
             'submission.reviewer_question_replied',
@@ -2483,12 +2490,11 @@ new class extends Component
             report($e);
         }
 
-        unset($this->reviewerReplyText[$submissionId], $this->batchOrders, $this->primarySubmission);
+        unset($this->reviewerReplyText[$questionId], $this->batchOrders, $this->primarySubmission);
 
         $this->dispatch('toast', message: 'Reply sent.', type: 'success');
     }
 
-    #[On('osha-location-saved')]
     public function refreshOshaLocations(): void
     {
         unset($this->oshaLocations, $this->practice);
@@ -3673,9 +3679,10 @@ $progressPct = ($milestone / 4) * 100;
             $isRejected = $status === IntakeSubmissionStatus::Rejected;
             $subAt = $submission?->submitted_at ?? now();
             $dueBy = $subAt->copy()->addWeekdays(5);
-            $hasQuestion = (bool) $submission?->reviewer_question;
-            $questionAnswered = $hasQuestion && $submission->reviewer_question_reply;
-            $pendingQuestion = $hasQuestion && ! $questionAnswered;
+            $reviewerQuestions = $submission?->reviewerQuestions ?? collect();
+            $hasQuestion = $reviewerQuestions->isNotEmpty();
+            $pendingQuestion = $reviewerQuestions->contains(fn ($q) => ! $q->isAnswered());
+            $questionAnswered = $hasQuestion && ! $pendingQuestion;
 
             $stageRows = [];
             foreach ($reviewStages as $i => [$title, $desc]) {
@@ -3707,7 +3714,7 @@ $progressPct = ($milestone / 4) * 100;
             $note = 'Started '.($submission->under_review_started_at ?? $subAt)->format('M j, g:i A');
             }
             if ($i === 3 && $cls === 'done' && $questionAnswered) {
-            $note = $submission->reviewer_question_replied_at?->format('M j, g:i A');
+            $note = $reviewerQuestions->last()->replied_at?->format('M j, g:i A');
             }
             if ($i === 4 && $isApproved) {
             $note = $submission->reviewed_at?->format('M j, g:i A');
@@ -3783,31 +3790,34 @@ $progressPct = ($milestone / 4) * 100;
                 @endif
 
                 @if($hasQuestion && ! $isApproved)
-                <div class="mt-3.5 rounded-2xl border px-3.5 py-3.5 {{ $questionAnswered ? 'border-[#cfe9dc] bg-[#f5fbf8]' : 'border-[#f3d29a] bg-[#fffaf1]' }}">
-                    <p class="text-[11px] font-bold uppercase tracking-wide mb-1.5 {{ $questionAnswered ? 'text-[#1f9d6b]' : 'text-[#9a5b00]' }}">
-                        Question from your Empower reviewer &middot; {{ $submission->reviewer_question_asked_at?->format('M j, g:i A') }}
+                @foreach($reviewerQuestions as $reviewerQuestion)
+                @php $answered = $reviewerQuestion->isAnswered(); @endphp
+                <div wire:key="reviewer-question-{{ $reviewerQuestion->id }}" class="mt-3.5 rounded-2xl border px-3.5 py-3.5 {{ $answered ? 'border-[#cfe9dc] bg-[#f5fbf8]' : 'border-[#f3d29a] bg-[#fffaf1]' }}">
+                    <p class="text-[11px] font-bold uppercase tracking-wide mb-1.5 {{ $answered ? 'text-[#1f9d6b]' : 'text-[#9a5b00]' }}">
+                        Question from your Empower reviewer &middot; {{ $reviewerQuestion->created_at->format('M j, g:i A') }}
                     </p>
-                    <p class="text-sm text-[#173045] mb-2.5">{{ $submission->reviewer_question }}</p>
-                    @if($questionAnswered)
-                    <p class="text-sm text-[#173045]"><strong>Your reply:</strong> {{ $submission->reviewer_question_reply }}</p>
+                    <p class="text-sm text-[#173045] mb-2.5">{{ $reviewerQuestion->question }}</p>
+                    @if($answered)
+                    <p class="text-sm text-[#173045]"><strong>Your reply:</strong> {{ $reviewerQuestion->reply }}</p>
                     <p class="text-xs text-[#5d6e7f] mt-1">Thanks. Your reviewer will continue from here.</p>
                     @else
-                    <textarea wire:model="reviewerReplyText.{{ $submission->id }}" rows="3"
+                    <textarea wire:model="reviewerReplyText.{{ $reviewerQuestion->id }}" rows="3"
                         placeholder="Type your reply…"
-                        class="w-full rounded-xl border border-[#f3d29a] bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"></textarea>
-                    @error("reviewerReplyText.{$submission->id}") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        class="w-full rounded-xl border border-[#f3d29a] bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition resize-none"></textarea>
+                    @error("reviewerReplyText.{$reviewerQuestion->id}") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <div class="mt-2">
-                        <button type="button" wire:click="replyToReviewerQuestion({{ $submission->id }})"
-                            wire:target="replyToReviewerQuestion({{ $submission->id }})" wire:loading.attr="disabled"
+                        <button type="button" wire:click="replyToReviewerQuestion({{ $reviewerQuestion->id }})"
+                            wire:target="replyToReviewerQuestion({{ $reviewerQuestion->id }})" wire:loading.attr="disabled"
                             class="inline-flex items-center gap-1.5 rounded-lg bg-[#0b9ed0] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#0a8cba] transition-colors">
-                            <span wire:loading.remove wire:target="replyToReviewerQuestion({{ $submission->id }})">Send reply</span>
-                            <span wire:loading.inline-flex wire:target="replyToReviewerQuestion({{ $submission->id }})" class="inline-flex items-center gap-1.5">
+                            <span wire:loading.remove wire:target="replyToReviewerQuestion({{ $reviewerQuestion->id }})">Send reply</span>
+                            <span wire:loading.inline-flex wire:target="replyToReviewerQuestion({{ $reviewerQuestion->id }})" class="inline-flex items-center gap-1.5">
                                 <x-spinner class="h-3.5 w-3.5" /> Sending&hellip;
                             </span>
                         </button>
                     </div>
                     @endif
                 </div>
+                @endforeach
                 @endif
                 @endif
                 @endif

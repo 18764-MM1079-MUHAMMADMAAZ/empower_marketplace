@@ -7,8 +7,8 @@ use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
 use App\Jobs\ProcessIntakeUpload;
+use App\Jobs\ProvisionLmsAccount;
 use App\Mail\ClientDocumentsApprovedMail;
-use App\Mail\ClientReviewerQuestionMail;
 use App\Mail\ClientSubmissionStatusMail;
 use App\Models\ActivityLog;
 use App\Models\GeneratedDocument;
@@ -33,8 +33,6 @@ new class extends Component
     public int $submissionId;
 
     public string $reviewerNotes = '';
-
-    public string $reviewerQuestionInput = '';
 
     /** Set when an action succeeded but its client notification email failed to send. */
     public ?string $notice = null;
@@ -227,6 +225,7 @@ new class extends Component
             'intakeUploads',
             'intakeAnswers',
             'reviewer',
+            'reviewerQuestions',
         ])->findOrFail($this->submissionId);
     }
 
@@ -574,6 +573,57 @@ new class extends Component
         return $uploadPending || $documentPending;
     }
 
+    /** The client's Empower LMS (Moodle) status, from the latest provisioning log entry; null when
+     *  this package has no LMS access. @return array{state: string, label: string, detail: string}|null */
+    #[Computed]
+    public function lmsStatus(): ?array
+    {
+        $order = $this->submission->order;
+
+        if (! $order->package?->includesLmsAccess()) {
+            return null;
+        }
+
+        $log = ActivityLog::where('user_id', $order->user_id)
+            ->whereIn('event_type', ['lms.provisioned', 'lms.failed'])
+            ->latest('id')
+            ->first();
+
+        if ($log === null) {
+            return ['state' => 'none', 'label' => 'Not provisioned', 'detail' => 'Runs automatically when the client submits their intake.'];
+        }
+
+        if ($log->event_type === 'lms.failed') {
+            return ['state' => 'failed', 'label' => 'Failed', 'detail' => $log->description];
+        }
+
+        $failedCourses = $log->metadata['failed_course_ids'] ?? [];
+
+        return $failedCourses === []
+            ? ['state' => 'ok', 'label' => 'Provisioned', 'detail' => $log->description]
+            : ['state' => 'partial', 'label' => 'Partly enrolled', 'detail' => $log->description.' Not enrolled: course '.implode(', ', $failedCourses).'.'];
+    }
+
+    public function provisionLms(): void
+    {
+        $order = $this->submission->order;
+
+        if (! $order->package?->includesLmsAccess()) {
+            return;
+        }
+
+        $address = $order->user->practice?->address ?: ($order->billing_address['state'] ?? null);
+
+        try {
+            ProvisionLmsAccount::dispatchSync($order->user, $address);
+            $this->dispatch('toast', message: 'LMS access provisioned.', type: 'success');
+        } catch (Throwable $e) {
+            $this->dispatch('toast', message: 'LMS provisioning failed — see the card for details.', type: 'error');
+        }
+
+        unset($this->lmsStatus);
+    }
+
     public function startReview(): void
     {
         if ($this->submission->status !== IntakeSubmissionStatus::Submitted) {
@@ -585,39 +635,6 @@ new class extends Component
         unset($this->submission);
 
         $this->dispatch('toast', message: 'Review started — document generation is underway.', type: 'success');
-    }
-
-    public function askReviewerQuestion(): void
-    {
-        $this->validate(['reviewerQuestionInput' => 'required|string|max:2000']);
-
-        $submission = $this->submission;
-
-        $submission->update([
-            'reviewer_question' => $this->reviewerQuestionInput,
-            'reviewer_question_asked_at' => now(),
-            'reviewer_question_reply' => null,
-            'reviewer_question_replied_at' => null,
-        ]);
-
-        ActivityLog::record(
-            'submission.reviewer_question_asked',
-            "Reviewer asked a question on order #{$submission->order_id}.",
-            user: auth()->user(),
-            order: $submission->order,
-            subject: $submission,
-        );
-
-        try {
-            Mail::to($submission->order->user->email)->send(new ClientReviewerQuestionMail($submission));
-        } catch (\Throwable $e) {
-            report($e);
-        }
-
-        $this->reviewerQuestionInput = '';
-        unset($this->submission);
-
-        $this->dispatch('toast', message: 'Question sent to the client.', type: 'success');
     }
 
     public function deleteIntakeUpload(int $uploadId): void
@@ -1237,6 +1254,27 @@ new class extends Component
         @endforelse
     </div>
 
+    @if($this->lmsStatus)
+    @php
+        $lms = $this->lmsStatus;
+        $lmsPill = ['ok' => 'bg-[#dff7f0] text-[#0f7a4f]', 'partial' => 'bg-[#fff3cd] text-[#9a6700]', 'failed' => 'bg-[#fde8e8] text-[#b42318]', 'none' => 'bg-[#eef1f5] text-[#5f6b7a]'][$lms['state']];
+    @endphp
+    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 flex flex-wrap items-center justify-between gap-4">
+        <div class="min-w-0">
+            <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-navy">Empower LMS (Moodle)</h3>
+                <span class="inline-flex rounded-full px-2.5 py-0.5 text-[0.68rem] font-extrabold uppercase tracking-wider {{ $lmsPill }}">{{ $lms['label'] }}</span>
+            </div>
+            <p class="mt-1 text-xs text-empower-muted">{{ $lms['detail'] }}</p>
+        </div>
+        <button type="button" wire:click="provisionLms" wire:loading.attr="disabled" wire:target="provisionLms"
+            class="rounded-lg border border-empower-border px-4 py-2 text-xs font-bold text-navy hover:bg-page transition-colors disabled:opacity-60">
+            <span wire:loading.remove wire:target="provisionLms">{{ $lms['state'] === 'ok' ? 'Re-run provisioning' : 'Provision LMS access' }}</span>
+            <span wire:loading.inline-flex wire:target="provisionLms" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Provisioning…</span>
+        </button>
+    </div>
+    @endif
+
     @if($practice)
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <div class="flex items-start justify-between gap-3 mb-1">
@@ -1574,37 +1612,8 @@ new class extends Component
             </div>
         </div>
 
-    @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]))
-        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-            <h3 class="text-sm font-semibold text-navy mb-3">Ask the Client a Question</h3>
-
-            @if($submission->reviewer_question && ! $submission->reviewer_question_reply)
-                <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 mb-3">
-                    <p class="text-xs font-bold uppercase tracking-wide text-amber-700 mb-1">Waiting on client reply</p>
-                    <p>{{ $submission->reviewer_question }}</p>
-                </div>
-            @elseif($submission->reviewer_question_reply)
-                <div class="rounded-xl border border-empower-border bg-page px-4 py-3 text-sm text-empower-text mb-3">
-                    <p class="text-xs font-bold uppercase tracking-wide text-empower-muted mb-1">Question</p>
-                    <p class="mb-2">{{ $submission->reviewer_question }}</p>
-                    <p class="text-xs font-bold uppercase tracking-wide text-empower-muted mb-1">Client's reply</p>
-                    <p>{{ $submission->reviewer_question_reply }}</p>
-                </div>
-            @endif
-
-            <div class="mb-3">
-                <textarea wire:model="reviewerQuestionInput" rows="2"
-                    placeholder="e.g. Is the HIPAA Privacy policy you uploaded the most recent version your staff use?"
-                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition"></textarea>
-                @error('reviewerQuestionInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-            </div>
-
-            <button type="button" wire:click="askReviewerQuestion" wire:target="askReviewerQuestion" wire:loading.attr="disabled"
-                class="inline-flex items-center gap-1 rounded-lg border border-empower-border px-5 py-2 text-sm font-bold text-navy hover:bg-page transition-colors">
-                <span wire:loading.remove wire:target="askReviewerQuestion">{{ $submission->reviewer_question && ! $submission->reviewer_question_reply ? 'Ask another question' : 'Send question' }}</span>
-                <span wire:loading.inline-flex wire:target="askReviewerQuestion" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Sending&hellip;</span>
-            </button>
-        </div>
+    @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]) || $submission->reviewerQuestions->isNotEmpty())
+        <livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" />
     @endif
 
     @if($submission->status === IntakeSubmissionStatus::Rejected)

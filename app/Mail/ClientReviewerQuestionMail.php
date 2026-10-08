@@ -2,7 +2,7 @@
 
 namespace App\Mail;
 
-use App\Models\IntakeSubmission;
+use App\Models\ReviewerQuestion;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -12,7 +12,7 @@ class ClientReviewerQuestionMail extends Mailable
 {
     use SerializesModels;
 
-    public function __construct(public IntakeSubmission $submission) {}
+    public function __construct(public ReviewerQuestion $question) {}
 
     public function envelope(): Envelope
     {
@@ -25,7 +25,7 @@ class ClientReviewerQuestionMail extends Mailable
     {
         return new Content(
             markdown: 'emails.submissions.reviewer-question',
-            with: ['submission' => $this->submission],
+            with: ['question' => $this->question, 'submission' => $this->question->intakeSubmission],
         );
     }
 }

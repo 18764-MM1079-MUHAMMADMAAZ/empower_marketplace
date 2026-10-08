@@ -4,7 +4,7 @@
 An Empower compliance specialist reviewing your submission for **{{ $submission->order?->package?->name ?? 'your compliance package' }}** has a question before they can finish.
 
 <x-mail::panel>
-{{ $submission->reviewer_question }}
+{{ $question->question }}
 </x-mail::panel>
 
 Please log in to your portal and reply from the Review step so we can continue.

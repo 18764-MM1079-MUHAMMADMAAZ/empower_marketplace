@@ -32,6 +32,7 @@ use App\Models\Package;
 use App\Models\PaymentLog;
 use App\Models\Practice;
 use App\Models\Questionnaire;
+use App\Models\ReviewerQuestion;
 use App\Models\User;
 use Database\Seeders\QuestionnaireSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -607,36 +608,65 @@ class AdminPanelTest extends TestCase
         $submission = $this->makeSubmission();
 
         Livewire::actingAs($admin)
-            ->test('admin.submission-detail', ['submission' => $submission])
-            ->set('reviewerQuestionInput', 'Is the HIPAA Privacy policy you uploaded the most recent version your staff use?')
-            ->call('askReviewerQuestion')
-            ->assertSet('reviewerQuestionInput', '');
+            ->test('admin.reviewer-questions', ['submissionId' => $submission->id])
+            ->set('questionInput', 'Is the HIPAA Privacy policy you uploaded the most recent version your staff use?')
+            ->call('ask')
+            ->assertSet('questionInput', '')
+            ->assertSee('Awaiting reply');
 
-        $submission->refresh();
-        $this->assertSame('Is the HIPAA Privacy policy you uploaded the most recent version your staff use?', $submission->reviewer_question);
-        $this->assertNotNull($submission->reviewer_question_asked_at);
-        $this->assertNull($submission->reviewer_question_reply);
+        $question = $submission->reviewerQuestions()->first();
+        $this->assertSame('Is the HIPAA Privacy policy you uploaded the most recent version your staff use?', $question->question);
+        $this->assertSame($admin->id, $question->asked_by);
+        $this->assertNull($question->reply);
 
         $this->assertDatabaseHas('activity_logs', [
             'event_type' => 'submission.reviewer_question_asked',
             'order_id' => $submission->order_id,
         ]);
 
-        Mail::assertSent(ClientReviewerQuestionMail::class, fn ($mail) => $mail->hasTo($submission->order->user->email));
+        Mail::assertSent(ClientReviewerQuestionMail::class, fn ($mail) => $mail->hasTo($submission->order->user->email)
+            && $mail->question->is($question));
     }
 
-    public function test_asking_a_reviewer_question_requires_a_question(): void
+    public function test_asking_a_reviewer_question_requires_a_question_without_html(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $submission = $this->makeSubmission();
 
-        Livewire::actingAs($admin)
-            ->test('admin.submission-detail', ['submission' => $submission])
-            ->set('reviewerQuestionInput', '')
-            ->call('askReviewerQuestion')
-            ->assertHasErrors(['reviewerQuestionInput' => 'required']);
+        $component = Livewire::actingAs($admin)->test('admin.reviewer-questions', ['submissionId' => $submission->id]);
 
-        $this->assertNull($submission->fresh()->reviewer_question);
+        $component->set('questionInput', '')->call('ask')->assertHasErrors(['questionInput' => 'required']);
+        $component->set('questionInput', '<script>alert(1)</script>')->call('ask')->assertHasErrors(['questionInput']);
+
+        $this->assertSame(0, $submission->reviewerQuestions()->count());
+    }
+
+    public function test_admin_sees_every_question_and_answer_for_the_submission(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        ReviewerQuestion::factory()->answered()->create(['intake_submission_id' => $submission->id, 'question' => 'First question?', 'reply' => 'First answer.']);
+        ReviewerQuestion::factory()->create(['intake_submission_id' => $submission->id, 'question' => 'Second question?']);
+
+        Livewire::actingAs($admin)
+            ->test('admin.reviewer-questions', ['submissionId' => $submission->id])
+            ->assertSeeInOrder(['First question?', 'First answer.', 'Second question?', 'Awaiting reply'])
+            ->assertSee('Waiting on client');
+    }
+
+    public function test_a_client_reply_appears_on_the_admin_side_on_the_next_poll(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+        $question = ReviewerQuestion::factory()->create(['intake_submission_id' => $submission->id, 'question' => 'Which policy?']);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.reviewer-questions', ['submissionId' => $submission->id])
+            ->assertDontSee('Version 3 is current.');
+
+        $question->update(['reply' => 'Version 3 is current.', 'replied_at' => now()]);
+
+        $component->call('$refresh')->assertSee('Version 3 is current.')->assertSee('All answered');
     }
 
     public function test_approving_a_professional_submission_dispatches_generation_for_its_included_manuals(): void

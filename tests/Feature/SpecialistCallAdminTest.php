@@ -156,13 +156,17 @@ class SpecialistCallAdminTest extends TestCase
         $component = Livewire::actingAs($this->admin())->test('admin.specialist-call-list');
 
         $component->call('setStatus', $call->id, 'scheduled');
+        Mail::assertNothingSent(); // deferred until after the response
+        defer()->invoke();
         Mail::assertSent(ClientSpecialistCallMail::class, fn ($m) => $m->event === 'scheduled' && $m->hasTo($call->user->email)
             && str_contains($m->render(), 'confirmed'));
 
         $component->call('setStatus', $call->id, 'cancelled');
+        defer()->invoke();
         Mail::assertSent(ClientSpecialistCallMail::class, fn ($m) => $m->event === 'cancelled');
 
         $component->call('setStatus', $call->id, 'completed');
+        defer()->invoke();
         Mail::assertSent(ClientSpecialistCallMail::class, 2);
     }
 
@@ -187,5 +191,30 @@ class SpecialistCallAdminTest extends TestCase
             ->assertHasNoErrors();
 
         Mail::assertSent(ClientSpecialistCallMail::class, fn ($m) => $m->event === 'requested' && $m->hasTo($user->email));
+    }
+
+    public function test_the_status_badge_updates_in_the_same_response_as_the_change(): void
+    {
+        $call = $this->makeCall();
+        $badge = fn (string $label) => '/<span[^>]*class="inline-flex rounded-full[^>]*>'.$label.'<\/span>/';
+
+        $component = Livewire::actingAs($this->admin())->test('admin.specialist-call-list');
+        $this->assertMatchesRegularExpression($badge('Pending'), $component->html());
+
+        $component->call('setStatus', $call->id, 'scheduled');
+
+        $this->assertMatchesRegularExpression($badge('Scheduled'), $component->html());
+        $this->assertDoesNotMatchRegularExpression($badge('Pending'), $component->html());
+    }
+
+    public function test_each_row_has_an_updating_indicator_wired_to_the_status_change(): void
+    {
+        $this->makeCall();
+
+        Livewire::actingAs($this->admin())
+            ->test('admin.specialist-call-list')
+            ->assertSeeHtml('x-data="{ busy: false }"')
+            ->assertSeeHtml('x-show="busy"')
+            ->assertSee('Updating');
     }
 }
