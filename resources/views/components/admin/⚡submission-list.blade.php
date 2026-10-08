@@ -70,8 +70,8 @@ new class extends Component
 
 <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-2 justify-between">
-        <h1 class="text-2xl font-bold text-navy">Submissions</h1>
-        <div class="flex flex-wrap items-center gap-2">
+        <h1 data-tour="page-title" class="text-2xl font-bold text-navy">Submissions</h1>
+        <div data-tour="filter" class="flex flex-wrap items-center gap-2">
         @foreach([
             'all' => 'All',
             IntakeSubmissionStatus::Submitted->value => 'Submitted',
@@ -91,14 +91,14 @@ new class extends Component
             </button>
         @endforeach
 
-        <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search practice or email…"
+        <input data-tour="search" wire:model.live.debounce.400ms="search" type="text" placeholder="Search practice or email…"
             class="w-full sm:w-64 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
         </div>
     </div>
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[800px] text-sm">
+            <table data-tour="table" class="w-full min-w-[800px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Practice</th>

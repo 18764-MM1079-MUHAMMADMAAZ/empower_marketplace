@@ -56,8 +56,8 @@ new class extends Component
 
 <div class="space-y-4" x-data="{ confirmId: null }">
     <div class="flex flex-wrap items-center gap-2 justify-between">
-        <h1 class="text-2xl font-bold text-navy">Documents</h1>
-        <div class="flex flex-wrap items-center gap-2">
+        <h1 data-tour="page-title" class="text-2xl font-bold text-navy">Documents</h1>
+        <div data-tour="filter" class="flex flex-wrap items-center gap-2">
         @foreach([
             'all' => 'All',
             DocumentStatus::Completed->value => 'Completed',
@@ -77,7 +77,7 @@ new class extends Component
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[780px] text-sm">
+            <table data-tour="table" class="w-full min-w-[780px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Document</th>

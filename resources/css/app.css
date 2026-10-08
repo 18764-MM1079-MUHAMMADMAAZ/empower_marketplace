@@ -225,3 +225,33 @@
 .driver-popover.empower-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #fff; }
 .driver-popover.empower-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: #fff; }
 .driver-popover.empower-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: #fff; }
+
+/* "Take a tour" button: a soft pulsing ring and a nudging bolt until the admin has used a tour once. */
+@keyframes tour-ring {
+    0% { box-shadow: 0 0 0 0 rgba(11, 158, 208, 0.55); }
+    70% { box-shadow: 0 0 0 10px rgba(11, 158, 208, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(11, 158, 208, 0); }
+}
+
+@keyframes tour-bolt {
+    0%, 60%, 100% { transform: rotate(0) scale(1); }
+    70% { transform: rotate(-14deg) scale(1.2); }
+    80% { transform: rotate(10deg) scale(1.2); }
+    90% { transform: rotate(-6deg) scale(1.1); }
+}
+
+.tour-attention {
+    border-color: var(--color-accent);
+    animation: tour-ring 2s ease-out infinite;
+}
+
+.tour-attention .tour-bolt {
+    animation: tour-bolt 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tour-attention,
+    .tour-attention .tour-bolt {
+        animation: none;
+    }
+}

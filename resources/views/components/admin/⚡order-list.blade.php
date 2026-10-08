@@ -112,11 +112,11 @@ new class extends Component
 
 <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-3 justify-between">
-        <h1 class="text-2xl font-bold text-navy">Orders</h1>
+        <h1 data-tour="page-title" class="text-2xl font-bold text-navy">Orders</h1>
 
         <div class="flex flex-wrap items-center gap-3">
         <div class="flex items-center gap-1.5">
-            <input wire:model.live="dateFrom" type="date" aria-label="From date"
+            <input data-tour="date-range" wire:model.live="dateFrom" type="date" aria-label="From date"
                 class="rounded-xl border border-empower-border bg-white px-3 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
             <span class="text-sm text-empower-muted">&ndash;</span>
             <input wire:model.live="dateTo" type="date" aria-label="To date"
@@ -126,7 +126,7 @@ new class extends Component
             @endif
         </div>
 
-        <select wire:model.live="status"
+        <select data-tour="filter" wire:model.live="status"
             class="rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
             <option value="">All statuses</option>
             @foreach(OrderStatus::cases() as $case)
@@ -134,16 +134,16 @@ new class extends Component
             @endforeach
         </select>
 
-        <input wire:model.live.debounce.400ms="search" type="text" placeholder="Search client name or email…"
+        <input data-tour="search" wire:model.live.debounce.400ms="search" type="text" placeholder="Search client name or email…"
             class="w-full sm:w-64 rounded-xl border border-empower-border bg-white px-4 py-2 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
 
-        <button type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
+        <button data-tour="export" type="button" wire:click="export" wire:loading.attr="disabled" wire:target="export"
             class="inline-flex items-center gap-1 rounded-lg border border-empower-border bg-[#dff7f0] px-4 py-2 text-xs font-bold text-[#0f7a4f] hover:bg-[#c7ebdc] transition-colors disabled:opacity-50">
             <span wire:loading.remove wire:target="export">Export to Excel</span>
             <span wire:loading.inline-flex wire:target="export" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Exporting…</span>
         </button>
 
-        <button type="button" wire:click="sendFinanceReport" wire:loading.attr="disabled" wire:target="sendFinanceReport"
+        <button data-tour="finance-report" type="button" wire:click="sendFinanceReport" wire:loading.attr="disabled" wire:target="sendFinanceReport"
             class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-xs font-bold text-white hover:bg-[#087fa9] transition-colors disabled:opacity-50">
             <span wire:loading.remove wire:target="sendFinanceReport">Send Finance Report</span>
             <span wire:loading.inline-flex wire:target="sendFinanceReport" class="inline-flex items-center gap-1.5"><x-spinner class="h-3 w-3" /> Sending…</span>
@@ -153,7 +153,7 @@ new class extends Component
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[820px] text-sm">
+            <table data-tour="table" class="w-full min-w-[820px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Client</th>

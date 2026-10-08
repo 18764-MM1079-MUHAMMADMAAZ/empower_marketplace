@@ -21,11 +21,11 @@ new class extends Component
 <div class="flex items-center gap-3">
     @auth
         <div class="relative" x-data="{ open: false }">
-            <button @click="open = !open" class="flex items-center gap-2 rounded-lg border border-[#9ed3e9] bg-white px-4 py-2 text-sm font-medium text-[#087fa9] hover:bg-[#eef8fd] transition-colors">
+            <button @click="open = !open" aria-label="Account menu" class="flex items-center gap-2 whitespace-nowrap rounded-lg border border-[#9ed3e9] bg-white px-3 sm:px-4 py-2 text-sm font-medium text-[#087fa9] hover:bg-[#eef8fd] transition-colors">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
-                <span>{{ auth()->user()->name ?: 'Account' }}</span>
+                <span class="hidden sm:inline max-w-[10rem] truncate">{{ auth()->user()->name ?: 'Account' }}</span>
                 <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 9l-7 7-7-7" />
                 </svg>

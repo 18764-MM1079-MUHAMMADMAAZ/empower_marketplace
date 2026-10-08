@@ -23,12 +23,13 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
 @endphp
 
 <body class="min-h-screen flex flex-col bg-page font-sans antialiased @unless($isAdmin) client-portal @endunless"
+    @if($isAdmin) data-admin-page="{{ request()->route()?->getName() }}" @endif
     @if($isAdmin) x-data="{ adminSidebarOpen: false }" @endif>
 
     <nav class="sticky top-0 z-50 bg-white/96 backdrop-blur border-b border-empower-border shadow-sm">
         <div class="mx-auto {{ $containerClass }} px-4 sm:px-6 lg:px-8">
             <div class="flex h-16 items-center justify-between">
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 sm:gap-3">
                     @if($isAdmin)
                     <button type="button" x-on:click="adminSidebarOpen = true" aria-label="Open menu"
                         class="lg:hidden inline-flex items-center justify-center rounded-lg border border-empower-border p-2 text-empower-muted hover:bg-page transition-colors">
@@ -44,12 +45,17 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
                                 onerror="this.parentElement.innerHTML='<span class=\'font-bold text-navy text-sm\'>EMPOWER</span>'">
                         </span>
                         <span
-                            class="hidden sm:block text-[0.6rem] font-extrabold tracking-widest uppercase text-empower-muted">Marketplace</span>
+                            class="hidden md:block text-[0.6rem] font-extrabold tracking-widest uppercase text-empower-muted">Marketplace</span>
                     </a>
                 </div>
 
                 <div class="flex items-center gap-3">
                     @if($isAdmin)
+                    <button type="button" data-tour-button onclick="window.startAdminTour?.()" aria-label="Take a tour of this page"
+                        class="tour-attention inline-flex h-9 w-9 md:h-auto md:w-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-empower-border bg-white md:px-3 md:py-1.5 text-xs font-bold text-navy hover:bg-page transition-colors">
+                        <svg class="tour-bolt h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <span class="hidden md:inline">Take a tour</span>
+                    </button>
                     <div data-tour="bell"><livewire:admin.notification-bell /></div>
                     @endif
                     <div data-tour="account"><livewire:header-account-menu /></div>

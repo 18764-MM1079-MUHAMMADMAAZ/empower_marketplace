@@ -71,11 +71,11 @@ new class extends Component
 
 <div class="space-y-4">
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
-        <h2 class="text-lg font-semibold text-navy mb-1">Practice Intake Questions</h2>
+        <h2 data-tour="page-title" class="text-lg font-semibold text-navy mb-1">Practice Intake Questions</h2>
         <p class="text-sm text-empower-muted">The 66 workflow questions shown one-per-screen in the Practice Intake wizard, grouped by section. Edit the title, prompt, and "why we ask" copy shown to the client — the policies a question maps to aren't editable here, since that structure drives document generation.</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div data-tour="sections" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     @foreach($this->sections as $section)
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-3">{{ $section->label }}</h3>

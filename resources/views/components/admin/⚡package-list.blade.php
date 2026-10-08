@@ -60,8 +60,8 @@ new class extends Component
     @enderror
 
     <div class="flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-navy">Packages</h1>
-        <a href="{{ route('admin.packages.create') }}" wire:navigate
+        <h1 data-tour="page-title" class="text-2xl font-bold text-navy">Packages</h1>
+        <a data-tour="new" href="{{ route('admin.packages.create') }}" wire:navigate
             class="inline-flex items-center gap-1 rounded-lg bg-[#2299dd] px-4 py-2 text-xs font-bold text-white hover:bg-[#087fa9] transition-colors">
             + New Package
         </a>
@@ -69,7 +69,7 @@ new class extends Component
 
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] overflow-hidden">
         <div class="w-full overflow-x-auto">
-            <table class="w-full min-w-[860px] text-sm">
+            <table data-tour="table" class="w-full min-w-[860px] text-sm">
             <thead>
                 <tr class="bg-page text-left text-xs font-extrabold uppercase tracking-wider text-empower-muted">
                     <th class="px-5 py-3">Package</th>

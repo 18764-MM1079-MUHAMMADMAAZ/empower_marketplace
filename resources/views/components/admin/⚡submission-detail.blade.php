@@ -1231,7 +1231,7 @@ new class extends Component
         </div>
     @endif
 
-    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+    <div data-tour="uploads" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-3">Uploaded Forms</h3>
         @forelse($submission->intakeUploads as $upload)
             <div class="flex items-center justify-between gap-3 py-2.5 border-b border-empower-border last:border-b-0">
@@ -1259,7 +1259,7 @@ new class extends Component
         $lms = $this->lmsStatus;
         $lmsPill = ['ok' => 'bg-[#dff7f0] text-[#0f7a4f]', 'partial' => 'bg-[#fff3cd] text-[#9a6700]', 'failed' => 'bg-[#fde8e8] text-[#b42318]', 'none' => 'bg-[#eef1f5] text-[#5f6b7a]'][$lms['state']];
     @endphp
-    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 flex flex-wrap items-center justify-between gap-4">
+    <div data-tour="lms" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 flex flex-wrap items-center justify-between gap-4">
         <div class="min-w-0">
             <div class="flex items-center gap-2">
                 <h3 class="text-sm font-semibold text-navy">Empower LMS (Moodle)</h3>
@@ -1276,7 +1276,7 @@ new class extends Component
     @endif
 
     @if($practice)
-    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+    <div data-tour="answers" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <div class="flex items-start justify-between gap-3 mb-1">
             <h3 class="text-sm font-semibold text-navy">Practice Team &amp; Compliance Contacts</h3>
             @if(! $editingTeam)
@@ -1407,7 +1407,7 @@ new class extends Component
     @endif
 
     @if($this->intakeAnswersBySection->isNotEmpty())
-    <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+    <div data-tour="document-review" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-1">Practice Intake Answers</h3>
         <p class="text-xs text-empower-muted mb-4">What the practice typed into the intake wizard — this drives the generated manuals' content. Edit an answer below to correct it before documents are (re)generated.</p>
 
@@ -1613,7 +1613,7 @@ new class extends Component
         </div>
 
     @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]) || $submission->reviewerQuestions->isNotEmpty())
-        <livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" />
+        <div data-tour="questions"><livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" /></div>
     @endif
 
     @if($submission->status === IntakeSubmissionStatus::Rejected)
@@ -1631,7 +1631,7 @@ new class extends Component
     @endif
 
     @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]))
-        <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+        <div data-tour="decision" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <h3 class="text-sm font-semibold text-navy mb-3">Review Decision</h3>
 
             <div class="mb-4">

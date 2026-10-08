@@ -32,15 +32,6 @@
 
 <x-layouts.app title="Admin Dashboard">
     <div class="space-y-4" x-data x-init="$nextTick(() => window.startAdminTour?.({ auto: true }))">
-        <div class="flex justify-end">
-            <button type="button" onclick="window.startAdminTour?.()"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-empower-border bg-white px-4 py-2 text-xs font-bold text-navy hover:bg-page transition-colors">
-                <svg class="h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                Take a tour
-            </button>
-        </div>
-
-
         <div data-tour="stats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             @foreach([
                 ['Pending Review', $pendingReview, route('admin.submissions')],
