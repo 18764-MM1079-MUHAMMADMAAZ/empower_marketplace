@@ -19,6 +19,7 @@ use App\Models\SpecialistCallRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportTesting\Testable;
@@ -1312,5 +1313,30 @@ class PracticeIntakeWizardTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->assertSet('screen', 'question');
+    }
+
+    public function test_stepping_through_the_wizard_does_not_query_the_settings_table(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro');
+
+        $settingsQueries = 0;
+        DB::listen(function ($query) use (&$settingsQueries) {
+            if (str_contains($query->sql, 'from `settings`') || str_contains($query->sql, 'from "settings"')) {
+                $settingsQueries++;
+            }
+        });
+
+        $component->call('continueFromDocuments', true)->call('continueFromProfile', true);
+
+        $this->assertSame(0, $settingsQueries, 'The call-booking dialog settings must only be read while the dialog is open.');
+
+        $component->call('openCallDialog');
+        $this->assertGreaterThan(0, $settingsQueries);
     }
 }

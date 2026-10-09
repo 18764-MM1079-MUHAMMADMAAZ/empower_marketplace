@@ -2289,8 +2289,9 @@ new class extends Component
     {
         $days = [];
         $cursor = now()->addDay();
+        $daysAhead = SpecialistCallSettings::daysAhead();
 
-        while (count($days) < SpecialistCallSettings::daysAhead()) {
+        while (count($days) < $daysAhead) {
             if (! $cursor->isWeekend()) {
                 $days[] = $cursor->copy();
             }
@@ -3848,7 +3849,9 @@ new class extends Component
     </div>
     @endif
 
-    {{-- "Talk to a specialist" call-booking dialog --}}
+    {{-- "Talk to a specialist" call-booking dialog. Only rendered while open: its day/time/topic lists
+         read the admin-editable settings, which would otherwise cost extra queries on every click. --}}
+    @if($callDialogOpen)
     <div x-show="$wire.callDialogOpen" x-cloak x-on:keydown.escape.window="$wire.closeCallDialog()"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
         <div class="relative w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
@@ -3943,4 +3946,5 @@ new class extends Component
             @endif
         </div>
     </div>
+    @endif
 </div>
