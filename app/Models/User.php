@@ -15,7 +15,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Mail;
 
-#[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id'])]
+#[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id', 'external_id', 'is_practice_admin'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -32,6 +32,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => UserRole::class,
             'is_active' => 'boolean',
+            'is_practice_admin' => 'boolean',
         ];
     }
 

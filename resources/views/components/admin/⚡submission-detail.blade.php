@@ -18,6 +18,7 @@ use App\Models\IntakeSubmission;
 use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\Practice;
+use App\Notifications\ClientNotification;
 use App\Services\IntakeReviewStarter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
@@ -783,6 +784,8 @@ new class extends Component
             subject: $document,
         );
 
+        $document->order->user->notify(new ClientNotification('A document is ready', "{$document->document_type->label()} has been approved and is ready to download.", route('portal')));
+
         try {
             Mail::to($document->order->user->email)->send(new ClientDocumentsApprovedMail($document->order, $document->newCollection([$document])));
             $this->dispatch('toast', message: "{$document->document_type->label()} approved and the client notified.", type: 'success');
@@ -926,6 +929,8 @@ new class extends Component
             ->filter(fn (GeneratedDocument $document) => $document->canBeApproved());
 
         $this->finalizeDocumentApprovals($submission->order, $readyDocuments);
+
+        $submission->order->user->notify(new ClientNotification('Your submission was approved', 'Your intake has been reviewed and approved.', route('portal')));
 
         try {
             Mail::to($submission->order->user->email)->send(new ClientSubmissionStatusMail($submission));
@@ -1122,6 +1127,8 @@ new class extends Component
             subject: $submission,
             metadata: ['reviewer_notes' => $this->reviewerNotes],
         );
+
+        $submission->order->user->notify(new ClientNotification('Changes requested on your submission', 'Your reviewer sent your intake back with notes. Please review and resubmit.', route('portal')));
 
         try {
             Mail::to($submission->order->user->email)->send(new ClientSubmissionStatusMail($submission));

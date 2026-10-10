@@ -139,7 +139,7 @@ new class extends Component
 
     public string $practiceAddress = '';
 
-    public string $specialty = 'General Practice';
+    public string $specialty = '';
 
     public int $billableProviders = 1;
 
@@ -885,6 +885,13 @@ new class extends Component
         return filled($launchAt) && now()->lt($launchAt);
     }
 
+    /** The partner's id for the practice this client is working in: the one picked after an SSO
+     *  login, else the one linked to their practice record. Null for non-SSO clients. */
+    private function activeExternalPracticeId(): ?string
+    {
+        return session('sso_active_practice.id') ?? auth()->user()->practice?->external_practice_id;
+    }
+
     public function signUpForUpdates(): void
     {
         $this->validate(['updatesEmail' => 'required|email:rfc,filter|max:255'], [], ['updatesEmail' => 'email']);
@@ -1027,7 +1034,7 @@ new class extends Component
 
         $this->practiceName = $practice->name ?? '';
         $this->practiceAddress = $practice->address ?? $this->formatBillingAddressLine($checkoutBillingAddress);
-        $this->specialty = $practice->specialty ?? 'General Practice';
+        $this->specialty = $practice->specialty ?? '';
         $this->billableProviders = $practice->billable_providers_count ?? 1;
 
         $requestedSlug = request()->query('package');
@@ -1782,6 +1789,7 @@ new class extends Component
 
             $order = Order::create([
                 'user_id' => auth()->id(),
+                'external_practice_id' => $this->activeExternalPracticeId(),
                 'package_id' => $package->id,
                 'checkout_batch_id' => $batchId,
                 'status' => OrderStatus::Paid,
@@ -1867,7 +1875,7 @@ new class extends Component
         $practice = auth()->user()->practice;
         $this->practiceName = $practice->name ?? '';
         $this->practiceAddress = $practice->address ?? $this->formatBillingAddressLine($billingAddress);
-        $this->specialty = $practice->specialty ?? 'General Practice';
+        $this->specialty = $practice->specialty ?? '';
         $this->billableProviders = $practice->billable_providers_count ?? 1;
 
         unset(
@@ -1991,6 +1999,7 @@ new class extends Component
 
         $order = Order::create([
             'user_id' => auth()->id(),
+            'external_practice_id' => $this->activeExternalPracticeId(),
             'package_id' => $package->id,
             'checkout_batch_id' => (string) Str::ulid(),
             'status' => OrderStatus::Paid,
@@ -2052,7 +2061,7 @@ new class extends Component
         $practice = auth()->user()->practice;
         $this->practiceName = $practice->name ?? '';
         $this->practiceAddress = $practice->address ?? $this->formatBillingAddressLine($billingAddress);
-        $this->specialty = $practice->specialty ?? 'General Practice';
+        $this->specialty = $practice->specialty ?? '';
         $this->billableProviders = $practice->billable_providers_count ?? 1;
 
         unset(
@@ -3215,6 +3224,7 @@ $progressPct = ($milestone / 4) * 100;
                         class="text-red-500">*</span></label>
                 <select wire:model.live="specialty"
                     class="w-full rounded-xl border {{ $errors->has('specialty') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#009bde] focus:border-transparent transition">
+                    <option value="">Select your specialty</option>
                     @foreach(Practice::SPECIALTIES as $s)
                     <option value="{{ $s }}" @selected($specialty===$s)>{{ $s }}</option>
                     @endforeach

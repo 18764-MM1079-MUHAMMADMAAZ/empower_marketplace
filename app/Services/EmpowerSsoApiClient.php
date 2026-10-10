@@ -16,9 +16,15 @@ use Illuminate\Support\Facades\Log;
  */
 class EmpowerSsoApiClient
 {
-    public function login(string $username, string $password): EmpowerSsoLoginResult
+    /** @return array<int, string> the providers whose endpoint is configured, e.g. ['talkehr'] */
+    public function enabledProviders(): array
     {
-        $baseUrl = config('services.empower_sso_api.base_url');
+        return array_keys(array_filter(config('services.empower_sso_api.providers', [])));
+    }
+
+    public function login(string $username, string $password, string $provider = 'talkehr'): EmpowerSsoLoginResult
+    {
+        $baseUrl = config("services.empower_sso_api.providers.{$provider}");
 
         if (! $baseUrl) {
             return new EmpowerSsoLoginResult(success: false, declineMessage: 'This sign-in option is not configured.');
@@ -48,25 +54,33 @@ class EmpowerSsoApiClient
             return new EmpowerSsoLoginResult(success: false, declineMessage: $json['message'] ?? 'Invalid username or password.');
         }
 
-        $data = $json['data'][0] ?? null;
+        $data = $json['data'] ?? null;
 
-        if (! is_array($data)) {
-            Log::warning('EmpowerSSOAPI login succeeded but returned no data', ['body' => $json]);
+        if (! is_array($data) || ! isset($data['email'])) {
+            Log::warning('EmpowerSSOAPI login succeeded but returned no usable data', ['body' => $json]);
 
             return new EmpowerSsoLoginResult(success: false, declineMessage: 'Invalid username or password.');
         }
 
+        $practice = $data['practice'] ?? [];
+        $address = $practice['address'] ?? [];
+
         return new EmpowerSsoLoginResult(
             success: true,
-            externalUserId: $data['userId'] ?? null,
+            externalUserId: isset($data['external_user_id']) ? (string) $data['external_user_id'] : null,
             email: $data['email'] ?: null,
-            firstName: $data['firstName'] ?? null,
-            lastName: $data['lastName'] ?? null,
-            practiceName: $data['practiceName'] ?? null,
-            practiceAddress: $data['prac_Address'] ?? null,
-            practiceCity: $data['prac_city'] ?? null,
-            practiceState: $data['prac_State'] ?? null,
-            practiceZip: $data['zip'] ?? null,
+            firstName: $data['first_name'] ?? null,
+            lastName: $data['last_name'] ?? null,
+            practiceName: $practice['name'] ?? null,
+            practiceAddress: $address['street'] ?? null,
+            practiceCity: $address['city'] ?? null,
+            practiceState: $address['state'] ?? null,
+            practiceZip: $address['zip'] ?? null,
+            practicePhone: $practice['phone'] ?? null,
+            isPracticeAdmin: (bool) ($data['is_practice_admin'] ?? false),
+            practices: $data['practices'] ?? [],
+            selectedPracticeId: isset($data['selected_practice_id']) ? (string) $data['selected_practice_id'] : null,
+            practiceAdmins: $practice['admins'] ?? [],
         );
     }
 }

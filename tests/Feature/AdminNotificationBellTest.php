@@ -20,7 +20,7 @@ class AdminNotificationBellTest extends TestCase
         $admin->notify(new NewSignupNotification($client));
 
         Livewire::actingAs($admin)
-            ->test('admin.notification-bell')
+            ->test('notification-bell')
             ->assertSet('unreadCount', 1)
             ->assertSee('New account created')
             ->assertSee('Jane Provider');
@@ -34,7 +34,7 @@ class AdminNotificationBellTest extends TestCase
         $otherAdmin->notify(new NewSignupNotification($client));
 
         Livewire::actingAs($admin)
-            ->test('admin.notification-bell')
+            ->test('notification-bell')
             ->assertSet('unreadCount', 0)
             ->assertSee('No notifications yet');
     }
@@ -47,7 +47,7 @@ class AdminNotificationBellTest extends TestCase
         $notification = $admin->notifications()->first();
 
         Livewire::actingAs($admin)
-            ->test('admin.notification-bell')
+            ->test('notification-bell')
             ->call('openNotification', $notification->id)
             ->assertRedirect(route('admin.users.edit', $client));
 
@@ -62,7 +62,7 @@ class AdminNotificationBellTest extends TestCase
         $admin->notify(new NewSignupNotification($client));
 
         Livewire::actingAs($admin)
-            ->test('admin.notification-bell')
+            ->test('notification-bell')
             ->assertSet('unreadCount', 2)
             ->call('markAllAsRead')
             ->assertSet('unreadCount', 0);

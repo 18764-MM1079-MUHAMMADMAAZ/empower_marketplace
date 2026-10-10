@@ -2,6 +2,7 @@
 
 use App\Mail\ClientReviewerQuestionMail;
 use App\Models\ActivityLog;
+use App\Notifications\ClientNotification;
 use App\Models\IntakeSubmission;
 use App\Models\ReviewerQuestion;
 use Illuminate\Database\Eloquent\Collection;
@@ -50,6 +51,8 @@ new class extends Component
             order: $submission->order,
             subject: $submission,
         );
+
+        $submission->order->user->notify(new ClientNotification('Your reviewer has a question', \Illuminate\Support\Str::limit($question->question, 120), route('portal')));
 
         try {
             Mail::to($submission->order->user->email)->send(new ClientReviewerQuestionMail($question));

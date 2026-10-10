@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Mail\ResetPasswordMail;
 use App\Models\Order;
 use App\Models\Package;
+use App\Models\Practice;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -99,10 +100,10 @@ class AuthTest extends TestCase
     private function fakeEmpowerSsoApi(array $data): void
     {
         Http::fake([
-            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+            config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login' => Http::response([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data' => [$data],
+                'data' => $data,
             ]),
         ]);
     }
@@ -110,27 +111,32 @@ class AuthTest extends TestCase
     public function test_selecting_a_provider_shows_the_inline_sso_form(): void
     {
         Livewire::test('auth.login-form')
-            ->call('selectSsoProvider', 'carecloud')
-            ->assertSet('ssoProvider', 'carecloud')
+            ->call('selectSsoProvider', 'talkehr')
+            ->assertSet('ssoProvider', 'talkehr')
             ->assertSee('Username');
     }
 
     public function test_sso_login_creates_a_new_user_and_practice_from_the_returned_identity(): void
     {
         $this->fakeEmpowerSsoApi([
-            'userId' => '544109',
+            'external_user_id' => '544109',
             'email' => 'jane@practice.com',
-            'firstName' => 'Jane',
-            'lastName' => 'Provider',
-            'practiceName' => 'Riverside Family Medicine',
-            'prac_Address' => '742 Evergreen Terrace',
-            'prac_city' => 'Springfield',
-            'prac_State' => 'IL',
-            'zip' => '62704',
+            'first_name' => 'Jane',
+            'last_name' => 'Provider',
+            'is_practice_admin' => true,
+            'practices' => [['id' => '1011163', 'name' => 'Riverside Family Medicine', 'user_name' => 'JANE']],
+            'selected_practice_id' => '1011163',
+            'practice' => [
+                'id' => '1011163',
+                'name' => 'Riverside Family Medicine',
+                'phone' => '5555551010',
+                'address' => ['street' => '742 Evergreen Terrace', 'city' => 'Springfield', 'state' => 'IL', 'zip' => '62704'],
+                'admins' => [],
+            ],
         ]);
 
         Livewire::test('auth.login-form')
-            ->call('selectSsoProvider', 'carecloud')
+            ->call('selectSsoProvider', 'talkehr')
             ->set('ssoUsername', '1163testing')
             ->set('ssoPassword', 't@lkTest@1234')
             ->call('loginViaSso')
@@ -153,7 +159,7 @@ class AuthTest extends TestCase
     {
         $existing = User::factory()->create(['email' => 'jane@practice.com']);
 
-        $this->fakeEmpowerSsoApi(['email' => 'jane@practice.com', 'firstName' => 'Jane', 'lastName' => 'Provider']);
+        $this->fakeEmpowerSsoApi(['email' => 'jane@practice.com', 'first_name' => 'Jane', 'last_name' => 'Provider']);
 
         Livewire::test('auth.login-form')
             ->call('selectSsoProvider', 'talkehr')
@@ -169,7 +175,7 @@ class AuthTest extends TestCase
     public function test_sso_login_shows_an_error_on_invalid_credentials(): void
     {
         Http::fake([
-            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+            config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login' => Http::response([
                 'success' => false,
                 'message' => 'Invalid username or password.',
                 'data' => null,
@@ -177,7 +183,7 @@ class AuthTest extends TestCase
         ]);
 
         Livewire::test('auth.login-form')
-            ->call('selectSsoProvider', 'carecloud')
+            ->call('selectSsoProvider', 'talkehr')
             ->set('ssoUsername', '1163testing')
             ->set('ssoPassword', 'wrong-password')
             ->call('loginViaSso')
@@ -189,8 +195,8 @@ class AuthTest extends TestCase
     public function test_back_from_sso_returns_to_the_provider_buttons(): void
     {
         Livewire::test('auth.login-form')
-            ->call('selectSsoProvider', 'carecloud')
-            ->assertSet('ssoProvider', 'carecloud')
+            ->call('selectSsoProvider', 'talkehr')
+            ->assertSet('ssoProvider', 'talkehr')
             ->call('backFromSso')
             ->assertSet('ssoProvider', null)
             ->assertSee('Sign in with');
@@ -485,5 +491,241 @@ class AuthTest extends TestCase
         $this->withoutVite()
             ->get(route('portal'))
             ->assertOk();
+    }
+
+    private function ssoPayload(array $overrides = []): array
+    {
+        return array_replace_recursive([
+            'external_user_id' => '544109',
+            'email' => 'jane@practice.com',
+            'first_name' => 'Jane',
+            'last_name' => 'Provider',
+            'is_practice_admin' => true,
+            'practices' => [['id' => '1011163', 'name' => 'Riverside Family Medicine', 'user_name' => 'JANE']],
+            'selected_practice_id' => '1011163',
+            'practice' => [
+                'id' => '1011163',
+                'name' => 'Riverside Family Medicine',
+                'phone' => '5555551010',
+                'address' => ['street' => '742 Evergreen Terrace', 'city' => 'Springfield', 'state' => 'IL', 'zip' => '62704'],
+                'admins' => [],
+            ],
+        ], $overrides);
+    }
+
+    private function ssoLogin(string $provider = 'talkehr'): void
+    {
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', $provider)
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso');
+    }
+
+    public function test_sso_login_stores_the_partner_identity_and_practice_link(): void
+    {
+        $this->fakeEmpowerSsoApi($this->ssoPayload());
+
+        $this->ssoLogin('talkehr');
+
+        $user = User::where('email', 'jane@practice.com')->first();
+        $this->assertSame('544109', $user->external_id);
+        $this->assertTrue($user->is_practice_admin);
+        $this->assertSame('talkehr', $user->practice->source_system);
+        $this->assertSame('1011163', $user->practice->external_practice_id);
+        $this->assertSame('5555551010', $user->practice->phone);
+    }
+
+    public function test_only_talkehr_is_offered_as_an_sso_provider(): void
+    {
+        Livewire::test('auth.login-form')
+            ->assertSee('talk-logo.png')
+            ->assertDontSee('carcloud-logo.png')
+            ->call('selectSsoProvider', 'carecloud')
+            ->assertSet('ssoProvider', null);
+    }
+
+    public function test_a_returning_user_is_matched_by_the_partner_id_even_if_their_email_changed(): void
+    {
+        $existing = User::factory()->create(['email' => 'old@practice.com', 'external_id' => '544109']);
+        $this->fakeEmpowerSsoApi($this->ssoPayload(['email' => 'new@practice.com']));
+
+        $this->ssoLogin();
+
+        $this->assertAuthenticatedAs($existing);
+        $this->assertDatabaseCount('users', 1);
+    }
+
+    public function test_an_existing_email_account_gets_linked_to_the_partner_id_on_first_sso_login(): void
+    {
+        $existing = User::factory()->create(['email' => 'jane@practice.com', 'external_id' => null, 'is_practice_admin' => false]);
+        Practice::factory()->create(['user_id' => $existing->id, 'source_system' => null, 'external_practice_id' => null]);
+        $this->fakeEmpowerSsoApi($this->ssoPayload());
+
+        $this->ssoLogin();
+
+        $existing->refresh();
+        $this->assertAuthenticatedAs($existing);
+        $this->assertSame('544109', $existing->external_id);
+        $this->assertTrue($existing->is_practice_admin);
+        $this->assertSame('1011163', $existing->practice->external_practice_id);
+        $this->assertSame('talkehr', $existing->practice->source_system);
+    }
+
+    private function multiPracticePayload(): array
+    {
+        return $this->ssoPayload([
+            'practices' => [
+                ['id' => '1011163', 'name' => 'Riverside Family Medicine', 'user_name' => 'JANE'],
+                ['id' => '1011164', 'name' => 'Riverside Pediatrics', 'user_name' => 'JANE2'],
+            ],
+        ]);
+    }
+
+    public function test_a_user_with_several_practices_is_asked_which_one_before_signing_in(): void
+    {
+        $this->fakeEmpowerSsoApi($this->multiPracticePayload());
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->assertSet('choosingPractice', true)
+            ->assertSet('pickedPracticeId', '1011163')
+            ->assertSee('Which practice are you working in?')
+            ->assertSee('Riverside Pediatrics');
+
+        $this->assertGuest();
+        $this->assertDatabaseCount('users', 0);
+    }
+
+    public function test_choosing_the_default_practice_signs_in_with_its_full_details(): void
+    {
+        $this->fakeEmpowerSsoApi($this->multiPracticePayload());
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->call('choosePractice');
+
+        $user = User::where('email', 'jane@practice.com')->first();
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame('Riverside Family Medicine', $user->practice->name);
+        $this->assertSame('1011163', $user->practice->external_practice_id);
+        $this->assertStringContainsString('742 Evergreen Terrace', $user->practice->address);
+        $this->assertSame('1011163', session('sso_active_practice.id'));
+    }
+
+    public function test_choosing_another_practice_uses_its_name_but_has_no_address_to_prefill(): void
+    {
+        $this->fakeEmpowerSsoApi($this->multiPracticePayload());
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->set('pickedPracticeId', '1011164')
+            ->call('choosePractice');
+
+        $user = User::where('email', 'jane@practice.com')->first();
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame('Riverside Pediatrics', $user->practice->name);
+        $this->assertSame('1011164', $user->practice->external_practice_id);
+        $this->assertNull($user->practice->address);
+        $this->assertNull($user->practice->phone);
+        $this->assertSame('1011164', session('sso_active_practice.id'));
+        $this->assertSame('Riverside Pediatrics', session('sso_active_practice.name'));
+    }
+
+    public function test_picking_a_practice_that_is_not_in_the_list_is_refused(): void
+    {
+        $this->fakeEmpowerSsoApi($this->multiPracticePayload());
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->set('pickedPracticeId', '999')
+            ->call('choosePractice')
+            ->assertHasErrors(['pickedPracticeId']);
+
+        $this->assertGuest();
+    }
+
+    public function test_choosing_a_practice_without_a_verified_login_does_nothing(): void
+    {
+        Livewire::test('auth.login-form')
+            ->set('pickedPracticeId', '1011163')
+            ->call('choosePractice')
+            ->assertHasErrors(['pickedPracticeId']);
+
+        $this->assertGuest();
+    }
+
+    public function test_a_single_practice_user_skips_the_picker(): void
+    {
+        $this->fakeEmpowerSsoApi($this->ssoPayload());
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->assertSet('choosingPractice', false);
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_orders_can_record_the_partner_practice_they_belong_to(): void
+    {
+        $order = Order::factory()->create(['external_practice_id' => '1011164']);
+
+        $this->assertSame('1011164', $order->fresh()->external_practice_id);
+    }
+
+    public function test_carecloud_appears_once_its_own_endpoint_is_configured(): void
+    {
+        config(['services.empower_sso_api.providers.carecloud' => 'https://cch.example.test/EmpowerSSOAPI']);
+
+        Livewire::test('auth.login-form')
+            ->assertSee('talk-logo.png')
+            ->assertSee('carcloud-logo.png')
+            ->call('selectSsoProvider', 'carecloud')
+            ->assertSet('ssoProvider', 'carecloud');
+    }
+
+    public function test_a_carecloud_login_uses_the_carecloud_endpoint_and_is_recorded_as_cch(): void
+    {
+        config(['services.empower_sso_api.providers.carecloud' => 'https://cch.example.test/EmpowerSSOAPI']);
+        Http::fake([
+            'https://cch.example.test/EmpowerSSOAPI/api/Auth/Login' => Http::response([
+                'success' => true,
+                'message' => 'Login successful.',
+                'data' => $this->ssoPayload(),
+            ]),
+        ]);
+
+        $this->ssoLogin('carecloud');
+
+        Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://cch.example.test/'));
+        $user = User::where('email', 'jane@practice.com')->first();
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame('cch', $user->practice->source_system);
+    }
+
+    public function test_a_talkehr_login_never_hits_the_carecloud_endpoint(): void
+    {
+        config(['services.empower_sso_api.providers.carecloud' => 'https://cch.example.test/EmpowerSSOAPI']);
+        $this->fakeEmpowerSsoApi($this->ssoPayload());
+
+        $this->ssoLogin('talkehr');
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'cch.example.test'));
+        $this->assertSame('talkehr', User::where('email', 'jane@practice.com')->first()->practice->source_system);
     }
 }

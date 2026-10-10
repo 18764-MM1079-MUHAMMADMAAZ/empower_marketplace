@@ -43,8 +43,13 @@ return [
     // MTBC's EmpowerSSOAPI — a single-endpoint credential-verification API for the "Sign in with
     // CareCloud"/"Sign in with talkEHR" login buttons (see sso.md §1a). Separate host and
     // credentials from empower_payment_api above; do not merge the two.
+    // One login service per platform: talkEHR and CareCloud (CCH) are different platforms with their
+    // own endpoints. A provider's sign-in button only appears once its base URL is configured.
     'empower_sso_api' => [
-        'base_url' => env('EMPOWER_SSO_API_BASE_URL'),
+        'providers' => [
+            'talkehr' => env('EMPOWER_SSO_API_BASE_URL'),
+            'carecloud' => env('EMPOWER_SSO_CCH_API_BASE_URL'),
+        ],
     ],
 
     'carecloud' => [

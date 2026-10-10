@@ -56,8 +56,10 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
                         <svg class="tour-bolt h-3.5 w-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                         <span class="hidden md:inline">Take a tour</span>
                     </button>
-                    <div data-tour="bell"><livewire:admin.notification-bell /></div>
                     @endif
+                    @auth
+                    <div data-tour="bell"><livewire:notification-bell /></div>
+                    @endauth
                     <div data-tour="account"><livewire:header-account-menu /></div>
                 </div>
             </div>

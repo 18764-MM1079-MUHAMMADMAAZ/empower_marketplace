@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Mail\ClientLmsAccessMail;
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Notifications\ClientNotification;
 use App\Services\MoodleClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -69,6 +70,8 @@ class ProvisionLmsAccount implements ShouldQueue
         // Moodle itself only emails the password link; this tells the client what they now have.
         // Sent once, on the first successful provisioning, so admin re-runs don't repeat it.
         if ($firstTime) {
+            $this->user->notify(new ClientNotification('Your training access is ready', "You're enrolled in ".count($courseIds).' training courses in the Empower LMS.', route('portal')));
+
             try {
                 Mail::to($this->user->email)->send(new ClientLmsAccessMail($this->user, $existingMoodleId === null, count($courseIds)));
             } catch (Throwable $e) {

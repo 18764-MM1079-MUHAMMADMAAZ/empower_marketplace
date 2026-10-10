@@ -4,6 +4,7 @@ use App\Enums\SpecialistCallStatus;
 use App\Exports\SpecialistCallsExport;
 use App\Mail\ClientSpecialistCallMail;
 use App\Models\SpecialistCallRequest;
+use App\Notifications\ClientNotification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
@@ -37,6 +38,12 @@ new class extends Component
         $call->update(['status' => $newStatus]);
 
         if ($call->user && in_array($newStatus, [SpecialistCallStatus::Scheduled, SpecialistCallStatus::Cancelled], true)) {
+            $call->user->notify(new ClientNotification(
+                $newStatus === SpecialistCallStatus::Scheduled ? 'Your specialist call is confirmed' : 'Your specialist call was cancelled',
+                "{$call->requested_date?->format('D, M j')} at {$call->requested_time} Eastern.",
+                route('portal'),
+            ));
+
             // After the response, so the slow SMTP round trip doesn't hold up the badge update.
             defer(function () use ($call, $newStatus) {
                 try {

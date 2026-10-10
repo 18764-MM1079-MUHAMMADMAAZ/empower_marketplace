@@ -59,7 +59,7 @@ new class extends Component
     </button>
 
     <div x-show="open" x-on:click.outside="open = false" x-transition
-        class="absolute right-0 mt-2 w-96 max-h-96 overflow-y-auto rounded-xl bg-white shadow-lg ring-1 ring-black/5 z-50">
+        class="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto rounded-xl bg-white shadow-lg ring-1 ring-black/5 z-50">
         <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-empower-border">
             <span class="text-sm font-semibold text-navy">Notifications</span>
             @if($this->unreadCount > 0)

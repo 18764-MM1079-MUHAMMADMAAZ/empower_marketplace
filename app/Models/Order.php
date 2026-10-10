@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
 
 #[Fillable([
-    'user_id', 'package_id', 'checkout_batch_id', 'status', 'payment_status', 'billing_cycle',
+    'user_id', 'external_practice_id', 'package_id', 'checkout_batch_id', 'status', 'payment_status', 'billing_cycle',
     'payment_reference', 'billing_address', 'amount_paid', 'paid_at', 'completed_at',
     'cancelled_at', 'notes', 'terms_accepted_at', 'terms_accepted_ip',
     'discount_code_id', 'discount_code', 'discount_percentage', 'original_price', 'discount_amount',

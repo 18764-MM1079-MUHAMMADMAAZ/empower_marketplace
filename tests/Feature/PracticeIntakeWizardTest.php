@@ -1339,4 +1339,23 @@ class PracticeIntakeWizardTest extends TestCase
         $component->call('openCallDialog');
         $this->assertGreaterThan(0, $settingsQueries);
     }
+
+    public function test_the_specialty_dropdown_starts_on_the_placeholder_and_must_be_chosen(): void
+    {
+        $user = User::factory()->create();
+        $order = $this->makeEssentialOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->call('continueFromIntro')
+            ->call('continueFromDocuments', true)
+            ->assertSet('screen', 'b_profile')
+            ->assertSet('specialty', '')
+            ->assertSee('Select your specialty');
+
+        $component->set('practiceName', 'Riverside Family Medicine')
+            ->set('billableProviders', 2)
+            ->call('continueFromProfile')
+            ->assertHasErrors(['specialty']);
+    }
 }

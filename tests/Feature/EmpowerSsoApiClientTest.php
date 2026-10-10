@@ -12,17 +12,17 @@ class EmpowerSsoApiClientTest extends TestCase
     public function test_login_sends_the_password_as_a_sha512_hash(): void
     {
         Http::fake([
-            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+            config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login' => Http::response([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data' => [['userId' => '544109', 'email' => 'jane@practice.com', 'firstName' => 'Jane', 'lastName' => 'Provider']],
+                'data' => ['external_user_id' => '544109', 'email' => 'jane@practice.com', 'first_name' => 'Jane', 'last_name' => 'Provider'],
             ]),
         ]);
 
         app(EmpowerSsoApiClient::class)->login('1163testing', 't@lkTest@1234');
 
         Http::assertSent(function ($request) {
-            return $request->url() === config('services.empower_sso_api.base_url').'/api/Auth/Login'
+            return $request->url() === config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login'
                 && $request['UserName'] === '1163testing'
                 && $request['Password'] === hash('sha512', 't@lkTest@1234')
                 && $request['Password'] !== 't@lkTest@1234';
@@ -32,20 +32,29 @@ class EmpowerSsoApiClientTest extends TestCase
     public function test_successful_login_returns_the_identity_fields(): void
     {
         Http::fake([
-            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+            config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login' => Http::response([
                 'success' => true,
                 'message' => 'Login successful.',
-                'data' => [[
-                    'userId' => '544109',
+                'data' => [
+                    'external_user_id' => '544109',
                     'email' => 'jane@practice.com',
-                    'firstName' => 'Jane',
-                    'lastName' => 'Provider',
-                    'practiceName' => 'Riverside Family Medicine',
-                    'prac_Address' => '742 Evergreen Terrace',
-                    'prac_city' => 'Springfield',
-                    'prac_State' => 'IL',
-                    'zip' => '62704',
-                ]],
+                    'first_name' => 'Jane',
+                    'last_name' => 'Provider',
+                    'is_practice_admin' => true,
+                    'practices' => [
+                        ['id' => '1011163', 'name' => 'Riverside Family Medicine', 'user_name' => 'JANE'],
+                        ['id' => '1011164', 'name' => 'Riverside Pediatrics', 'user_name' => 'JANE'],
+                    ],
+                    'selected_practice_id' => '1011163',
+                    'practice' => [
+                        'id' => '1011163',
+                        'name' => 'Riverside Family Medicine',
+                        'phone' => '5555551010',
+                        'address' => ['street' => '742 Evergreen Terrace', 'city' => 'Springfield', 'state' => 'IL', 'zip' => '62704'],
+                        'admin_count' => 1,
+                        'admins' => [['user_name' => 'owner', 'first_name' => 'Olive', 'last_name' => 'Owner', 'email' => 'olive@practice.com']],
+                    ],
+                ],
             ]),
         ]);
 
@@ -61,12 +70,17 @@ class EmpowerSsoApiClientTest extends TestCase
         $this->assertSame('Springfield', $result->practiceCity);
         $this->assertSame('IL', $result->practiceState);
         $this->assertSame('62704', $result->practiceZip);
+        $this->assertSame('5555551010', $result->practicePhone);
+        $this->assertTrue($result->isPracticeAdmin);
+        $this->assertCount(2, $result->practices);
+        $this->assertSame('1011163', $result->selectedPracticeId);
+        $this->assertSame('olive@practice.com', $result->practiceAdmins[0]['email']);
     }
 
     public function test_invalid_credentials_are_treated_as_a_decline(): void
     {
         Http::fake([
-            config('services.empower_sso_api.base_url').'/api/Auth/Login' => Http::response([
+            config('services.empower_sso_api.providers.talkehr').'/api/Auth/Login' => Http::response([
                 'success' => false,
                 'message' => 'Invalid username or password.',
                 'data' => null,
@@ -94,7 +108,7 @@ class EmpowerSsoApiClientTest extends TestCase
     public function test_missing_base_url_configuration_fails_gracefully(): void
     {
         Http::fake();
-        config(['services.empower_sso_api.base_url' => null]);
+        config(['services.empower_sso_api.providers.talkehr' => null]);
 
         $result = app(EmpowerSsoApiClient::class)->login('1163testing', 't@lkTest@1234');
 

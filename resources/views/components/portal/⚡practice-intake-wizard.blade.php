@@ -74,7 +74,7 @@ new class extends Component
 
     public string $practiceAddress = '';
 
-    public string $specialty = 'General Practice';
+    public string $specialty = '';
 
     public int $billableProviders = 1;
 
@@ -180,7 +180,7 @@ new class extends Component
 
         $this->practiceName = $practice?->name ?? '';
         $this->practiceAddress = $practice?->address ?? '';
-        $this->specialty = $practice?->specialty ?? 'General Practice';
+        $this->specialty = $practice?->specialty ?? '';
         $this->billableProviders = $practice?->billable_providers_count ?? 1;
         // Heuristic: no dedicated "matches billing" flag is persisted, so a saved address that
         // equals the current billing address line is treated as "same as billing" on resume.
