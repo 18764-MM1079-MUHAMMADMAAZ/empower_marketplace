@@ -59,6 +59,18 @@ class ContactFormTest extends TestCase
         Livewire::test('contact-dialog')->assertSet('open', false);
     }
 
+    public function test_required_fields_are_marked_in_the_dialog(): void
+    {
+        Livewire::test('contact-dialog')
+            ->call('openWith', 'general')
+            ->assertSee('<span class="text-red-600" aria-hidden="true">*</span> Full name', false)
+            ->assertSee('<span class="text-red-600" aria-hidden="true">*</span> Work email', false)
+            ->assertSee('<span class="text-red-600" aria-hidden="true">*</span> Practice name', false)
+            ->assertSee('id="cd-name" type="text" autocomplete="name" required', false)
+            ->assertSee('id="cd-email" type="email" autocomplete="email" required', false)
+            ->assertSee('id="cd-practice" type="text" autocomplete="organization" required', false);
+    }
+
     public function test_opening_with_an_unknown_topic_falls_back_to_general(): void
     {
         Livewire::test('contact-dialog')
@@ -129,8 +141,12 @@ class ContactFormTest extends TestCase
         Livewire::test('contact-dialog')
             ->call('openWith', 'general')
             ->call('submit')
-            ->assertHasErrors(['name' => 'required', 'email' => 'required'])
-            ->assertHasNoErrors(['practiceName', 'billableProviders', 'message']);
+            ->assertHasErrors([
+                'name' => 'required',
+                'email' => 'required',
+                'practiceName' => 'required',
+            ])
+            ->assertHasNoErrors(['billableProviders', 'message']);
 
         $this->assertDatabaseCount('leads', 0);
     }
@@ -209,20 +225,24 @@ class ContactFormTest extends TestCase
         Mail::assertNotSent(NewLeadNotificationMail::class);
     }
 
-    public function test_only_name_and_email_are_required(): void
+    public function test_only_required_fields_are_needed_to_submit(): void
     {
         Livewire::test('contact-dialog')
             ->call('openWith', 'general')
             ->set('name', 'Jane')
             ->set('email', 'jane@practice.com')
-            ->set('practiceName', '')
+            ->set('practiceName', 'Provider Family Medicine')
             ->set('billableProviders', '')
             ->set('message', '')
             ->call('submit')
             ->assertHasNoErrors()
             ->assertSet('submitted', true);
 
-        $this->assertDatabaseHas('leads', ['email' => 'jane@practice.com', 'practice_name' => null, 'billable_providers' => null]);
+        $this->assertDatabaseHas('leads', [
+            'email' => 'jane@practice.com',
+            'practice_name' => 'Provider Family Medicine',
+            'billable_providers' => null,
+        ]);
     }
 
     public function test_html_is_rejected_in_free_text_fields(): void

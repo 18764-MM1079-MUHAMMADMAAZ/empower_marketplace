@@ -33,7 +33,7 @@ new class extends Component
     #[Validate('required|email:rfc,filter|max:150')]
     public string $email = '';
 
-    #[Validate('nullable|string|max:150|not_regex:/[<>]/')]
+    #[Validate('required|string|max:150|not_regex:/[<>]/')]
     public string $practiceName = '';
 
     #[Validate('nullable|integer|min:1|max:100000')]
@@ -52,6 +52,7 @@ new class extends Component
             'name.regex' => 'Please enter a valid name using letters only.',
             'email.required' => 'Required',
             'email.email' => 'Enter a valid email',
+            'practiceName.required' => 'Required',
             'practiceName.not_regex' => 'Please remove the < and > characters.',
             'message.not_regex' => 'Please remove the < and > characters.',
         ];
@@ -208,14 +209,14 @@ new class extends Component
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-name">Full name</label>
-                            <input wire:model="name" id="cd-name" type="text" autocomplete="name"
+                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-name"><span class="text-red-600" aria-hidden="true">*</span> Full name</label>
+                            <input wire:model="name" id="cd-name" type="text" autocomplete="name" required
                                 class="w-full rounded-xl border {{ $errors->has('name') ? 'border-red-500' : 'border-[#c9d6e3]' }} bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#3a9bd5] focus:border-transparent">
                             @error('name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-email">Work email</label>
-                            <input wire:model="email" id="cd-email" type="email" autocomplete="email"
+                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-email"><span class="text-red-600" aria-hidden="true">*</span> Work email</label>
+                            <input wire:model="email" id="cd-email" type="email" autocomplete="email" required
                                 class="w-full rounded-xl border {{ $errors->has('email') ? 'border-red-500' : 'border-[#c9d6e3]' }} bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#3a9bd5] focus:border-transparent">
                             @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
@@ -223,9 +224,9 @@ new class extends Component
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-practice">Practice name</label>
-                            <input wire:model="practiceName" id="cd-practice" type="text" autocomplete="organization"
-                                class="w-full rounded-xl border border-[#c9d6e3] bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#3a9bd5] focus:border-transparent">
+                            <label class="block text-xs font-bold text-[#31465b] mb-1.5" for="cd-practice"><span class="text-red-600" aria-hidden="true">*</span> Practice name</label>
+                            <input wire:model="practiceName" id="cd-practice" type="text" autocomplete="organization" required
+                                class="w-full rounded-xl border {{ $errors->has('practiceName') ? 'border-red-500' : 'border-[#c9d6e3]' }} bg-white px-3.5 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#3a9bd5] focus:border-transparent">
                             @error('practiceName') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
