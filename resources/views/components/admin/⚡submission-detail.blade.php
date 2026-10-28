@@ -1224,19 +1224,9 @@ new class extends Component
         @endif
     </div>
 
-    @if($submission->status === IntakeSubmissionStatus::Submitted)
-        <div class="rounded-xl border border-[#9ed3e9] bg-[#eef6fb] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-                <p class="text-sm font-semibold text-navy">Review hasn't started yet</p>
-                <p class="text-xs text-empower-muted">Document generation for this submission's manuals only begins once you mark it as under review.</p>
-            </div>
-            <button wire:click="startReview" wire:target="startReview" wire:loading.attr="disabled" wire:target="startReview"
-                class="inline-flex items-center gap-1.5 rounded-lg bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors whitespace-nowrap">
-                <span wire:loading.remove wire:target="startReview">Mark as Under Review</span>
-                <span wire:loading.inline-flex wire:target="startReview" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Updating…</span>
-            </button>
-        </div>
-    @endif
+    {{-- Once a submission is submitted it is automatically moved to "under review" by finalizeIntake()
+         (client) / submitUploads() (admin test uploads), which kicks off the AI document generation —
+         so there is no manual "Mark as Under Review" step for admins to take anymore. --}}
 
     <div data-tour="uploads" class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <h3 class="text-sm font-semibold text-navy mb-3">Uploaded Forms</h3>
@@ -1537,7 +1527,7 @@ new class extends Component
                                     <p class="text-xs text-[#a53b3b]">AI generation failed{{ $document->failure_reason ? ': '.$document->failure_reason : '.' }} Upload a custom file below to deliver this document.</p>
                                 @elseif(in_array($document->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) && ! $document->hasCustomDocument())
                                     @if($document->intake_upload_id === null && $document->osha_location_id === null && $this->submission->status === IntakeSubmissionStatus::Submitted)
-                                        <p class="text-xs text-empower-muted">Generation hasn't started yet — click "Mark as Under Review" below to begin.</p>
+                                        <p class="text-xs text-empower-muted">Generation hasn't started yet — it kicks off automatically as soon as the submission is under review.</p>
                                     @else
                                         <p class="text-xs text-empower-muted">Waiting on AI generation{{ $document->created_at ? ' since '.$document->created_at->diffForHumans() : '' }}. Taking too long? Upload a custom file below instead.</p>
                                     @endif

@@ -22,6 +22,7 @@ use App\Models\Package;
 use App\Models\Practice;
 use App\Models\User;
 use App\Support\Questionnaires;
+use App\Services\IntakeReviewStarter;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
@@ -320,6 +321,11 @@ new class extends Component
         );
 
         $uploads->each(fn (IntakeUpload $upload) => ProcessIntakeUpload::dispatch($upload));
+
+        // A submission that reaches "Submitted" here (admin test uploads) is automatically moved
+        // to "under review" and the AI + included document generation kicked off right away — no
+        // manual "Mark as Under Review" step needed.
+        app(IntakeReviewStarter::class)->start($submission);
 
         $this->ensureExpectedDocumentsExist($order, $submission);
 

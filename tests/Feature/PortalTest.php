@@ -2372,7 +2372,7 @@ class PortalTest extends TestCase
 
         $this->assertDatabaseHas('intake_submissions', [
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Submitted->value,
+            'status' => IntakeSubmissionStatus::UnderReview->value,
             'certified_by_name' => 'Jane Provider',
             'certified_by_title' => 'Owner',
             'certified_signature' => 'Jane Provider',
@@ -2433,7 +2433,7 @@ class PortalTest extends TestCase
             ->call('finalizeIntake')
             ->assertSet('step', 4);
 
-        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'status' => IntakeSubmissionStatus::Submitted->value]);
+        $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderA->id, 'status' => IntakeSubmissionStatus::UnderReview->value]);
         $this->assertDatabaseHas('intake_submissions', ['order_id' => $orderB->id, 'status' => IntakeSubmissionStatus::UnderReview->value]);
 
         $this->assertDatabaseCount('intake_uploads', 2);

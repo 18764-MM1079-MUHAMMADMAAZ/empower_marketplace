@@ -98,21 +98,26 @@ class AutoUnderReviewTest extends TestCase
             ->assertDontSee('Mark as Under Review');
     }
 
-    public function test_an_essential_submission_still_waits_for_the_admin(): void
+    public function test_an_essential_submission_also_goes_straight_to_under_review_on_submit(): void
     {
         Bus::fake([GenerateComplianceDocument::class, ProcessIntakeUpload::class]);
         [$user, $order] = $this->clientSubmitting('essential');
 
         $this->submit($user);
 
-        $this->assertSame(IntakeSubmissionStatus::Submitted, $order->intakeSubmission->fresh()->status);
-        Bus::assertNotDispatched(GenerateComplianceDocument::class);
+        // Every tier now moves to under review on submit (with the client uploads' AI extraction
+        // kicked off); Essential simply has no included manuals to generate beyond that.
+        $submission = $order->intakeSubmission->fresh();
+        $this->assertSame(IntakeSubmissionStatus::UnderReview, $submission->status);
+        $this->assertNotNull($submission->under_review_started_at);
+
         Bus::assertDispatched(ProcessIntakeUpload::class);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class);
 
         $admin = User::factory()->create(['role' => UserRole::Admin]);
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $order->intakeSubmission->fresh()])
-            ->assertSee('Mark as Under Review');
+            ->assertDontSee('Mark as Under Review');
     }
 }

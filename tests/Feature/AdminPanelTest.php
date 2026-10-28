@@ -1092,7 +1092,7 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseCount('intake_submissions', 1);
         $this->assertDatabaseHas('intake_submissions', [
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Submitted->value,
+            'status' => IntakeSubmissionStatus::UnderReview->value,
             'reviewer_notes' => null,
         ]);
     }
@@ -3053,7 +3053,7 @@ class AdminPanelTest extends TestCase
 
         $this->assertDatabaseHas('intake_submissions', [
             'order_id' => $order->id,
-            'status' => IntakeSubmissionStatus::Submitted,
+            'status' => IntakeSubmissionStatus::UnderReview,
         ]);
         $this->assertDatabaseHas('intake_uploads', [
             'upload_type' => IntakeUploadType::ComplianceEthicsQuestionnaire,

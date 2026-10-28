@@ -2500,14 +2500,15 @@ new class extends Component
         IntakeUpload::whereIn('id', $reviewableUploadIds)->get()
             ->each(fn (IntakeUpload $upload) => ProcessIntakeUpload::dispatch($upload));
 
-        // Professional/Advanced go straight into review (and AI document generation) instead of
-        // waiting for an admin to click "Mark as Under Review"; Essential stays Submitted since
-        // there's nothing to generate for it.
+        // Once the intake is submitted, the submission is automatically moved to "under review"
+        // and the AI + included document generation kicks off right away — no admin manual step.
         $reviewStarter = app(IntakeReviewStarter::class);
 
         foreach ($orders as $order) {
-            if ($order->package?->includesWorkflowQuestionnaire()) {
-                $reviewStarter->start(IntakeSubmission::where('order_id', $order->id)->first());
+            $submission = IntakeSubmission::where('order_id', $order->id)->first();
+
+            if ($submission) {
+                $reviewStarter->start($submission);
             }
         }
 
