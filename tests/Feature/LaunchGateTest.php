@@ -24,6 +24,16 @@ class LaunchGateTest extends TestCase
         $this->actingAs($admin)->get(route('admin.dashboard'))->assertOk()->assertSee('Purchase Gating');
     }
 
+    public function test_purchase_gating_controls_follow_the_updated_layout_order(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Setting::write('public_launch_at', now()->subDay()->toDateTimeString());
+
+        Livewire::actingAs($admin)
+            ->test('admin.launch-gate')
+            ->assertSeeInOrder(['Open', 'Open since', 'type="datetime-local"', 'Save date', 'Open now']);
+    }
+
     public function test_admin_can_save_a_launch_date_that_closes_purchases(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
