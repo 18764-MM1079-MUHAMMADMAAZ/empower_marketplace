@@ -109,7 +109,7 @@
 @keyframes portal-step-in {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(6px);
     }
 
     to {
@@ -121,7 +121,7 @@
 @keyframes wizard-screen-in {
     from {
         opacity: 0;
-        transform: translateX(22px);
+        transform: translateX(12px);
     }
 
     to {
@@ -131,11 +131,11 @@
 }
 
 [wire\:key^="portal-step-"] {
-    animation: portal-step-in .36s cubic-bezier(.22, .8, .24, 1) backwards;
+    animation: portal-step-in .45s cubic-bezier(.22, .61, .36, 1) backwards;
 }
 
 [wire\:key^="wizscreen-"] {
-    animation: wizard-screen-in .34s cubic-bezier(.22, .8, .24, 1) backwards;
+    animation: wizard-screen-in .42s cubic-bezier(.22, .61, .36, 1) backwards;
 }
 
 /* New fields revealed in place by a choice (e.g. a gate's topic picker, "same as billing"
