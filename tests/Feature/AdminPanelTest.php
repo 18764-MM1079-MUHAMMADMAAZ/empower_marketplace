@@ -78,8 +78,9 @@ class AdminPanelTest extends TestCase
     public function test_guest_cannot_access_admin_routes(): void
     {
         $this->withoutVite()->get(route('admin.dashboard'))
-            ->assertRedirect(route('login'))
-            ->assertSessionHas('status', 'Please log in to access this page.');
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'You are not allowed to view this page. Please login to continue!')
+            ->assertSessionHas('toast_type', 'error');
     }
 
     public function test_client_cannot_access_admin_routes(): void
@@ -87,8 +88,19 @@ class AdminPanelTest extends TestCase
         $client = User::factory()->create(['role' => UserRole::Client]);
 
         $this->withoutVite()->actingAs($client)->get(route('admin.dashboard'))
-            ->assertRedirect(route('login'))
-            ->assertSessionHas('status', 'Please log in to access this page.');
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'You are not allowed to view this page. Please login to continue!')
+            ->assertSessionHas('toast_type', 'error');
+    }
+
+    public function test_guest_is_redirected_before_submission_route_binding(): void
+    {
+        $this->withoutVite()->get(route('admin.submissions.show', 30))
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'You are not allowed to view this page. Please login to continue!')
+            ->assertSessionHas('toast_type', 'error');
+
+        $this->get(route('home'))->assertSee('You are not allowed to view this page. Please login to continue!');
     }
 
     public function test_dashboard_exposes_every_element_the_guided_tour_points_at(): void
@@ -2167,7 +2179,7 @@ class AdminPanelTest extends TestCase
     {
         $client = User::factory()->create(['role' => UserRole::Client]);
 
-        $this->withoutVite()->actingAs($client)->get(route('admin.packages'))->assertRedirect(route('login'));
+        $this->withoutVite()->actingAs($client)->get(route('admin.packages'))->assertRedirect(route('home'));
     }
 
     public function test_admin_can_create_a_package_for_an_unused_tier(): void
@@ -2480,7 +2492,7 @@ class AdminPanelTest extends TestCase
     {
         $client = User::factory()->create(['role' => UserRole::Client]);
 
-        $this->withoutVite()->actingAs($client)->get(route('admin.discount-codes'))->assertRedirect(route('login'));
+        $this->withoutVite()->actingAs($client)->get(route('admin.discount-codes'))->assertRedirect(route('home'));
     }
 
     public function test_admin_can_create_a_percentage_discount_code(): void
@@ -2753,7 +2765,7 @@ class AdminPanelTest extends TestCase
         $submission = $this->makeSubmission();
         $upload = IntakeUpload::factory()->create(['intake_submission_id' => $submission->id]);
 
-        $this->actingAs($client)->get(route('admin.uploads.download', $upload))->assertRedirect(route('login'));
+        $this->actingAs($client)->get(route('admin.uploads.download', $upload))->assertRedirect(route('home'));
     }
 
     // ── Questionnaires ───────────────────────────────────────────────────────
@@ -2761,8 +2773,8 @@ class AdminPanelTest extends TestCase
     public function test_guest_cannot_access_the_questionnaires_page(): void
     {
         $this->withoutVite()->get(route('admin.questionnaires'))
-            ->assertRedirect(route('login'))
-            ->assertSessionHas('status', 'Please log in to access this page.');
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'You are not allowed to view this page. Please login to continue!');
     }
 
     public function test_client_cannot_access_the_questionnaires_page(): void
@@ -2770,8 +2782,8 @@ class AdminPanelTest extends TestCase
         $client = User::factory()->create(['role' => UserRole::Client]);
 
         $this->withoutVite()->actingAs($client)->get(route('admin.questionnaires'))
-            ->assertRedirect(route('login'))
-            ->assertSessionHas('status', 'Please log in to access this page.');
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'You are not allowed to view this page. Please login to continue!');
     }
 
     public function test_admin_can_view_the_questionnaires_list_with_default_visibility(): void
@@ -3011,7 +3023,7 @@ class AdminPanelTest extends TestCase
         $client = User::factory()->create(['role' => UserRole::Client]);
 
         $this->withoutVite()->actingAs($client)->get(route('admin.document-generator'))
-            ->assertRedirect(route('login'));
+            ->assertRedirect(route('home'));
     }
 
     public function test_admin_can_create_a_simulated_test_order_with_no_payment(): void

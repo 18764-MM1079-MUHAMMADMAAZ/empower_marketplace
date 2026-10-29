@@ -11,7 +11,9 @@ class AdminMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if (! $request->user()?->isAdmin()) {
-            return redirect()->route('login')->with('status', 'Please log in to access this page.');
+            return redirect()->route('home')
+                ->with('toast', 'You are not allowed to view this page. Please login to continue!')
+                ->with('toast_type', 'error');
         }
 
         return $next($request);
