@@ -3830,9 +3830,13 @@ $progressPct = ($milestone / 4) * 100;
                 practice responses. Questions marked &ldquo;Policy default&rdquo; use the manual's best-practice
                 language.</p>
             @endif
-            <div class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl">
-                @foreach($this->answerSummaryRows as $row)
-                <div @if(! empty($row['details'])) x-data="{ open: false }" @endif>
+            @php
+            $answerRows = $this->answerSummaryRows;
+            @endphp
+            <div class="{{ count($answerRows) > 1 ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3' : 'divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl' }}">
+                @foreach($answerRows as $row)
+            <div class="{{ count($answerRows) > 1 ? 'border border-[#eef2f6] rounded-xl overflow-hidden' : '' }}"
+                x-data="{ open: false }">
                     <button type="button" @if(! empty($row['details'])) x-on:click="open = !open" @endif
                         @if(empty($row['details'])) disabled @endif
                         class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors {{ ! empty($row['details']) ? 'cursor-pointer hover:bg-[#f8fbfd]' : 'cursor-default' }}">
