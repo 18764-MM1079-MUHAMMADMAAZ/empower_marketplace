@@ -1419,6 +1419,29 @@ class AdminPanelTest extends TestCase
             ->assertSee('safety-plan.pdf');
     }
 
+    public function test_last_document_spans_both_columns_when_document_review_count_is_odd(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+
+        foreach ([
+            DocumentType::ComplianceEthicsManual,
+            DocumentType::ExclusionsScreeningReport,
+            DocumentType::HipaaPrivacyPolicy,
+            DocumentType::HipaaSecurityManual,
+            DocumentType::TrainingPlanLmsEnrollment,
+        ] as $documentType) {
+            GeneratedDocument::factory()->create([
+                'order_id' => $submission->order_id,
+                'document_type' => $documentType,
+            ]);
+        }
+
+        Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertSee('md:col-span-2', false);
+    }
+
     public function test_approving_a_submission_approves_all_of_its_polished_client_documents(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);

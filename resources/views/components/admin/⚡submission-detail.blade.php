@@ -1508,8 +1508,9 @@ new class extends Component
                 </div>
             @endif
 
+            @php $documentsForReview = $this->documentsForReview; @endphp
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                @forelse($this->documentsForReview as $document)
+                @forelse($documentsForReview as $document)
                     @php
                         $badge = match(true) {
                             $document->is_stale => ['Outdated', 'bg-[#fde2e2] text-[#a53b3b]'],
@@ -1527,7 +1528,10 @@ new class extends Component
                         $aiSelected = $reviewable && $document->delivery_source === DocumentDeliverySource::AiGenerated;
                         $customSelected = $reviewable && $document->delivery_source === DocumentDeliverySource::Custom;
                     @endphp
-                    <div class="rounded-xl border border-empower-border p-4">
+                    <div @class([
+                        'rounded-xl border border-empower-border p-4',
+                        'md:col-span-2' => $loop->last && $documentsForReview->count() % 2 === 1,
+                    ])>
                         <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>
                                 <p class="text-sm font-semibold text-empower-text">
