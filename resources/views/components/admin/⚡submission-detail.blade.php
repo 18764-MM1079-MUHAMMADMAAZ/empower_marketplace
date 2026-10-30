@@ -1480,7 +1480,6 @@ new class extends Component
     </div>
     @endif
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 items-stretch gap-4">
     <div @if($this->isGenerating) wire:poll.5s="$refresh" @endif
         class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
@@ -1509,7 +1508,7 @@ new class extends Component
                 </div>
             @endif
 
-            <div class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @forelse($this->documentsForReview as $document)
                     @php
                         $badge = match(true) {
@@ -1627,9 +1626,8 @@ new class extends Component
         </div>
 
     @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]) || $submission->reviewerQuestions->isNotEmpty())
-        <div data-tour="questions" class="h-full"><livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" /></div>
+        <div data-tour="questions"><livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" /></div>
     @endif
-    </div>
 
     @if($submission->status === IntakeSubmissionStatus::Rejected)
         <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
