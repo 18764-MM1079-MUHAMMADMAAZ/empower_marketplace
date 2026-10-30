@@ -4806,8 +4806,14 @@ $progressPct = ($milestone / 4) * 100;
                             <p class="flex-1 text-sm font-semibold text-[#173045]">Compliance Hotline Poster</p>
                             <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}"
                                 download="compliance-hotline-poster.pdf"
-                                class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors flex-shrink-0">
-                                Download
+                                class="inline-flex items-center gap-2 flex-shrink-0 rounded-lg border border-[#dbe4ee] bg-white px-3 py-1.5 text-xs font-bold text-[#173045] hover:bg-[#f4f7fb] transition-colors">
+                                <svg class="h-4 w-4 text-red-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M6 2h9l5 5v15H6V2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                                    <path d="M8 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                    <path d="M8 18h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                </svg>
+                                Download PDF
                             </a>
                         </div>
                         @endif

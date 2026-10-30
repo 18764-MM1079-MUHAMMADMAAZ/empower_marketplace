@@ -1187,6 +1187,7 @@ new class extends Component
         </div>
     @endif
 
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
     <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
@@ -1249,6 +1250,7 @@ new class extends Component
         @empty
             <p class="text-sm text-empower-muted italic">No files uploaded.</p>
         @endforelse
+    </div>
     </div>
 
     @if($this->lmsStatus)
@@ -1478,6 +1480,7 @@ new class extends Component
     </div>
     @endif
 
+    <div class="grid grid-cols-1 lg:grid-cols-2 items-stretch gap-4">
     <div @if($this->isGenerating) wire:poll.5s="$refresh" @endif
         class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
@@ -1488,7 +1491,15 @@ new class extends Component
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-empower-border bg-page px-4 py-3">
                 <p class="text-sm font-semibold text-empower-text">Compliance Hotline Poster</p>
                 <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}" download="compliance-hotline-poster.pdf"
-                    class="text-xs font-bold text-[#0b9ed0] hover:underline">Download PDF</a>
+                    class="inline-flex items-center gap-2 rounded-lg border border-empower-border bg-white px-3 py-2 text-xs font-bold text-navy hover:bg-page transition-colors">
+                    <svg class="h-4 w-4 text-red-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M6 2h9l5 5v15H6V2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                        <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                        <path d="M8 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                        <path d="M8 18h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                    </svg>
+                    Download PDF
+                </a>
             </div>
 
             @if($this->isGenerating)
@@ -1616,8 +1627,9 @@ new class extends Component
         </div>
 
     @if(in_array($submission->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::UnderReview]) || $submission->reviewerQuestions->isNotEmpty())
-        <div data-tour="questions"><livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" /></div>
+        <div data-tour="questions" class="h-full"><livewire:admin.reviewer-questions :submission-id="$submission->id" :key="'reviewer-questions-'.$submission->id" /></div>
     @endif
+    </div>
 
     @if($submission->status === IntakeSubmissionStatus::Rejected)
         <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

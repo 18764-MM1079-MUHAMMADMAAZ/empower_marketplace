@@ -69,7 +69,7 @@ new class extends Component
 ?>
 
 {{-- Polls so a client's reply shows up here without a page refresh, like the client side. --}}
-<div wire:poll.5s class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+<div wire:poll.5s class="h-full bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
     @php $waiting = $this->questions->contains(fn ($q) => ! $q->isAnswered()); @endphp
 
     <div class="flex items-center justify-between gap-3 mb-3">
