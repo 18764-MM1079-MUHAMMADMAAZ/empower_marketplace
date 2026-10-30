@@ -4795,6 +4795,23 @@ $progressPct = ($milestone / 4) * 100;
                         </div>
                         @endforeach
 
+                        @if($this->currentOrder?->intakeSubmission?->status === IntakeSubmissionStatus::Approved)
+                        <div class="flex items-center gap-3 px-4 py-3">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                class="text-[#1a7aad] flex-shrink-0">
+                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6"
+                                    stroke-linejoin="round" />
+                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                            </svg>
+                            <p class="flex-1 text-sm font-semibold text-[#173045]">Compliance Hotline Poster</p>
+                            <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}"
+                                download="compliance-hotline-poster.pdf"
+                                class="text-xs font-bold rounded border border-[#dbe4ee] text-[#173045] px-3 py-1.5 hover:bg-[#f4f7fb] transition-colors flex-shrink-0">
+                                Download
+                            </a>
+                        </div>
+                        @endif
+
                         @if($this->primarySubmission)
                         <div class="flex items-center gap-3 px-4 py-3">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"

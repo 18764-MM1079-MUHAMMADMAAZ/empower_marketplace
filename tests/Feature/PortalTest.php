@@ -2569,6 +2569,27 @@ class PortalTest extends TestCase
         return $order;
     }
 
+    public function test_compliance_hotline_poster_is_available_in_the_dashboard_after_submission_approval(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->locked()->create(['user_id' => $user->id]);
+        $order = $this->makeApprovedOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertSee('Compliance Hotline Poster')
+            ->assertSee('href="'.asset('compliance%20hotline%20poster_empower.pdf').'"', false)
+            ->assertSee('download="compliance-hotline-poster.pdf"', false);
+
+        $order->intakeSubmission->update(['status' => IntakeSubmissionStatus::UnderReview]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('step', 5)
+            ->assertDontSee('Compliance Hotline Poster');
+    }
+
     public function test_completed_but_unapproved_document_shows_pending_review_with_no_download_link(): void
     {
         $user = User::factory()->create();

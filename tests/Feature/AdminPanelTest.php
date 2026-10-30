@@ -214,6 +214,18 @@ class AdminPanelTest extends TestCase
         ]);
     }
 
+    public function test_document_review_offers_the_compliance_hotline_poster_for_every_package(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission();
+
+        $this->withoutVite()->actingAs($admin)->get(route('admin.submissions.show', $submission))
+            ->assertOk()
+            ->assertSee('Compliance Hotline Poster')
+            ->assertSee('href="'.asset('compliance%20hotline%20poster_empower.pdf').'"', false)
+            ->assertSee('download="compliance-hotline-poster.pdf"', false);
+    }
+
     public function test_document_review_shows_waiting_message_once_review_has_started(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);

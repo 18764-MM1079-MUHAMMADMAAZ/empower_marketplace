@@ -1485,6 +1485,12 @@ new class extends Component
             </div>
             <p class="text-xs text-empower-muted mb-4">Every document this package includes, with its current generation status. Policy-driven manuals generate once the submission is approved. If a document fails or takes too long to generate, upload a corrected file below and choose which version to deliver, then use Approve/Reject below to finalize the whole submission.</p>
 
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-empower-border bg-page px-4 py-3">
+                <p class="text-sm font-semibold text-empower-text">Compliance Hotline Poster</p>
+                <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}" download="compliance-hotline-poster.pdf"
+                    class="text-xs font-bold text-[#0b9ed0] hover:underline">Download PDF</a>
+            </div>
+
             @if($this->isGenerating)
                 <div class="mb-4 flex items-center gap-2 text-xs font-semibold text-empower-text bg-page border border-empower-border rounded-xl px-3 py-2">
                     <x-spinner class="h-3.5 w-3.5 text-accent" />
