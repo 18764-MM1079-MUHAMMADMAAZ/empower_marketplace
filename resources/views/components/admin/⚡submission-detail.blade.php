@@ -1514,7 +1514,7 @@ new class extends Component
             @endif
 
             @php $documentsForReview = $this->documentsForReview; @endphp
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @forelse($documentsForReview as $document)
                     @php
                         $badge = match(true) {
@@ -1536,8 +1536,7 @@ new class extends Component
                     @endphp
                     <div @class([
                         'rounded-xl border border-empower-border p-4',
-                        'md:col-span-2',
-                        'md:col-start-2' => $loop->last && $documentsForReview->count() % 2 === 1,
+                        'md:col-span-2 md:w-1/2 md:justify-self-center' => $loop->last && $documentsForReview->count() % 2 === 1,
                     ])>
                         <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>

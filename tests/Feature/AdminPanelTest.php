@@ -1439,9 +1439,10 @@ class AdminPanelTest extends TestCase
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
-            ->assertSee('md:grid-cols-4', false)
+            ->assertSee('md:grid-cols-2', false)
             ->assertSee('md:col-span-2', false)
-            ->assertSee('md:col-start-2', false);
+            ->assertSee('md:w-1/2', false)
+            ->assertSee('md:justify-self-center', false);
     }
 
     public function test_approving_a_submission_approves_all_of_its_polished_client_documents(): void
