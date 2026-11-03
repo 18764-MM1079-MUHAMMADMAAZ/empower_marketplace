@@ -11,11 +11,13 @@ use App\Models\User;
 use App\Services\MtbcCardCipher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Route;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -32,6 +34,22 @@ class AuthTest extends TestCase
             ->get(route('login'))
             ->assertOk()
             ->assertSee('Welcome back');
+    }
+
+    public function test_guest_is_redirected_home_from_auth_protected_pages(): void
+    {
+        $this->get(route('password.edit'))
+            ->assertRedirect(route('home'));
+    }
+
+    public function test_expired_session_csrf_failure_redirects_home(): void
+    {
+        Route::get('/__test-session-expired', fn () => throw new TokenMismatchException);
+
+        $this->get('/__test-session-expired')
+            ->assertRedirect(route('home'))
+            ->assertSessionHas('toast', 'Your session has expired. Please sign in again.')
+            ->assertSessionHas('toast_type', 'error');
     }
 
     public function test_login_with_valid_credentials_and_no_orders_goes_to_the_pricing_section_to_choose_a_package(): void

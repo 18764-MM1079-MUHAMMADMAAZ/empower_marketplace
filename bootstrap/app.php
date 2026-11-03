@@ -8,6 +8,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\TokenMismatchException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -17,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(fn (Request $request): string => route('home'));
+
         $middleware->alias([
             'admin' => AdminMiddleware::class,
             'sso.apikey' => VerifySsoApiKey::class,
@@ -29,4 +32,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        $exceptions->render(function (TokenMismatchException $exception, Request $request) {
+            if ($request->is('api/*')
+                || ($request->expectsJson() && ! $request->is('livewire/*'))
+                || $request->user()) {
+                return null;
+            }
+
+            return redirect()->route('home')
+                ->with('toast', 'Your session has expired. Please sign in again.')
+                ->with('toast_type', 'error');
+        });
     })->create();
