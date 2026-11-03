@@ -1497,6 +1497,40 @@ class AdminPanelTest extends TestCase
         $this->assertNull($document->reviewed_at);
     }
 
+    public function test_exclusions_screening_report_requires_a_manual_upload_and_hides_ai_file(): void
+    {
+        Mail::fake();
+
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        $document = GeneratedDocument::factory()->completed()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => DocumentType::ExclusionsScreeningReport,
+        ]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertSee('Manual File Upload')
+            ->assertSee('No manual file uploaded.')
+            ->assertDontSee('AI-Generated File')
+            ->assertDontSee('Download AI-Generated File')
+            ->call('approveDocument', $document->id);
+
+        $this->assertNull($document->fresh()->reviewed_at);
+
+        $component->set("customDocumentFiles.{$document->id}", UploadedFile::fake()->create('screening-report.pdf', 100, 'application/pdf'))
+            ->call('setDeliverySource', $document->id, 'ai_generated');
+
+        $this->assertSame('custom', $document->fresh()->delivery_source->value);
+
+        $component->call('approveDocument', $document->id);
+
+        $document->refresh();
+        $this->assertSame('custom', $document->delivery_source->value);
+        $this->assertNotNull($document->custom_storage_path);
+        $this->assertNotNull($document->reviewed_at);
+    }
+
     public function test_admin_can_delete_a_custom_document_and_falls_back_to_ai_generated(): void
     {
         Storage::fake('local');

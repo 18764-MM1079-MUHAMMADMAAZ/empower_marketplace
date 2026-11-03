@@ -1082,6 +1082,11 @@ new class extends Component
             ->where('order_id', $submission->order_id)
             ->firstOrFail();
 
+        if ($document->document_type === DocumentType::ExclusionsScreeningReport
+            && $deliverySource !== DocumentDeliverySource::Custom) {
+            return;
+        }
+
         if ($deliverySource === DocumentDeliverySource::Custom && ! $document->hasCustomDocument()) {
             return;
         }
@@ -1525,7 +1530,8 @@ new class extends Component
                         // A document can only be checked into a box while it's awaiting a decision —
                         // once approved or marked outdated, the boxes go read-only (see below).
                         $reviewable = ! $document->isApproved() && ! $document->is_stale;
-                        $aiSelected = $reviewable && $document->delivery_source === DocumentDeliverySource::AiGenerated;
+                        $manualUploadOnly = $document->document_type === DocumentType::ExclusionsScreeningReport;
+                        $aiSelected = ! $manualUploadOnly && $reviewable && $document->delivery_source === DocumentDeliverySource::AiGenerated;
                         $customSelected = $reviewable && $document->delivery_source === DocumentDeliverySource::Custom;
                     @endphp
                     <div @class([
@@ -1538,14 +1544,14 @@ new class extends Component
                                     {{ $document->intakeUpload?->document_category === 'employee_manual' ? 'Employee manual (reviewed)' : $document->document_type->label() }}{{ $document->oshaLocation ? ' — '.$document->oshaLocation->name : '' }}{{ $document->intakeUpload ? ' — '.$document->intakeUpload->original_filename : '' }}
                                 </p>
                                 @if($document->isApproved())
-                                    <p class="text-xs text-empower-muted">Approved by {{ $document->reviewedBy?->name ?? 'admin' }} &middot; {{ $document->reviewed_at->format('M j, Y') }} &middot; delivered the {{ $document->delivery_source === DocumentDeliverySource::Custom ? 'custom' : 'AI-generated' }} file</p>
-                                @elseif($document->extractionFailed && ! $document->hasCustomDocument())
+                                    <p class="text-xs text-empower-muted">Approved by {{ $document->reviewedBy?->name ?? 'admin' }} &middot; {{ $document->reviewed_at->format('M j, Y') }}@unless($manualUploadOnly) &middot; delivered the {{ $document->delivery_source === DocumentDeliverySource::Custom ? 'custom' : 'AI-generated' }} file @endunless</p>
+                                @elseif(! $manualUploadOnly && $document->extractionFailed && ! $document->hasCustomDocument())
                                     <p class="text-xs text-[#a53b3b]">The AI extraction for this {{ $document->document_type->label() }} is failed. You should regenerate or custom upload your file</p>
-                                @elseif($document->status === DocumentStatus::Failed && $document->hasCustomDocument())
+                                @elseif(! $manualUploadOnly && $document->status === DocumentStatus::Failed && $document->hasCustomDocument())
                                     <p class="text-xs text-[#9a6700]">AI generation failed — a custom file will be delivered instead.</p>
-                                @elseif($document->status === DocumentStatus::Failed)
+                                @elseif(! $manualUploadOnly && $document->status === DocumentStatus::Failed)
                                     <p class="text-xs text-[#a53b3b]">AI generation failed{{ $document->failure_reason ? ': '.$document->failure_reason : '.' }} Upload a custom file below to deliver this document.</p>
-                                @elseif(in_array($document->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) && ! $document->hasCustomDocument())
+                                @elseif(! $manualUploadOnly && in_array($document->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) && ! $document->hasCustomDocument())
                                     @if($document->intake_upload_id === null && $document->osha_location_id === null && $this->submission->status === IntakeSubmissionStatus::Submitted)
                                         <p class="text-xs text-empower-muted">Generation hasn't started yet — it kicks off automatically as soon as the submission is under review.</p>
                                     @else
@@ -1564,14 +1570,15 @@ new class extends Component
                                 @endif
                                 <button type="button" x-on:click="confirmAction = 'deleteDocument'; confirmDocumentId = {{ $document->id }}"
                                     title="Delete" aria-label="Delete" class="inline-flex items-center p-1 rounded hover:bg-page text-red-600"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
-                                @if($document->extractionFailed && $document->sourceUploadId)
+                                @if(! $manualUploadOnly && $document->extractionFailed && $document->sourceUploadId)
                                     <button type="button" x-on:click="confirmAction = 'regenerateExtraction'; confirmDocumentId = {{ $document->id }}"
                                         class="text-xs font-bold text-[#0b9ed0] hover:underline">Regenerate</button>
                                 @endif
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div @class(['grid grid-cols-1 gap-3', 'sm:grid-cols-2' => ! $manualUploadOnly])>
+                            @unless($manualUploadOnly)
                             <div class="rounded-lg border {{ $aiSelected ? 'border-accent ring-1 ring-accent' : 'border-empower-border' }} bg-[#f9fcff] p-3">
                                 @if($reviewable && ($document->pdf_storage_path || $document->docx_storage_path))
                                     <label class="flex items-center gap-2 cursor-pointer mb-2">
@@ -1587,19 +1594,20 @@ new class extends Component
                                     <p class="text-xs text-empower-muted">Not yet generated.</p>
                                 @endif
                             </div>
+                            @endunless
 
                             <div class="rounded-lg border {{ $customSelected ? 'border-accent ring-1 ring-accent' : 'border-empower-border' }} bg-[#f9fcff] p-3">
-                                @if($reviewable && $document->hasCustomDocument())
+                                @if($reviewable && $document->hasCustomDocument() && ! $manualUploadOnly)
                                     <label class="flex items-center gap-2 cursor-pointer mb-2">
                                         <input type="checkbox" wire:click="setDeliverySource({{ $document->id }}, 'custom')" @checked($customSelected) class="h-4 w-4 rounded border-empower-border text-accent focus:ring-accent">
-                                        <span class="text-[0.65rem] font-extrabold uppercase tracking-wider text-empower-muted">Custom File</span>
+                                        <span class="text-[0.65rem] font-extrabold uppercase tracking-wider text-empower-muted">{{ $manualUploadOnly ? 'Manual File Upload' : 'Custom File' }}</span>
                                     </label>
                                 @else
-                                    <p class="text-[0.65rem] font-extrabold uppercase tracking-wider text-empower-muted mb-2">Custom File</p>
+                                    <p class="text-[0.65rem] font-extrabold uppercase tracking-wider text-empower-muted mb-2">{{ $manualUploadOnly ? 'Manual File Upload' : 'Custom File' }}</p>
                                 @endif
                                 @if($document->hasCustomDocument())
                                     <div class="flex items-center gap-3 mb-2">
-                                        <a href="{{ route('admin.generated-documents.download', ['document' => $document->id, 'source' => 'custom']) }}" class="text-xs font-bold text-[#0b9ed0] hover:underline">Download Custom File</a>
+                                        <a href="{{ route('admin.generated-documents.download', ['document' => $document->id, 'source' => 'custom']) }}" class="text-xs font-bold text-[#0b9ed0] hover:underline">{{ $manualUploadOnly ? 'Download Manual File' : 'Download Custom File' }}</a>
                                         @if($reviewable)
                                             <button type="button" x-on:click="confirmAction = 'deleteCustom'; confirmDocumentId = {{ $document->id }}"
                                                 class="text-xs font-bold text-red-600 hover:underline">
@@ -1618,7 +1626,7 @@ new class extends Component
                                     </div>
                                     @error("customDocumentFiles.{$document->id}") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                                 @elseif(! $document->hasCustomDocument())
-                                    <p class="text-xs text-empower-muted">No custom file uploaded.</p>
+                                    <p class="text-xs text-empower-muted">{{ $manualUploadOnly ? 'No manual file uploaded.' : 'No custom file uploaded.' }}</p>
                                 @endif
                             </div>
                         </div>

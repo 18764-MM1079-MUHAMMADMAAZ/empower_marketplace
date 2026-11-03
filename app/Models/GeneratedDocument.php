@@ -83,6 +83,8 @@ class GeneratedDocument extends Model
     {
         return ! $this->is_stale
             && is_null($this->reviewed_at)
+            && ($this->document_type !== DocumentType::ExclusionsScreeningReport
+                || ($this->delivery_source === DocumentDeliverySource::Custom && $this->hasCustomDocument()))
             && $this->activeStoragePath() !== null;
     }
 
