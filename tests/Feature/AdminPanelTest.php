@@ -1419,7 +1419,7 @@ class AdminPanelTest extends TestCase
             ->assertSee('safety-plan.pdf');
     }
 
-    public function test_last_document_spans_both_columns_when_document_review_count_is_odd(): void
+    public function test_last_document_is_centered_at_the_same_width_when_document_review_count_is_odd(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
@@ -1439,7 +1439,9 @@ class AdminPanelTest extends TestCase
 
         Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
-            ->assertSee('md:col-span-2', false);
+            ->assertSee('md:grid-cols-4', false)
+            ->assertSee('md:col-span-2', false)
+            ->assertSee('md:col-start-2', false);
     }
 
     public function test_approving_a_submission_approves_all_of_its_polished_client_documents(): void
