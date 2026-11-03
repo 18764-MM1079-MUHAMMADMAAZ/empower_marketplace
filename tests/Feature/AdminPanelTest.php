@@ -1441,7 +1441,7 @@ class AdminPanelTest extends TestCase
             ->test('admin.submission-detail', ['submission' => $submission])
             ->assertSee('md:grid-cols-2', false)
             ->assertSee('md:col-span-2', false)
-            ->assertSee('md:w-1/2', false)
+            ->assertSee('md:w-[calc(50%-0.5rem)]', false)
             ->assertSee('md:justify-self-center', false);
     }
 

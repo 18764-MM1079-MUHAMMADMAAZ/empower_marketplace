@@ -1536,7 +1536,7 @@ new class extends Component
                     @endphp
                     <div @class([
                         'rounded-xl border border-empower-border p-4',
-                        'md:col-span-2 md:w-1/2 md:justify-self-center' => $loop->last && $documentsForReview->count() % 2 === 1,
+                        'md:col-span-2 md:w-[calc(50%-0.5rem)] md:justify-self-center' => $loop->last && $documentsForReview->count() % 2 === 1,
                     ])>
                         <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>
