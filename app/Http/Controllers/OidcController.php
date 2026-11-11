@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -47,7 +48,7 @@ class OidcController extends Controller
             'end_session_endpoint' => route('oidc.logout'),
             'frontchannel_logout_supported' => true,
             'response_types_supported' => ['code'],
-            'grant_types_supported' => ['authorization_code'],
+            'grant_types_supported' => ['authorization_code', 'refresh_token'],
             'subject_types_supported' => ['public'],
             'id_token_signing_alg_values_supported' => ['RS256'],
             'scopes_supported' => ['openid', 'profile', 'email'],
@@ -129,35 +130,63 @@ class OidcController extends Controller
         if (blank($client['client_id']) || blank($client['client_secret'])
             || ! hash_equals((string) $client['client_id'], $clientId)
             || ! hash_equals((string) $client['client_secret'], $clientSecret)) {
-            return $this->tokenError('invalid_client', 401);
+            return $this->tokenError('invalid_client', 'client id or secret does not match OIDC_MOODLE_CLIENT_ID / OIDC_MOODLE_CLIENT_SECRET', 401);
         }
 
-        if ($request->input('grant_type') !== 'authorization_code') {
-            return $this->tokenError('unsupported_grant_type');
-        }
+        return match ($request->input('grant_type')) {
+            'authorization_code' => $this->exchangeCode($request, $clientId),
+            'refresh_token' => $this->refresh($request, $clientId),
+            default => $this->tokenError('unsupported_grant_type', 'grant_type '.json_encode($request->input('grant_type'))),
+        };
+    }
 
+    private function exchangeCode(Request $request, string $clientId): JsonResponse
+    {
         // pull() makes the code single use: a replayed code finds nothing.
         $grant = Cache::pull($this->codeKey((string) $request->input('code')));
 
-        if (! $grant || $grant['client_id'] !== $clientId || $grant['redirect_uri'] !== $request->input('redirect_uri')) {
-            return $this->tokenError('invalid_grant');
+        if (! $grant) {
+            return $this->tokenError('invalid_grant', 'code unknown, expired or already used');
         }
 
-        $user = User::find($grant['user_id']);
+        if ($grant['client_id'] !== $clientId || $grant['redirect_uri'] !== $request->input('redirect_uri')) {
+            return $this->tokenError('invalid_grant', 'redirect_uri '.json_encode($request->input('redirect_uri')).' does not match '.json_encode($grant['redirect_uri']));
+        }
 
+        return $this->issueTokens(User::find($grant['user_id']), $clientId, $grant['nonce'], $grant['auth_time']);
+    }
+
+    /** The Moodle plugin insists on a refresh_token in the token reply and may later use it, so it's
+     *  supported: single use (rotated), and refused once the client has lost LMS access. */
+    private function refresh(Request $request, string $clientId): JsonResponse
+    {
+        $grant = Cache::pull($this->refreshTokenKey((string) $request->input('refresh_token')));
+
+        if (! $grant || $grant['client_id'] !== $clientId) {
+            return $this->tokenError('invalid_grant', 'refresh token unknown, expired or already used');
+        }
+
+        return $this->issueTokens(User::find($grant['user_id']), $clientId, null, $grant['auth_time']);
+    }
+
+    private function issueTokens(?User $user, string $clientId, ?string $nonce, int $authTime): JsonResponse
+    {
         if (! $user?->hasLmsAccess()) {
-            return $this->tokenError('invalid_grant');
+            return $this->tokenError('invalid_grant', 'user #'.($user?->id ?? '?').' has no LMS access');
         }
 
         $accessToken = Str::random(64);
+        $refreshToken = Str::random(64);
         Cache::put($this->accessTokenKey($accessToken), $user->id, (int) config('oidc.access_token_ttl'));
+        Cache::put($this->refreshTokenKey($refreshToken), ['user_id' => $user->id, 'client_id' => $clientId, 'auth_time' => $authTime], (int) config('oidc.refresh_token_ttl'));
 
         return response()->json([
             'access_token' => $accessToken,
             'token_type' => 'Bearer',
             'expires_in' => (int) config('oidc.access_token_ttl'),
+            'refresh_token' => $refreshToken,
             'scope' => 'openid profile email',
-            'id_token' => $this->issuer->idToken($user, $clientId, $grant['nonce'], $grant['auth_time']),
+            'id_token' => $this->issuer->idToken($user, $clientId, $nonce, $authTime),
         ])->withHeaders(['Cache-Control' => 'no-store', 'Pragma' => 'no-cache']);
     }
 
@@ -197,8 +226,12 @@ class OidcController extends Controller
         return redirect()->away($this->withQuery(config('oidc.moodle.redirect_uri'), array_filter(['error' => $error, 'state' => $state])));
     }
 
-    private function tokenError(string $error, int $status = 400): JsonResponse
+    /** Logged because the Moodle plugin hides the real reason behind its own crash ("Using $this
+     *  when not in object context") — storage/logs/laravel.log is where to look. */
+    private function tokenError(string $error, string $reason, int $status = 400): JsonResponse
     {
+        Log::warning("OIDC token request refused ({$error}): {$reason}", ['ip' => request()->ip()]);
+
         return response()->json(['error' => $error], $status)->withHeaders(['Cache-Control' => 'no-store', 'Pragma' => 'no-cache']);
     }
 
@@ -211,6 +244,11 @@ class OidcController extends Controller
     private function codeKey(string $code): string
     {
         return 'oidc:code:'.hash('sha256', $code);
+    }
+
+    private function refreshTokenKey(string $token): string
+    {
+        return 'oidc:refresh_token:'.hash('sha256', $token);
     }
 
     private function accessTokenKey(string $token): string

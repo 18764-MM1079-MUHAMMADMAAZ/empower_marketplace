@@ -183,6 +183,21 @@ class OidcTest extends TestCase
             ->assertOk()->assertJsonPath('sub', (string) $user->id);
     }
 
+    public function test_token_reply_has_the_refresh_token_the_moodle_plugin_requires_and_it_rotates(): void
+    {
+        $user = $this->clientWith('professional');
+        $first = $this->post(route('oidc.token'), ['grant_type' => 'authorization_code', 'code' => $this->codeFor($user), 'redirect_uri' => self::REDIRECT, 'client_id' => self::CLIENT_ID, 'client_secret' => self::SECRET])
+            ->assertOk()
+            ->assertJsonStructure(['token_type', 'expires_in', 'access_token', 'refresh_token', 'id_token']);
+
+        $refresh = ['grant_type' => 'refresh_token', 'refresh_token' => $first->json('refresh_token'), 'client_id' => self::CLIENT_ID, 'client_secret' => self::SECRET];
+        $second = $this->post(route('oidc.token'), $refresh)->assertOk();
+
+        $this->assertSame((string) $user->id, $this->decodeAndVerify($second->json('id_token'))['sub']);
+        $this->assertNotSame($first->json('refresh_token'), $second->json('refresh_token'));
+        $this->post(route('oidc.token'), $refresh)->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+    }
+
     public function test_client_secret_basic_auth_is_accepted(): void
     {
         $code = $this->codeFor($this->clientWith('advanced'));

@@ -18,6 +18,8 @@ return [
     'code_ttl' => 300,
     'id_token_ttl' => 300,
     'access_token_ttl' => 3600,
+    // The IOMAD OpenID Connect plugin rejects a token reply without a refresh_token.
+    'refresh_token_ttl' => 86400 * 30,
 
     'moodle' => [
         'client_id' => env('OIDC_MOODLE_CLIENT_ID'),
