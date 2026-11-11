@@ -18,7 +18,7 @@ class SiteFooterTest extends TestCase
             ->assertSeeInOrder([
                 'href="https://carecloud.com/privacy-policy/"',
                 'Privacy Policy',
-                'href="https://carecloud.com/terms-of-use/"',
+                'href="https://carecloud.app.box.com/v/ProactiveComplianceTerms"',
                 'Terms of Use',
                 'Contact us',
             ], false);
@@ -28,7 +28,7 @@ class SiteFooterTest extends TestCase
     {
         $html = $this->withoutVite()->get(route('home'))->getContent();
 
-        foreach (['https://carecloud.com/privacy-policy/', 'https://carecloud.com/terms-of-use/'] as $url) {
+        foreach (['https://carecloud.com/privacy-policy/', 'https://carecloud.app.box.com/v/ProactiveComplianceTerms'] as $url) {
             $this->assertMatchesRegularExpression('#<a href="'.preg_quote($url, '#').'" target="_blank" rel="noopener noreferrer"#', $html);
         }
     }
@@ -38,7 +38,7 @@ class SiteFooterTest extends TestCase
         $this->withoutVite()->actingAs(User::factory()->create())->get(route('portal'))
             ->assertOk()
             ->assertSee('https://carecloud.com/privacy-policy/', false)
-            ->assertSee('https://carecloud.com/terms-of-use/', false)
+            ->assertSee('https://carecloud.app.box.com/v/ProactiveComplianceTerms', false)
             ->assertSee('images/empower-carecloud-logo.png', false);
     }
 

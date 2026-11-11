@@ -176,11 +176,15 @@ class SendFinanceDailyReportTest extends TestCase
 
         $html = view('documents.order-form-pdf', ['order' => $order->fresh(['package', 'user.practice']), 'practice' => $order->user->practice])->render();
 
-        foreach (['ORDER FORM', 'Your Practice At A Glance', 'Bill-to Account:', 'Reference: EM-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT), 'Products &amp; Services', 'Quantity', 'UOM', 'Payment Term:', 'First Billing Cycle:', 'Initial Term:', '12 Months', 'Master Service Agreement', 'https://carecloud.app.box.com/v/productterms', 'Questions? Contact me', 'Sunrise Family Medicine', '1 Main St, Austin, TX 78701', '5125550100', 'Cardiology', 'CareCloud', 'ACCT-77',
+        $termsUrl = 'https://carecloud.app.box.com/v/ProactiveComplianceTerms';
+
+        foreach (['ORDER FORM', 'Your Practice At A Glance', 'Bill-to Account:', 'Reference: EM-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT), 'Products &amp; Services', 'Quantity', 'UOM', 'Payment Term:', 'First Billing Cycle:', 'Initial Term:', '12 Months', 'Master Service Agreement', $termsUrl, 'Questions? Contact me', 'Sunrise Family Medicine', '1 Main St, Austin, TX 78701', '5125550100', 'Cardiology', 'CareCloud', 'ACCT-77',
             'Jane Provider', 'jane@practice.com', 'Professional Compliance', '$1,299.00', 'current form of payment: CareCloud subscription (account ACCT-77)',
             '203.0.113.9'] as $expected) {
             $this->assertStringContainsString($expected, $html);
         }
+
+        $this->assertSame(2, substr_count($html, 'href="'.$termsUrl.'"'));
     }
 
     public function test_an_order_form_falls_back_to_the_card_on_file_when_no_billing_option_is_set(): void
