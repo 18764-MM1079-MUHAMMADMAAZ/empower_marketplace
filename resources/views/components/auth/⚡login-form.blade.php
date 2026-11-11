@@ -78,6 +78,11 @@ new class extends Component
      */
     private function destinationFor(User $user, bool $newClientToPricing = false): array
     {
+        // Arrived from the Empower LMS (OpenID Connect sign-in): finish that handoff back to Moodle.
+        if ($oidcResume = session()->pull('oidc_authorize_url')) {
+            return [$oidcResume, false];
+        }
+
         if ($user->isAdmin()) {
             return [route('admin.dashboard'), false];
         }
@@ -144,7 +149,8 @@ new class extends Component
             session()->flash('toast_type', 'success');
         }
 
-        $this->redirect($destination, navigate: true);
+        // A full page load for the LMS handoff: it ends in a redirect to another site, which SPA navigation can't follow.
+        $this->redirect($destination, navigate: ! str_starts_with($destination, route('oidc.authorize')));
     }
 
     public function selectSsoProvider(string $provider): void
@@ -410,7 +416,8 @@ new class extends Component
         session()->flash('toast', $isPurchasing ? 'Login successful - Please continue with purchasing the package' : 'Login successful');
         session()->flash('toast_type', 'success');
 
-        $this->redirect($destination, navigate: true);
+        // A full page load for the LMS handoff: it ends in a redirect to another site, which SPA navigation can't follow.
+        $this->redirect($destination, navigate: ! str_starts_with($destination, route('oidc.authorize')));
     }
 };
 ?>

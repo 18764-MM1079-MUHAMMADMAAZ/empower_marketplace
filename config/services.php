@@ -73,6 +73,8 @@ return [
         'base_url' => env('MOODLE_BASE_URL', 'https://education.empowerhci.com'),
         'token' => env('MOODLE_TOKEN'),
         'student_role_id' => env('MOODLE_STUDENT_ROLE_ID', 5),
+        // Login method for provisioned accounts: IOMAD's OpenID Connect plugin (Marketplace single sign-on).
+        'auth' => env('MOODLE_AUTH_PLUGIN', 'iomadoidc'),
         'general_course_ids' => [6, 12, 13, 14, 15, 16, 18],
         'state_course_ids' => ['TX' => 7, 'NC' => 8, 'NY' => 9, 'IL' => 10, 'CO' => 11],
     ],

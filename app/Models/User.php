@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Mail\ResetPasswordMail;
 use Database\Factories\UserFactory;
@@ -48,6 +49,31 @@ class User extends Authenticatable
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    /** The Empower LMS (Moodle) username, keyed on the Marketplace user id rather than the email
+     *  so the two accounts stay linked through an email change. Also sent as the OpenID Connect
+     *  preferred_username claim, which the Moodle plugin binds to this username. */
+    public function lmsUsername(): string
+    {
+        return 'mp_'.$this->id;
+    }
+
+    /** Whether the client owns a live (paid, not cancelled) order for a package that includes the
+     *  Empower LMS — gates the "Access LMS" button and the OpenID Connect sign-in to Moodle. */
+    public function hasLmsAccess(): bool
+    {
+        if ($this->isAdmin() || ! $this->is_active) {
+            return false;
+        }
+
+        return $this->orders()
+            ->whereIn('payment_status', Order::PAID_STATUSES)
+            ->where('status', '!=', OrderStatus::Cancelled)
+            ->whereNull('cancelled_at')
+            ->with('package')
+            ->get()
+            ->contains(fn (Order $order) => $order->package?->includesLmsAccess());
     }
 
     public function practice(): HasOne

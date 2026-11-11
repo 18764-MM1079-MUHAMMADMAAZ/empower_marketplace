@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /** Thin client for the Empower LMS (Moodle) REST web services. */
@@ -32,27 +34,53 @@ class MoodleClient
 
     public function findUserIdByEmail(string $email): ?int
     {
-        $users = $this->call('core_user_get_users_by_field', ['field' => 'email', 'values' => [strtolower($email)]]);
-
-        return $users[0]['id'] ?? null;
+        return $this->findUserIdBy('email', strtolower($email));
     }
 
-    /** Creates the account; Moodle emails the learner a link to set their own password. */
-    public function createUser(string $name, string $email): int
+    public function findUserIdByUsername(string $username): ?int
     {
-        $parts = preg_split('/\s+/', trim($name), 2);
+        return $this->findUserIdBy('username', $username);
+    }
+
+    /**
+     * Creates the learner's account to sign in through Marketplace (OpenID Connect), so it has no
+     * password of its own: the random one only satisfies Moodle's API and is never used or sent.
+     * Username and idnumber come from the Marketplace user id (spec §4), never the email.
+     */
+    public function createUser(User $user): int
+    {
+        $parts = preg_split('/\s+/', trim($user->name), 2);
 
         $created = $this->call('core_user_create_users', ['users' => [[
-            // Moodle usernames allow only lowercase letters, digits and _ - . @
-            'username' => preg_replace('/[^a-z0-9_.@-]/', '', strtolower($email)),
+            'username' => $user->lmsUsername(),
+            'auth' => config('services.moodle.auth'),
+            'password' => Str::password(32),
+            'idnumber' => (string) $user->id,
             'firstname' => $parts[0] !== '' ? $parts[0] : 'Learner',
             'lastname' => $parts[1] ?? '-',
-            'email' => strtolower($email),
-            'auth' => 'manual',
-            'createpassword' => 1,
+            'email' => strtolower($user->email),
         ]]]);
 
         return $created[0]['id'];
+    }
+
+    /** Converts an account made before single sign-on (username = email, manual password login)
+     *  so the OpenID Connect plugin signs the Marketplace user into it instead of creating a second one. */
+    public function linkToMarketplace(int $moodleUserId, User $user): void
+    {
+        $this->call('core_user_update_users', ['users' => [[
+            'id' => $moodleUserId,
+            'username' => $user->lmsUsername(),
+            'auth' => config('services.moodle.auth'),
+            'idnumber' => (string) $user->id,
+        ]]]);
+    }
+
+    private function findUserIdBy(string $field, string $value): ?int
+    {
+        $users = $this->call('core_user_get_users_by_field', ['field' => $field, 'values' => [$value]]);
+
+        return $users[0]['id'] ?? null;
     }
 
     /**

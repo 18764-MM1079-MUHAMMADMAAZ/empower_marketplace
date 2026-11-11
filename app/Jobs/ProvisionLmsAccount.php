@@ -46,8 +46,23 @@ class ProvisionLmsAccount implements ShouldQueue
             return;
         }
 
-        $existingMoodleId = $moodle->findUserIdByEmail($this->user->email);
-        $moodleUserId = $existingMoodleId ?? $moodle->createUser($this->user->name, $this->user->email);
+        // Matched on the Marketplace-id username, never the email (spec §4). An account from before
+        // single sign-on (found by its stored id or by email) is converted rather than duplicated.
+        $moodleUserId = $moodle->findUserIdByUsername($this->user->lmsUsername());
+        $created = false;
+
+        if ($moodleUserId === null) {
+            $legacyId = $this->user->moodle_user_id ?? $moodle->findUserIdByEmail($this->user->email);
+
+            if ($legacyId !== null) {
+                $moodle->linkToMarketplace($legacyId, $this->user);
+                $moodleUserId = $legacyId;
+            } else {
+                $moodleUserId = $moodle->createUser($this->user);
+                $created = true;
+            }
+        }
+
         $firstTime = $this->user->moodle_user_id === null;
         $courseIds = $moodle->courseIdsFor($this->addressOrState);
 
@@ -73,7 +88,7 @@ class ProvisionLmsAccount implements ShouldQueue
             $this->user->notify(new ClientNotification('Your training access is ready', "You're enrolled in ".count($courseIds).' training courses in the Empower LMS.', route('portal')));
 
             try {
-                Mail::to($this->user->email)->send(new ClientLmsAccessMail($this->user, $existingMoodleId === null, count($courseIds)));
+                Mail::to($this->user->email)->send(new ClientLmsAccessMail($this->user, $created, count($courseIds)));
             } catch (Throwable $e) {
                 report($e);
             }

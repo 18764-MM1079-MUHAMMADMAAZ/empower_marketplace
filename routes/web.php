@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\IntakeUploadDownloadController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Http\Controllers\IntakeAnswersDownloadController;
+use App\Http\Controllers\OidcController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\SsoController;
 use App\Models\DiscountCode;
@@ -78,6 +79,15 @@ Route::get('/portal', fn () => view('portal'))->name('portal');
 // here (not routes/api.php) because logging in needs the session/cookie middleware the api group
 // doesn't have.
 Route::get('/sso/consume/{token}', [SsoController::class, 'consume'])->name('sso.consume');
+
+// Empower LMS single sign-on: Marketplace is the OpenID Connect provider for Moodle (config/oidc.php).
+Route::get('/.well-known/openid-configuration', [OidcController::class, 'discovery'])->name('oidc.discovery');
+Route::get('/oidc/jwks', [OidcController::class, 'jwks'])->name('oidc.jwks');
+Route::get('/oauth/authorize', [OidcController::class, 'authorize'])->name('oidc.authorize');
+Route::post('/oauth/token', [OidcController::class, 'token'])->name('oidc.token')->middleware('throttle:60,1');
+Route::match(['get', 'post'], '/oauth/userinfo', [OidcController::class, 'userinfo'])->name('oidc.userinfo');
+Route::get('/oidc/logout', [OidcController::class, 'logout'])->name('oidc.logout');
+Route::get('/lms/launch', [OidcController::class, 'launch'])->name('lms.launch')->middleware('auth');
 
 // Swagger UI for partner developers integrating the SSO API — reads public/openapi/sso.yaml.
 Route::get('/api/docs', fn () => view('docs.sso-api'))->name('api.docs');

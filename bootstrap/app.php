@@ -25,6 +25,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'sso.apikey' => VerifySsoApiKey::class,
         ]);
 
+        // Server-to-server calls from Moodle's OpenID Connect plugin, authenticated by client secret / bearer token.
+        $middleware->preventRequestForgery(except: ['oauth/token', 'oauth/userinfo']);
+
         $middleware->prependToPriorityList(SubstituteBindings::class, AdminMiddleware::class);
         $middleware->append(SecurityHeaders::class);
     })

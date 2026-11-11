@@ -50,6 +50,25 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
                 </div>
 
                 <div class="flex items-center gap-3">
+                    @auth
+                    @if(! $isAdmin && ! auth()->user()->isAdmin())
+                    {{-- Empower LMS single sign-on (Marketplace → Moodle via OpenID Connect). Paid clients
+                    get the filled button; everyone else sees it greyed out, linking to the packages. --}}
+                    @if(auth()->user()->hasLmsAccess())
+                    <a href="{{ route('lms.launch') }}" target="_blank" rel="noopener" data-lms-button
+                        class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-navy px-3 py-1.5 text-xs font-bold text-white hover:opacity-90 transition-opacity">
+                        Access LMS
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </a>
+                    @else
+                    <a href="{{ route('home') }}#pricing" title="Buy a package to unlock training" aria-label="Access LMS (buy a package to unlock training)" data-lms-button-locked
+                        class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-empower-border bg-page px-3 py-1.5 text-xs font-bold text-empower-muted opacity-70 hover:opacity-100 transition-opacity">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        Access LMS
+                    </a>
+                    @endif
+                    @endif
+                    @endauth
                     @if($isAdmin)
                     <button type="button" data-tour-button onclick="window.startAdminTour?.()" aria-label="Take a tour of this page"
                         class="tour-attention inline-flex h-9 w-9 md:h-auto md:w-auto items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-empower-border bg-white md:px-3 md:py-1.5 text-xs font-bold text-navy hover:bg-page transition-colors">

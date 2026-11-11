@@ -27,7 +27,8 @@ class ClientLmsAccessMail extends Mailable
                 'user' => $this->user,
                 'newAccount' => $this->newAccount,
                 'courseCount' => $this->courseCount,
-                'lmsUrl' => rtrim(config('services.moodle.base_url'), '/'),
+                // Goes through Marketplace sign-in, then single sign-on into Moodle.
+                'lmsUrl' => route('lms.launch'),
             ],
         );
     }

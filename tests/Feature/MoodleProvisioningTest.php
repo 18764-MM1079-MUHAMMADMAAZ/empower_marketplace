@@ -76,12 +76,17 @@ class MoodleProvisioningTest extends TestCase
         $this->assertSame(4321, $user->fresh()->moodle_user_id);
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'lms.provisioned', 'user_id' => $user->id]);
 
+        // Keyed on the Marketplace user id and set up for OpenID Connect sign-in, not a Moodle password.
         Http::assertSent(fn ($request) => $request['wsfunction'] === 'core_user_create_users'
-            && $request['users'][0]['username'] === 'jane@practice.com'
+            && $request['users'][0]['username'] === 'mp_'.$user->id
+            && $request['users'][0]['idnumber'] === (string) $user->id
+            && $request['users'][0]['auth'] === 'iomadoidc'
+            && $request['users'][0]['email'] === 'jane@practice.com'
             && $request['users'][0]['firstname'] === 'Jane'
             && $request['users'][0]['lastname'] === 'Provider'
-            && $request['users'][0]['createpassword'] === 1);
-        Http::assertSentCount(2 + 8);
+            && ! isset($request['users'][0]['createpassword']));
+        // Username lookup, email lookup (legacy account), create, then 8 enrolments.
+        Http::assertSentCount(3 + 8);
         Http::assertSent(fn ($request) => $request['wsfunction'] === 'enrol_manual_enrol_users'
             && $request['enrolments'][0]['courseid'] === 7
             && $request['enrolments'][0]['userid'] === 4321);
@@ -117,6 +122,24 @@ class MoodleProvisioningTest extends TestCase
 
         Http::assertNotSent(fn ($request) => $request['wsfunction'] === 'core_user_create_users');
         $this->assertSame(99, $user->fresh()->moodle_user_id);
+    }
+
+    public function test_a_pre_sso_account_found_by_email_is_converted_not_duplicated(): void
+    {
+        Http::fake(fn ($request) => Http::response(match (true) {
+            $request['wsfunction'] === 'core_user_get_users_by_field' && $request['field'] === 'email' => [['id' => 77]],
+            default => [],
+        }));
+        $user = User::factory()->create(['email' => 'legacy@practice.com']);
+
+        (new ProvisionLmsAccount($user))->handle(new MoodleClient);
+
+        Http::assertNotSent(fn ($request) => $request['wsfunction'] === 'core_user_create_users');
+        Http::assertSent(fn ($request) => $request['wsfunction'] === 'core_user_update_users'
+            && $request['users'][0]['id'] === 77
+            && $request['users'][0]['username'] === 'mp_'.$user->id
+            && $request['users'][0]['auth'] === 'iomadoidc');
+        $this->assertSame(77, $user->fresh()->moodle_user_id);
     }
 
     public function test_a_moodle_error_fails_the_job_so_it_is_retried(): void
@@ -264,7 +287,8 @@ class MoodleProvisioningTest extends TestCase
 
         Mail::assertSent(ClientLmsAccessMail::class, fn ($mail) => $mail->hasTo('client@practice.com')
             && $mail->newAccount && $mail->courseCount === 8
-            && str_contains($mail->render(), 'set your password'));
+            && str_contains($mail->render(), 'No separate password needed')
+            && str_contains($mail->render(), route('lms.launch')));
 
         (new ProvisionLmsAccount($user->fresh(), 'Austin, TX 78701'))->handle(new MoodleClient);
 

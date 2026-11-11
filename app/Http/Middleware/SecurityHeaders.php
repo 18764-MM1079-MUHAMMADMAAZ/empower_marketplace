@@ -33,6 +33,8 @@ class SecurityHeaders
             // Address autocomplete (resources/js/app.js) calls these two keyless public APIs
             // directly from the browser — see workflow-changes.md §5.
             "connect-src 'self' https://photon.komoot.io https://api.zippopotam.us",
+            // The logout page loads the Empower LMS's front-channel logout URL in a hidden iframe.
+            "frame-src 'self' ".config('oidc.moodle.base_url'),
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
