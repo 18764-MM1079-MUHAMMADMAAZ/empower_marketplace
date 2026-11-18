@@ -8,6 +8,7 @@ use App\Models\Practice;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 
@@ -182,7 +183,7 @@ new class extends Component
             'name' => 'required|string|max:150|regex:/^[\p{L}\s.\'-]+$/u',
             'email' => 'required|email:rfc,filter|max:255|unique:users,email'.($this->userId ? ",{$this->userId}" : ''),
             'role' => 'required|in:'.implode(',', array_map(fn ($case) => $case->value, UserRole::cases())),
-            'password' => $this->userId ? 'nullable|string|min:8' : 'required|string|min:8',
+            'password' => [$this->userId ? 'nullable' : 'required', 'string', Password::defaults()],
         ];
 
         $this->validate($rules, [
@@ -476,6 +477,7 @@ new class extends Component
                 </label>
                 <input wire:model="password" type="password" placeholder="{{ $userId ? 'Leave blank to keep current password' : '' }}"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                <p class="mt-1 text-xs text-empower-muted">At least 12 characters, with upper and lower case letters, a number and a symbol.</p>
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
 

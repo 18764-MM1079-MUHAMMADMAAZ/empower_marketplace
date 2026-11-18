@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\AdminEmail;
 use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Mail\ResetPasswordMail;
@@ -15,13 +16,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Mail;
+use Laravel\Fortify\TwoFactorAuthenticatable;
 
 #[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id', 'external_id', 'is_practice_admin'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, TwoFactorAuthenticatable;
 
     /**
      * @return array<string, string>
@@ -34,12 +36,21 @@ class User extends Authenticatable
             'role' => UserRole::class,
             'is_active' => 'boolean',
             'is_practice_admin' => 'boolean',
+            'notification_preferences' => 'array',
+            'two_factor_confirmed_at' => 'datetime',
         ];
     }
 
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;
+    }
+
+    /** Whether this user still gets an optional email (My Account › Notifications). Emails are on
+     *  until turned off, so a user with no saved preferences gets them all. */
+    public function wantsEmail(AdminEmail $email): bool
+    {
+        return ($this->notification_preferences[$email->value] ?? true) !== false;
     }
 
     public function sendPasswordResetNotification($token): void

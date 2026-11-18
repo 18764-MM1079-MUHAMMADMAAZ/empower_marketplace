@@ -12,6 +12,7 @@ use App\Models\CompliancePolicy;
 use App\Models\IntakeQuestion;
 use App\Models\IntakeSection;
 use App\Models\IntakeSubmission;
+use App\Models\IntakeUpload;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Practice;
@@ -278,7 +279,8 @@ class PracticeIntakeWizardTest extends TestCase
 
     private function makeEssentialOrder(User $user): Order
     {
-        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        $package = Package::firstWhere('slug', 'essential')
+            ?? Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
 
         return Order::factory()->create([
             'user_id' => $user->id,
@@ -290,7 +292,8 @@ class PracticeIntakeWizardTest extends TestCase
 
     private function makeProfessionalOrder(User $user): Order
     {
-        $package = Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
+        $package = Package::firstWhere('slug', 'professional')
+            ?? Package::factory()->create(['slug' => 'professional', 'annual_price' => 1299, 'is_active' => true]);
 
         return Order::factory()->create([
             'user_id' => $user->id,
@@ -302,7 +305,8 @@ class PracticeIntakeWizardTest extends TestCase
 
     private function makeAdvancedOrder(User $user): Order
     {
-        $package = Package::factory()->create(['slug' => 'advanced', 'annual_price' => 1699, 'is_active' => true]);
+        $package = Package::firstWhere('slug', 'advanced')
+            ?? Package::factory()->create(['slug' => 'advanced', 'annual_price' => 1699, 'is_active' => true]);
 
         return Order::factory()->create([
             'user_id' => $user->id,
@@ -368,26 +372,262 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertDontSee('Encounter list (10 per provider)');
     }
 
-    public function test_uploading_a_document_stores_it_against_the_draft_submission(): void
+    /** Opens the documents screen for a fresh client on the given tier. */
+    private function documentsScreen(string $tier = 'essential'): Testable
     {
         $user = User::factory()->create();
         Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
+        $order = match ($tier) {
+            'professional' => $this->makeProfessionalOrder($user),
+            'advanced' => $this->makeAdvancedOrder($user),
+            default => $this->makeEssentialOrder($user),
+        };
 
-        $component = Livewire::actingAs($user)
+        return Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
-            ->set('documentFileTags.0', 'compliance_ethics')
+            ->call('continueFromIntro');
+    }
+
+    private function pdf(string $name, int $kilobytes = 100): UploadedFile
+    {
+        return UploadedFile::fake()->create($name, $kilobytes, 'application/pdf');
+    }
+
+    private function upload(string $name): IntakeUpload
+    {
+        return IntakeUpload::where('original_filename', $name)->firstOrFail();
+    }
+
+    public function test_only_pdf_and_docx_files_can_be_added_on_the_documents_screen(): void
+    {
+        $component = $this->documentsScreen()
+            ->assertSee('PDF or DOCX')
+            ->assertDontSee('XLSX')
+            ->assertSeeHtml('accept=".pdf,.docx"')
+            ->set('documentFiles', [
+                UploadedFile::fake()->create('Budget.xlsx', 12, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+                UploadedFile::fake()->create('compliance manual.docx', 50, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+                UploadedFile::fake()->image('scan.png'),
+            ])
+            ->assertHasErrors(['documentFiles'])
+            ->assertSee('Only PDF or Word (.docx) files can be uploaded. Not added: Budget.xlsx, scan.png.');
+
+        $this->assertSame(1, IntakeUpload::count());
+        $docx = $this->upload('compliance manual.docx');
+        $component->assertSet('typingUploadIds', [$docx->id])
+            ->assertSet("typingTags.{$docx->id}", 'compliance_ethics')
+            ->assertSet('documentFiles', []);
+    }
+
+    public function test_files_dropped_on_the_upload_box_are_saved_at_once_and_open_the_type_dialog(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('documentFiles', [$this->pdf('HIPAA Security Manual.pdf'), $this->pdf('Empower Test.pdf')]);
+
+        $security = $this->upload('HIPAA Security Manual.pdf');
+        $test = $this->upload('Empower Test.pdf');
+
+        // Saved straight away, with no type until the client confirms one.
+        $this->assertNull($security->document_category);
+        $this->assertNull($test->document_category);
+        Storage::disk('local')->assertExists($security->storage_path);
+
+        $component->assertSet('typingUploadIds', [$security->id, $test->id])
+            ->assertSet("typingTags.{$security->id}", 'hipaa_security')
+            ->assertSet("typingTags.{$test->id}", '')
+            ->assertSet('suggestedTags', [$security->id])
+            ->assertSee('What are these documents?')
+            ->assertSee('Suggested')
+            ->assertSee('Add 2 files')
+            ->assertSee('Decide later');
+
+        // Every file needs a type before "Add 2 files" works; nothing changes until then.
+        $component->call('confirmDocumentTypes')
+            ->assertHasErrors(['typingTags'])
+            ->assertSet('typingUploadIds', [$security->id, $test->id]);
+        $this->assertNull($security->fresh()->document_category);
+
+        $component->set("typingTags.{$test->id}", 'compliance_ethics')
+            ->call('confirmDocumentTypes')
+            ->assertHasNoErrors()
+            ->assertSet('typingUploadIds', [])
+            ->assertDontSee('What are these documents?');
+
+        $this->assertSame('hipaa_security', $security->fresh()->document_category);
+        $this->assertSame('compliance_ethics', $test->fresh()->document_category);
+        $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('hipaa_security'));
+        $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('compliance_ethics'));
+        $this->assertSame('needed', $component->instance()->documentCategoryStatus('hipaa_privacy'));
+
+        // Each file now shows inside its own checklist row.
+        $component->assertSeeHtmlInOrder(['data-document-row="compliance_ethics"', 'Empower Test.pdf', 'data-document-row="hipaa_privacy"'])
+            ->assertSeeHtmlInOrder(['data-document-row="hipaa_security"', 'HIPAA Security Manual.pdf', 'data-document-row="training_materials"']);
+    }
+
+    public function test_decide_later_keeps_the_files_under_needs_a_type(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('documentFiles', [$this->pdf('random.pdf')])
+            ->call('closeDocumentTypeDialog')
+            ->assertSet('typingUploadIds', [])
+            ->assertSee('Needs a type')
+            ->assertSeeHtmlInOrder(['data-needs-type', 'random.pdf', 'Choose type']);
+
+        $random = $this->upload('random.pdf');
+        $this->assertNull($random->document_category);
+
+        // "Choose type" reopens the dialog for just that file.
+        $component->call('openDocumentTypeDialog', $random->id)
+            ->assertSet('typingUploadIds', [$random->id])
+            ->assertSee('What is this document?')
+            ->set("typingTags.{$random->id}", 'training_materials')
+            ->call('confirmDocumentTypes')
+            ->assertDontSee('Needs a type');
+
+        $this->assertSame('training_materials', $random->fresh()->document_category);
+    }
+
+    public function test_a_row_upload_link_files_the_upload_under_that_row_without_the_dialog(): void
+    {
+        $component = $this->documentsScreen()
+            ->assertSeeHtml('data-row-upload="hipaa_privacy"')
+            ->call('toggleDocumentMissing', 'hipaa_privacy')
+            ->set('categoryFiles.hipaa_privacy', [$this->pdf('Notice of Privacy Practices.pdf'), $this->pdf('Privacy forms.pdf')])
+            ->assertSet('typingUploadIds', [])
+            ->assertSet('categoryFiles', []);
+
+        $this->assertSame(2, IntakeUpload::where('document_category', 'hipaa_privacy')->count());
+        // Uploading to a row marked "Don't have it" switches it back to uploaded.
+        $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('hipaa_privacy'));
+        $this->assertNotContains('hipaa_privacy', IntakeSubmission::first()->wizard_missing_document_categories);
+        $component->assertSeeHtmlInOrder(['data-document-row="hipaa_privacy"', 'Add another', 'Notice of Privacy Practices.pdf', 'Privacy forms.pdf', 'data-document-row="hipaa_security"']);
+    }
+
+    public function test_a_row_upload_for_a_row_this_package_does_not_have_is_ignored(): void
+    {
+        $this->documentsScreen()
+            ->set('categoryFiles.employee_manual', [$this->pdf('Employee handbook.pdf')]);
+
+        $this->assertSame(0, IntakeUpload::count());
+    }
+
+    public function test_change_type_moves_a_file_to_another_row(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('categoryFiles.hipaa_privacy', [$this->pdf('Policies.pdf')]);
+        $policies = $this->upload('Policies.pdf');
+
+        $component->call('openDocumentTypeDialog', $policies->id)
+            ->assertSet("typingTags.{$policies->id}", 'hipaa_privacy')
+            ->assertSet('suggestedTags', [])
+            ->assertSee('Change document type')
+            ->assertSee('Cancel')
+            ->set("typingTags.{$policies->id}", 'hipaa_security')
+            ->call('confirmDocumentTypes');
+
+        $this->assertSame('hipaa_security', $policies->fresh()->document_category);
+        $this->assertSame('needed', $component->instance()->documentCategoryStatus('hipaa_privacy'));
+        $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('hipaa_security'));
+    }
+
+    public function test_cancelling_change_type_leaves_the_file_as_it_was(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('categoryFiles.training_materials', [$this->pdf('Slides.pdf')]);
+        $slides = $this->upload('Slides.pdf');
+
+        $component->call('openDocumentTypeDialog', $slides->id)
+            ->set("typingTags.{$slides->id}", 'hipaa_security')
+            ->call('closeDocumentTypeDialog');
+
+        $this->assertSame('training_materials', $slides->fresh()->document_category);
+    }
+
+    public function test_removing_a_file_deletes_it_and_frees_its_row(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('categoryFiles.compliance_ethics', [$this->pdf('Code of conduct.pdf')]);
+        $code = $this->upload('Code of conduct.pdf');
+
+        $component->call('deleteExistingDocument', $code->id);
+
+        $this->assertDatabaseMissing('intake_uploads', ['id' => $code->id]);
+        Storage::disk('local')->assertMissing($code->storage_path);
+        $this->assertSame('needed', $component->instance()->documentCategoryStatus('compliance_ethics'));
+    }
+
+    public function test_removing_the_only_file_in_the_dialog_closes_it(): void
+    {
+        $component = $this->documentsScreen()->set('documentFiles', [$this->pdf('random.pdf')]);
+        $random = $this->upload('random.pdf');
+
+        $component->call('deleteExistingDocument', $random->id)
+            ->assertSet('typingUploadIds', [])
+            ->assertSet('typingTags', []);
+    }
+
+    public function test_a_guess_never_uses_a_row_the_package_does_not_have(): void
+    {
+        // "handbook" points at Employee manual, which only the Advanced package lists.
+        $essential = $this->documentsScreen('essential')->set('documentFiles', [$this->pdf('Staff handbook.pdf')]);
+        $essentialUpload = $this->upload('Staff handbook.pdf');
+        $essential->assertSet("typingTags.{$essentialUpload->id}", '')->assertSet('suggestedTags', []);
+
+        $advanced = $this->documentsScreen('advanced')->set('documentFiles', [$this->pdf('Staff handbook 2.pdf')]);
+        $advancedUpload = $this->upload('Staff handbook 2.pdf');
+        $advanced->assertSet("typingTags.{$advancedUpload->id}", 'employee_manual');
+    }
+
+    public function test_the_dialog_only_accepts_this_packages_types_or_other(): void
+    {
+        $component = $this->documentsScreen()->set('documentFiles', [$this->pdf('random.pdf')]);
+        $random = $this->upload('random.pdf');
+
+        $component->set("typingTags.{$random->id}", 'employee_manual')
+            ->call('confirmDocumentTypes')
+            ->assertHasErrors(['typingTags']);
+        $this->assertNull($random->fresh()->document_category);
+
+        $component->set("typingTags.{$random->id}", 'other')
+            ->call('confirmDocumentTypes')
+            ->assertHasNoErrors()
+            ->assertSeeHtmlInOrder(['data-document-row="other"', 'Other documents', 'random.pdf']);
+        $this->assertSame('other', $random->fresh()->document_category);
+    }
+
+    public function test_another_clients_upload_cannot_be_typed_or_removed(): void
+    {
+        $this->documentsScreen()->set('categoryFiles.compliance_ethics', [$this->pdf('Theirs.pdf')]);
+        $theirs = $this->upload('Theirs.pdf');
+
+        $this->documentsScreen()
+            ->call('openDocumentTypeDialog', $theirs->id)
+            ->assertSet('typingUploadIds', [])
+            ->set('typingUploadIds', [$theirs->id])
+            ->set("typingTags.{$theirs->id}", 'hipaa_security')
+            ->call('confirmDocumentTypes')
+            ->call('deleteExistingDocument', $theirs->id);
+
+        $this->assertSame('compliance_ethics', $theirs->fresh()->document_category);
+    }
+
+    public function test_uploading_a_document_stores_it_against_the_draft_submission(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('documentFiles', [$this->pdf('handbook.pdf')]);
+        $handbook = $this->upload('handbook.pdf');
+
+        $component->set("typingTags.{$handbook->id}", 'compliance_ethics')
+            ->call('confirmDocumentTypes')
             ->call('toggleDocumentMissing', 'hipaa_privacy')
             ->call('toggleDocumentMissing', 'hipaa_security')
             ->call('toggleDocumentMissing', 'training_materials')
-            ->call('continueFromDocuments');
-
-        $component->assertHasNoErrors()->assertSet('screen', 'b_profile');
+            ->call('continueFromDocuments')
+            ->assertHasNoErrors()
+            ->assertSet('screen', 'b_profile');
 
         $this->assertDatabaseHas('intake_submissions', [
-            'order_id' => $order->id,
+            'id' => $handbook->intake_submission_id,
             'status' => IntakeSubmissionStatus::Draft->value,
         ]);
         $this->assertDatabaseHas('intake_uploads', [
@@ -399,15 +639,8 @@ class PracticeIntakeWizardTest extends TestCase
 
     public function test_essential_tier_requires_every_document_category_to_be_uploaded_or_declined(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
-            ->set('documentFileTags.0', 'compliance_ethics')
+        $this->documentsScreen()
+            ->set('categoryFiles.compliance_ethics', [$this->pdf('handbook.pdf')])
             ->call('continueFromDocuments')
             ->assertHasErrors(['documentFiles'])
             ->assertSet('screen', 'documents');
@@ -415,31 +648,22 @@ class PracticeIntakeWizardTest extends TestCase
 
     public function test_essential_tier_requires_uploaded_files_to_be_tagged(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->set('documentFiles', [UploadedFile::fake()->create('random.pdf', 100, 'application/pdf')])
+        $this->documentsScreen()
+            ->set('documentFiles', [$this->pdf('random.pdf')])
+            ->call('closeDocumentTypeDialog')
+            ->call('toggleDocumentMissing', 'compliance_ethics')
             ->call('toggleDocumentMissing', 'hipaa_privacy')
             ->call('toggleDocumentMissing', 'hipaa_security')
             ->call('toggleDocumentMissing', 'training_materials')
             ->call('continueFromDocuments')
             ->assertHasErrors(['documentFiles'])
+            ->assertSee('Choose a type for the file under "Needs a type".')
             ->assertSet('screen', 'documents');
     }
 
     public function test_marking_all_document_categories_as_declined_still_requires_one_upload(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
+        $this->documentsScreen()
             ->call('toggleDocumentMissing', 'compliance_ethics')
             ->call('toggleDocumentMissing', 'hipaa_privacy')
             ->call('toggleDocumentMissing', 'hipaa_security')
@@ -451,14 +675,7 @@ class PracticeIntakeWizardTest extends TestCase
 
     public function test_toggling_a_declined_document_category_undoes_it(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        $component = Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->call('toggleDocumentMissing', 'hipaa_privacy');
+        $component = $this->documentsScreen()->call('toggleDocumentMissing', 'hipaa_privacy');
 
         $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_privacy'));
 
@@ -469,56 +686,34 @@ class PracticeIntakeWizardTest extends TestCase
 
     public function test_bulk_mark_remaining_documents_missing_appears_once_one_is_uploaded(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeProfessionalOrder($user);
+        $component = $this->documentsScreen('professional')
+            ->set('documentFiles', [$this->pdf('training.pdf', 50)]);
+        $training = $this->upload('training.pdf');
 
-        $component = Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->set('documentFiles', [UploadedFile::fake()->create('training.pdf', 50, 'application/pdf')])
-            ->set('documentFileTags.0', 'training_materials')
+        $component->assertSet("typingTags.{$training->id}", 'training_materials')
+            ->call('confirmDocumentTypes')
             ->assertSeeText('Mark the other 3 as "don\'t have"')
             ->call('markRemainingDocumentsMissing');
 
         $this->assertSame('declined', $component->instance()->documentCategoryStatus('compliance_ethics'));
         $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_privacy'));
         $this->assertSame('declined', $component->instance()->documentCategoryStatus('hipaa_security'));
+        $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('training_materials'));
     }
 
     public function test_professional_tier_offers_a_full_skip_before_any_upload(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeProfessionalOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->assertSeeText('We don\'t have any of these');
+        $this->documentsScreen('professional')->assertSeeText('We don\'t have any of these');
     }
 
     public function test_essential_tier_does_not_offer_a_full_skip_before_any_upload(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->assertDontSee('We don\'t have any of these');
+        $this->documentsScreen()->assertDontSee('We don\'t have any of these');
     }
 
     public function test_skipping_the_documents_screen_bypasses_validation_and_advances(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
+        $this->documentsScreen()
             ->call('continueFromDocuments', true)
             ->assertHasNoErrors()
             ->assertSet('screen', 'b_profile');
@@ -526,15 +721,8 @@ class PracticeIntakeWizardTest extends TestCase
 
     public function test_saving_the_documents_screen_for_later_stays_put_and_flags_saved(): void
     {
-        $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id]);
-        $order = $this->makeEssentialOrder($user);
-
-        Livewire::actingAs($user)
-            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
-            ->call('continueFromIntro')
-            ->set('documentFiles', [UploadedFile::fake()->create('handbook.pdf', 100, 'application/pdf')])
-            ->set('documentFileTags.0', 'compliance_ethics')
+        $this->documentsScreen()
+            ->set('categoryFiles.compliance_ethics', [$this->pdf('handbook.pdf')])
             ->call('continueFromDocuments', true, true)
             ->assertHasNoErrors()
             ->assertSet('screen', 'documents')
@@ -809,16 +997,174 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertHasErrors(['legalPracticeName', 'mainPhone', 'mainEmail', 'practiceLocations']);
     }
 
-    public function test_hotline_poster_count_prefills_as_two_per_location(): void
+    public function test_phone_numbers_are_put_into_the_us_format(): void
     {
         $user = User::factory()->create();
-        Practice::factory()->create(['user_id' => $user->id, 'hotline_poster_count' => null]);
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_practice')
+            ->assertSeeHtml('placeholder="(555) 555-5555"')
+            ->assertSeeHtml('formatUsPhone($el.value)')
+            ->set('mainPhone', '732.555.0148')
+            ->assertSet('mainPhone', '(732) 555-0148')
+            ->set('complianceOfficerPhone', '+1 732 555 0199')
+            ->assertSet('complianceOfficerPhone', '(732) 555-0199')
+            ->assertHasNoErrors();
+    }
+
+    public function test_a_phone_that_is_not_a_us_number_is_flagged_on_blur_and_on_continue(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_practice')
+            ->set('mainPhone', '555-0100')
+            ->assertHasErrors(['mainPhone' => 'regex'])
+            ->assertSee('Enter the phone number as (XXX) XXX-XXXX.')
+            ->set('mainEmail', 'office@practice.com')
+            ->set('practiceLocations', ['1 Main St'])
+            ->call('continueFromPractice')
+            ->assertHasErrors(['mainPhone' => 'regex'])
+            ->assertSet('screen', 't_practice');
+    }
+
+    public function test_an_email_without_a_proper_domain_is_flagged_on_blur_and_on_continue(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_practice')
+            ->set('mainEmail', 'office@practice')
+            ->assertHasErrors(['mainEmail' => 'email'])
+            ->assertSee('Enter a valid email address, like name@practice.com.')
+            ->set('mainEmail', ' office@practice.com ')
+            ->assertSet('mainEmail', 'office@practice.com')
+            ->assertHasNoErrors(['mainEmail'])
+            ->set('mainEmail', 'office@practice')
+            ->set('mainPhone', '(732) 555-0148')
+            ->set('practiceLocations', ['1 Main St'])
+            ->call('continueFromPractice')
+            ->assertHasErrors(['mainEmail' => 'email'])
+            ->assertSet('screen', 't_practice');
+    }
+
+    public function test_officer_and_it_phones_and_emails_must_be_valid(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers');
+
+        foreach (['complianceOfficer', 'hipaaPrivacyOfficer', 'hipaaSecurityOfficer', 'releaseOfInfoOfficer'] as $prefix) {
+            $component->set("{$prefix}Name", 'Jane Provider')
+                ->set("{$prefix}Phone", '(732) 555-0148')
+                ->set("{$prefix}Email", 'jane@practice.com');
+        }
+
+        $component->set('hipaaSecurityOfficerPhone', '12345')
+            ->set('releaseOfInfoOfficerEmail', 'jane@')
+            ->call('continueFromOfficers')
+            ->assertHasErrors(['hipaaSecurityOfficerPhone' => 'regex', 'releaseOfInfoOfficerEmail' => 'email'])
+            ->assertSet('screen', 't_officers')
+            ->set('hipaaSecurityOfficerPhone', '7325550148')
+            ->set('releaseOfInfoOfficerEmail', 'roi@practice.com')
+            ->call('continueFromOfficers')
+            ->assertHasNoErrors()
+            ->assertSet('screen', 't_it');
+
+        $this->assertSame('(732) 555-0148', $user->practice->fresh()->hipaa_security_officer_phone);
+
+        $component->set('itMode', 'vendor')
+            ->set('itVendorName', 'Acme IT')
+            ->set('itContactPhone', '555 0100')
+            ->set('itContactEmail', 'help@acme')
+            ->call('continueFromIt')
+            ->assertHasErrors(['itContactPhone' => 'regex', 'itContactEmail' => 'email'])
+            ->assertSet('screen', 't_it');
+    }
+
+    public function test_main_phone_and_email_start_from_the_partner_sign_in(): void
+    {
+        $user = User::factory()->create(['email' => 'jane@riverside.example']);
+        Practice::factory()->create(['user_id' => $user->id, 'source_system' => 'cch', 'phone' => '7325550148', 'main_phone' => null, 'main_email' => null]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSet('mainPhone', '(732) 555-0148')
+            ->assertSet('mainEmail', 'jane@riverside.example');
+    }
+
+    public function test_saved_main_details_win_over_the_partner_sign_in_and_other_practices_start_empty(): void
+    {
+        $partner = User::factory()->create();
+        Practice::factory()->create(['user_id' => $partner->id, 'source_system' => 'talkehr', 'phone' => '7325550148', 'main_phone' => '908-555-0101', 'main_email' => 'office@practice.com']);
+
+        Livewire::actingAs($partner)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeProfessionalOrder($partner)->id]])
+            ->assertSet('mainPhone', '(908) 555-0101')
+            ->assertSet('mainEmail', 'office@practice.com');
+
+        $direct = User::factory()->create();
+        Practice::factory()->create(['user_id' => $direct->id, 'source_system' => null, 'phone' => '7325550148', 'main_phone' => null, 'main_email' => null]);
+
+        Livewire::actingAs($direct)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeProfessionalOrder($direct)->id]])
+            ->assertSet('mainPhone', '')
+            ->assertSet('mainEmail', '');
+    }
+
+    public function test_the_hotline_step_no_longer_asks_for_posters_and_leaves_a_saved_count_alone(): void
+    {
+        $user = User::factory()->create();
+        $practice = Practice::factory()->create(['user_id' => $user->id, 'hotline_poster_count' => 5]);
         $order = $this->makeProfessionalOrder($user);
 
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 't_hotline')
-            ->assertSet('hotlinePosterCount', 2);
+            ->set('usesEhcpHotline', false)
+            ->assertDontSee('Hotline posters needed')
+            ->assertDontSee('2 per location recommended')
+            ->assertDontSee('posters per location')
+            ->set('hotlineContact', '(732) 555-0100')
+            ->call('continueFromHotline')
+            ->assertHasNoErrors()
+            ->assertSet('screen', 't_leadership');
+
+        $practice->refresh();
+        $this->assertSame(5, $practice->hotline_poster_count);
+        $this->assertFalse($practice->uses_ehcp_hotline);
+        $this->assertSame('(732) 555-0100', $practice->compliance_hotline_number);
+    }
+
+    public function test_finishing_the_hotline_step_does_not_invent_a_poster_count(): void
+    {
+        $user = User::factory()->create();
+        $practice = Practice::factory()->create(['user_id' => $user->id, 'hotline_poster_count' => null]);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_hotline')
+            ->set('usesEhcpHotline', true)
+            ->call('continueFromHotline')
+            ->assertHasNoErrors()
+            ->assertSet('screen', 't_leadership');
+
+        $this->assertNull($practice->fresh()->hotline_poster_count);
     }
 
     public function test_team_hotline_screen_requires_hotline_contact_unless_using_the_shared_hotline(): void
@@ -892,11 +1238,11 @@ class PracticeIntakeWizardTest extends TestCase
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 't_officers')
             ->set('complianceOfficerName', 'Jane Provider')
-            ->set('complianceOfficerPhone', '555-0100')
+            ->set('complianceOfficerPhone', '(555) 555-0100')
             ->set('complianceOfficerEmail', 'jane@example.com')
             ->call('copyOfficerContact', 'hipaaPrivacyOfficer', 'complianceOfficer')
             ->assertSet('hipaaPrivacyOfficerName', 'Jane Provider')
-            ->assertSet('hipaaPrivacyOfficerPhone', '555-0100')
+            ->assertSet('hipaaPrivacyOfficerPhone', '(555) 555-0100')
             ->assertSet('hipaaPrivacyOfficerEmail', 'jane@example.com');
     }
 
@@ -913,7 +1259,7 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertSee('reveal-in border border-[#eef2f6] rounded-xl bg-[#f8fbfd] p-4')
             ->assertSee('wire:key="it-details-inhouse"', false)
             ->set('complianceOfficerName', 'Alex Compliance')
-            ->set('complianceOfficerPhone', '555-0199')
+            ->set('complianceOfficerPhone', '(555) 555-0199')
             ->set('complianceOfficerEmail', 'alex@example.com');
 
         $this->assertSame(
@@ -926,7 +1272,7 @@ class PracticeIntakeWizardTest extends TestCase
 
         $component->call('copyItContact', 'complianceOfficer')
             ->assertSet('itContactName', 'Alex Compliance')
-            ->assertSet('itContactPhone', '555-0199')
+            ->assertSet('itContactPhone', '(555) 555-0199')
             ->assertSet('itContactEmail', 'alex@example.com')
             ->set('itMode', 'vendor')
             ->assertSee('reveal-in rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4')
@@ -994,26 +1340,26 @@ class PracticeIntakeWizardTest extends TestCase
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 't_practice')
             ->set('legalPracticeName', 'Sunrise Family Medicine LLC')
-            ->set('mainPhone', '555-0100')
+            ->set('mainPhone', '(555) 555-0100')
             ->set('mainEmail', 'jane@example.com')
             ->set('practiceLocations', ['123 Main St'])
             ->call('continueFromPractice')
             ->set('complianceOfficerName', 'Jane Provider')
-            ->set('complianceOfficerPhone', '555-0100')
+            ->set('complianceOfficerPhone', '(555) 555-0100')
             ->set('complianceOfficerEmail', 'jane@example.com')
             ->set('hipaaPrivacyOfficerName', 'Jane Provider')
-            ->set('hipaaPrivacyOfficerPhone', '555-0100')
+            ->set('hipaaPrivacyOfficerPhone', '(555) 555-0100')
             ->set('hipaaPrivacyOfficerEmail', 'jane@example.com')
             ->set('hipaaSecurityOfficerName', 'Jane Provider')
-            ->set('hipaaSecurityOfficerPhone', '555-0100')
+            ->set('hipaaSecurityOfficerPhone', '(555) 555-0100')
             ->set('hipaaSecurityOfficerEmail', 'jane@example.com')
             ->set('releaseOfInfoOfficerName', 'Jane Provider')
-            ->set('releaseOfInfoOfficerPhone', '555-0100')
+            ->set('releaseOfInfoOfficerPhone', '(555) 555-0100')
             ->set('releaseOfInfoOfficerEmail', 'jane@example.com')
             ->call('continueFromOfficers')
             ->set('itMode', 'vendor')
             ->set('itVendorName', 'Acme IT')
-            ->set('itContactPhone', '555-0200')
+            ->set('itContactPhone', '(555) 555-0200')
             ->set('itContactEmail', 'it@example.com')
             ->call('continueFromIt')
             ->set('usesEhcpHotline', true)
@@ -1323,6 +1669,31 @@ class PracticeIntakeWizardTest extends TestCase
             ->call('backToQuestions')
             ->assertSet('screen', 'b_profile')
             ->assertSet('returnToScreen', null);
+    }
+
+    public function test_back_on_the_documents_screen_opens_the_checklist_with_a_full_bar(): void
+    {
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $order = $this->makeEssentialOrder($user);
+
+        IntakeSubmission::factory()->create([
+            'order_id' => $order->id,
+            'wizard_screen' => 'documents',
+            'wizard_reached_screens' => ['documents'],
+        ]);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->assertSet('screen', 'documents')
+            ->assertSeeHtml('wire:click="viewWhatYouNeed"')
+            ->assertDontSeeHtml('go-to-payment-step')
+            ->call('viewWhatYouNeed')
+            ->assertSet('screen', 'intro')
+            ->assertSet('returnToScreen', 'documents')
+            ->assertSeeHtml('style="width: 100%"')
+            ->call('backToQuestions')
+            ->assertSet('screen', 'documents');
     }
 
     public function test_resuming_a_draft_submission_reloads_the_saved_screen_and_answers(): void

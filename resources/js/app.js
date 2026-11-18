@@ -13,6 +13,29 @@ window.empowerDownloadText = function (filename, text, mime) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
+// Formats a US phone number as it's typed: "7325550148" → "(732) 555-0148". Mirrors
+// App\Support\PhoneNumber, which also re-formats and validates it on the server.
+// Usage: <input x-on:input="$el.value = formatUsPhone($el.value)" ...>
+window.formatUsPhone = function (value) {
+    let digits = String(value || '').replace(/\D/g, '');
+
+    if (digits.length === 11 && digits[0] === '1') {
+        digits = digits.slice(1);
+    }
+
+    digits = digits.slice(0, 10);
+
+    if (digits.length > 6) {
+        return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+
+    if (digits.length > 3) {
+        return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    }
+
+    return digits.length ? `(${digits}` : '';
+};
+
 // Reusable Alpine component for the billing/practice address fields: suggests full street
 // addresses as you type (Photon, OpenStreetMap-based) and autofills city/state from a typed
 // ZIP (Zippopotam.us). Both are free, keyless public APIs — see workflow-changes.md §5.

@@ -35,10 +35,11 @@ class ProcessSubscriptionBilling extends Command
     {
         $reminders = $this->sendTrialEndingReminders();
         $cancelled = $this->cancelLapsedTrials();
+        $ended = $this->endCancelledSubscriptions();
         $renewals = $this->processRenewals();
 
         $this->components->info(
-            "Sent {$reminders} trial reminder(s), cancelled {$cancelled} lapsed trial(s), processed {$renewals} renewal attempt(s)."
+            "Sent {$reminders} trial reminder(s), cancelled {$cancelled} lapsed trial(s), ended {$ended} cancelled subscription(s), processed {$renewals} renewal attempt(s)."
         );
 
         return self::SUCCESS;
@@ -93,6 +94,30 @@ class ProcessSubscriptionBilling extends Command
         return $count;
     }
 
+    /** Subscriptions the client cancelled from My Account end on their cancels_at date (the end
+     *  of the paid term) instead of renewing. */
+    private function endCancelledSubscriptions(): int
+    {
+        $count = 0;
+
+        Order::query()
+            ->where('status', '!=', OrderStatus::Cancelled)
+            ->whereNotNull('cancels_at')
+            ->where('cancels_at', '<=', now())
+            ->chunkById(50, function ($orders) use (&$count) {
+                foreach ($orders as $order) {
+                    try {
+                        $this->billing->cancel($order, 'term_ended');
+                        $count++;
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
+            });
+
+        return $count;
+    }
+
     private function processRenewals(): int
     {
         $count = 0;
@@ -100,6 +125,8 @@ class ProcessSubscriptionBilling extends Command
         Order::query()
             ->whereIn('payment_status', [PaymentStatus::Paid, PaymentStatus::PastDue])
             ->where('status', '!=', OrderStatus::Cancelled)
+            // Never renew a subscription the client has cancelled, whatever its end date.
+            ->whereNull('cancels_at')
             ->whereNotNull('next_bill_date')
             ->whereDate('next_bill_date', '<=', now())
             ->where('renewal_attempts', '<', count(self::RETRY_OFFSETS_DAYS))

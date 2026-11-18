@@ -33,10 +33,11 @@ new class extends Component
 
             <div x-show="open" @click.outside="open = false" x-transition
                 class="absolute right-0 mt-2 w-48 rounded-lg bg-white shadow-lg ring-1 ring-black/5 py-1 z-50">
-                <a href="{{ route('home') }}#pricing" class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Back to Packages</a>
-                <a href="{{ route('password.edit') }}" wire:navigate class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Change Password</a>
+                <a href="{{ route('account') }}" class="block px-4 py-2 text-sm font-semibold text-empower-text hover:bg-page" data-account-link>My Account</a>
                 @if(auth()->user()->isAdmin())
                     <a href="{{ route('admin.dashboard') }}" wire:navigate class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Admin Panel</a>
+                @else
+                    <a href="{{ route('home') }}#pricing" class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Back to Packages</a>
                 @endif
                 <div class="my-1 border-t border-empower-border"></div>
                 <form method="POST" action="{{ route('logout') }}">

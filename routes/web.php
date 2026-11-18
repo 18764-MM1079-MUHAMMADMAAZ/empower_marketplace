@@ -7,6 +7,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Http\Controllers\IntakeAnswersDownloadController;
 use App\Http\Controllers\OidcController;
+use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\SsoController;
 use App\Models\DiscountCode;
@@ -107,8 +108,12 @@ Route::middleware('auth')->group(function () {
     })->name('orders.order-form');
     Route::get('/intake-submissions/{submission}/answers', [IntakeAnswersDownloadController::class, 'show'])
         ->name('intake-submissions.answers');
-    Route::get('/account/change-password', fn () => view('account.change-password'))
+    Route::get('/account', fn () => view('account.index'))->name('account');
+    // Changing the password now lives in My Account's "Sign-in & security" section.
+    Route::get('/account/change-password', fn () => redirect()->to(route('account').'#security'))
         ->name('password.edit');
+    Route::get('/payments/{paymentLog}/receipt', [PaymentReceiptController::class, 'show'])
+        ->name('payments.receipt');
 });
 
 // Admin panel

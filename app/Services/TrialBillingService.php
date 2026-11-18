@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\AdminEmail;
 use App\Enums\BillingCycle;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
@@ -11,6 +12,7 @@ use App\Mail\AdminPaymentReceivedMail;
 use App\Mail\ClientPaymentReceiptMail;
 use App\Mail\ClientRenewalFailedMail;
 use App\Mail\ClientRenewalReceiptMail;
+use App\Mail\ClientSubscriptionCancellationMail;
 use App\Mail\ClientTrialCancelledMail;
 use App\Models\ActivityLog;
 use App\Models\Order;
@@ -85,22 +87,83 @@ class TrialBillingService
         return $result;
     }
 
-    /** An automatic year-2+ renewal charge. Advances next_bill_date on success; tracks a retry
-     *  count and cancels after MAX_RENEWAL_ATTEMPTS consecutive failures on failure. */
-    public function renew(Order $order): ChargeResult
+    /**
+     * What the next automatic renewal of this order will charge. Also shown on My Account, so it
+     * includes changes the client scheduled for the renewal (a lower provider count, or a switch
+     * between monthly and annual).
+     */
+    public function renewalAmount(Order $order): float
     {
-        $cycle = $order->billing_cycle ?? BillingCycle::Annual;
+        $cycle = $order->scheduled_billing_cycle ?? $order->billing_cycle ?? BillingCycle::Annual;
         // Re-derives from the practice's *current* provider count, not the frozen count at
         // purchase time — a provider count change should take effect at the next renewal, same
         // as a package price change already does below.
-        $providers = max(1, $order->user->practice?->billable_providers_count ?? 1);
+        $practice = $order->user->practice;
+        $providers = max(1, $practice?->scheduled_billable_providers ?? $practice?->billable_providers_count ?? 1);
         $perProviderPrice = $order->package->priceForCycle($cycle);
+
         // Falls back to the order's own frozen original_price if the package's price for this
         // cycle has since been unset (e.g. an admin cleared monthly_price after monthly
         // subscribers already exist on it) — a renewal must never silently charge $0. The frozen
         // value already has the provider count baked in from when it was first charged, so it's
         // not multiplied again here.
-        $amount = $perProviderPrice !== null ? $perProviderPrice * $providers : (float) $order->original_price;
+        return $perProviderPrice !== null ? $perProviderPrice * $providers : (float) $order->original_price;
+    }
+
+    /**
+     * Puts changes the client scheduled on My Account into effect: a new billing period on this
+     * order and a lower provider count on the practice. Runs just before a renewal charge, so the
+     * renewal is billed (and next_bill_date advanced) on the new terms.
+     */
+    public function applyScheduledChanges(Order $order): void
+    {
+        if ($order->scheduled_billing_cycle) {
+            $from = $order->billing_cycle ?? BillingCycle::Annual;
+            $order->update(['billing_cycle' => $order->scheduled_billing_cycle, 'scheduled_billing_cycle' => null]);
+            ActivityLog::record('plan.billing_cycle_changed', "Billing changed from {$from->label()} to {$order->billing_cycle->label()} at renewal.", user: $order->user, order: $order);
+        }
+
+        $practice = $order->user->practice;
+
+        if ($practice?->scheduled_billable_providers) {
+            $from = $practice->billable_providers_count;
+            $practice->update(['billable_providers_count' => $practice->scheduled_billable_providers, 'scheduled_billable_providers' => null]);
+            ActivityLog::record('plan.providers_changed', "Billable providers changed from {$from} to {$practice->billable_providers_count} at renewal.", user: $order->user, order: $order, subject: $practice);
+        }
+    }
+
+    /**
+     * A one-off charge to the order's saved card for a mid-term plan change (adding providers),
+     * recorded in the payment log with $description so it reads well in the billing history and
+     * on the receipt.
+     */
+    public function chargeForPlanChange(Order $order, float $amount, string $description): ChargeResult
+    {
+        $result = $this->chargeStoredCard($order, $amount);
+
+        PaymentLog::record(
+            success: $result->success,
+            amount: $amount,
+            user: $order->user,
+            package: $order->package,
+            order: $order,
+            transactionId: $result->transactionId,
+            message: $result->success ? $description : $result->declineMessage,
+            billingAddress: $order->billing_address ?? [],
+        );
+
+        // No admin "payment received" email here: that email reports the order's own
+        // amount_paid, which a plan-change charge doesn't touch. Admins see it in the payment log.
+        return $result;
+    }
+
+    /** An automatic year-2+ renewal charge. Advances next_bill_date on success; tracks a retry
+     *  count and cancels after MAX_RENEWAL_ATTEMPTS consecutive failures on failure. */
+    public function renew(Order $order): ChargeResult
+    {
+        $this->applyScheduledChanges($order);
+        $order->refresh();
+        $amount = $this->renewalAmount($order);
         $result = $this->chargeStoredCard($order, $amount);
 
         if (! $result->success) {
@@ -132,7 +195,7 @@ class TrialBillingService
 
         // Advanced from the order's own scheduled date, not now() — a late retry never drifts the
         // billing anniversary forward.
-        $nextBillDate = $cycle === BillingCycle::Monthly
+        $nextBillDate = ($order->billing_cycle ?? BillingCycle::Annual) === BillingCycle::Monthly
             ? ($order->next_bill_date ?? now())->copy()->addMonth()
             : ($order->next_bill_date ?? now())->copy()->addYear();
 
@@ -168,12 +231,14 @@ class TrialBillingService
         return $result;
     }
 
-    /** @param  'client_requested'|'trial_expired'|'renewal_failed'  $reason */
+    /** @param  'client_requested'|'trial_expired'|'renewal_failed'|'term_ended'  $reason */
     public function cancel(Order $order, string $reason): void
     {
         $order->update([
             'status' => OrderStatus::Cancelled,
             'cancelled_at' => now(),
+            'cancels_at' => null,
+            'scheduled_billing_cycle' => null,
         ]);
 
         ActivityLog::record(
@@ -182,6 +247,12 @@ class TrialBillingService
             user: $order->user,
             order: $order,
         );
+
+        if ($reason === 'term_ended') {
+            $this->sendQuietly(fn () => Mail::to($order->user->email)->queue(new ClientSubscriptionCancellationMail($order, ended: true)));
+
+            return;
+        }
 
         if ($reason === 'renewal_failed') {
             $this->sendQuietly(fn () => Mail::to($order->user->email)->queue(new ClientRenewalFailedMail($order, cancelled: true)));
@@ -253,7 +324,7 @@ class TrialBillingService
     {
         $admins = User::where('role', UserRole::Admin)->get();
 
-        $admins->each(
+        $admins->filter(fn (User $admin) => $admin->wantsEmail(AdminEmail::Payments))->each(
             fn (User $admin) => $this->sendQuietly(fn () => Mail::to($admin->email)->queue(new AdminPaymentReceivedMail($order)))
         );
 

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\AiExtractionStatus;
 use App\Enums\BillingCycle;
+use App\Enums\CardBrand;
 use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
@@ -1474,6 +1475,8 @@ class PortalTest extends TestCase
         // next renewal exactly like the free-trial-converted path does.
         $this->assertSame('4111114281501111', $order->clover_card_token);
         $this->assertSame('1111', $order->card_last_four);
+        $this->assertSame(CardBrand::Visa, $order->card_brand);
+        $this->assertSame('Jane Provider', $order->card_holder_name);
         $this->assertSame('REF123', $order->mtbc_reference_number);
         $this->assertNotNull($order->next_bill_date);
         $this->assertTrue($order->next_bill_date->isSameDay(now()->addMonth()));
@@ -1676,6 +1679,8 @@ class PortalTest extends TestCase
         $this->assertSame(12, $order->card_expiry_month);
         $this->assertSame(2027, $order->card_expiry_year);
         $this->assertSame('1111', $order->card_last_four);
+        $this->assertSame(CardBrand::Visa, $order->card_brand);
+        $this->assertSame('Jane Provider', $order->card_holder_name);
         $this->assertSame('REF123', $order->mtbc_reference_number);
         $this->assertNotNull($order->trial_ends_at);
         $this->assertEqualsWithDelta(now()->addDays(30)->timestamp, $order->trial_ends_at->timestamp, 5);

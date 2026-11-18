@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Laravel\Fortify\Contracts\TwoFactorAuthenticationProvider;
+use Laravel\Fortify\Fortify;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
@@ -45,6 +47,17 @@ new class extends Component
     public string $pickedPracticeId = '';
 
     public bool $choosingPractice = false;
+
+    /** Two-step verification: the password (or partner sign-in) checked out and the account has
+     *  two-step turned on, so the code screen is showing. Who is signing in waits server-side in
+     *  the session (login.two_factor), never in the component's state. */
+    public bool $twoFactorChallenge = false;
+
+    public string $twoFactorCode = '';
+
+    public bool $useRecoveryCode = false;
+
+    private const TWO_FACTOR_TIMEOUT_SECONDS = 600;
 
     private function throttleKey(): string
     {
@@ -122,7 +135,9 @@ new class extends Component
             return;
         }
 
-        if (! Auth::attempt(['email' => $this->email, 'password' => $this->password], $this->remember)) {
+        // Check the password without signing in yet: an account with two-step verification still
+        // needs its code first.
+        if (! Auth::validate(['email' => $this->email, 'password' => $this->password])) {
             RateLimiter::hit($this->throttleKey(), self::LOGIN_DECAY_SECONDS);
             $this->failWith('email', 'These credentials do not match our records.');
 
@@ -131,26 +146,141 @@ new class extends Component
 
         RateLimiter::clear($this->throttleKey());
 
-        if (! Auth::user()->is_active) {
-            Auth::logout();
+        /** @var User $user */
+        $user = Auth::getLastAttempted();
+
+        if (! $user->is_active) {
             $this->failWith('email', 'This account has been deactivated.');
 
             return;
         }
 
+        if ($user->hasEnabledTwoFactorAuthentication()) {
+            $this->startTwoFactorChallenge($user, $this->remember, sso: null);
+
+            return;
+        }
+
+        $this->signIn($user, $this->remember, sso: null);
+    }
+
+    /**
+     * Finishes any sign-in through this form, once the password (or partner sign-in) and, if it's
+     * turned on, the two-step code have been checked.
+     *
+     * @param  array{label: string, practice: array{id: string, name: ?string}|null}|null  $sso
+     */
+    private function signIn(User $user, bool $remember, ?array $sso): void
+    {
+        Auth::login($user, $remember);
         session()->regenerate();
 
-        $user = Auth::user();
+        if ($sso) {
+            if ($sso['practice']) {
+                session(['sso_active_practice' => $sso['practice']]);
+            }
+
+            ActivityLog::record('sso.empower_sso_api_login', "Logged in via {$sso['label']} (EmpowerSSOAPI).", user: $user);
+        }
 
         [$destination, $isPurchasing] = $this->destinationFor($user, newClientToPricing: true);
 
-        if ($isPurchasing) {
-            session()->flash('toast', 'Login successful - Please continue with purchasing the package');
+        // Survives the redirect: the layout's toast reads this flash on the next page.
+        if ($isPurchasing || $sso) {
+            session()->flash('toast', $isPurchasing ? 'Login successful - Please continue with purchasing the package' : 'Login successful');
             session()->flash('toast_type', 'success');
         }
 
         // A full page load for the LMS handoff: it ends in a redirect to another site, which SPA navigation can't follow.
         $this->redirect($destination, navigate: ! str_starts_with($destination, route('oidc.authorize')));
+    }
+
+    /** @param  array{label: string, practice: array{id: string, name: ?string}|null}|null  $sso */
+    private function startTwoFactorChallenge(User $user, bool $remember, ?array $sso): void
+    {
+        session(['login.two_factor' => [
+            'user_id' => $user->id,
+            'remember' => $remember,
+            'sso' => $sso,
+            'expires_at' => now()->getTimestamp() + self::TWO_FACTOR_TIMEOUT_SECONDS,
+        ]]);
+
+        $this->password = '';
+        $this->ssoPassword = '';
+        $this->twoFactorCode = '';
+        $this->useRecoveryCode = false;
+        $this->twoFactorChallenge = true;
+        $this->resetErrorBag();
+    }
+
+    public function toggleRecoveryCode(): void
+    {
+        $this->useRecoveryCode = ! $this->useRecoveryCode;
+        $this->twoFactorCode = '';
+        $this->resetErrorBag();
+    }
+
+    public function cancelTwoFactor(): void
+    {
+        session()->forget('login.two_factor');
+        $this->twoFactorChallenge = false;
+        $this->twoFactorCode = '';
+        $this->useRecoveryCode = false;
+        $this->resetErrorBag();
+    }
+
+    public function verifyTwoFactor(TwoFactorAuthenticationProvider $provider): void
+    {
+        $this->resetErrorBag();
+
+        $pending = session('login.two_factor');
+        $user = $pending ? User::find($pending['user_id']) : null;
+
+        if (! $user || $pending['expires_at'] < now()->getTimestamp() || ! $user->is_active || ! $user->hasEnabledTwoFactorAuthentication()) {
+            $this->cancelTwoFactor();
+            $this->failWith('email', 'Your sign-in timed out. Please sign in again.');
+
+            return;
+        }
+
+        $key = 'two-factor|'.$user->id;
+
+        if (RateLimiter::tooManyAttempts($key, self::MAX_LOGIN_ATTEMPTS)) {
+            $this->failWith('twoFactorCode', 'Too many tries. Please wait '.RateLimiter::availableIn($key).' seconds and try again.');
+
+            return;
+        }
+
+        $code = trim($this->twoFactorCode);
+
+        if ($this->useRecoveryCode) {
+            $match = collect($user->recoveryCodes())->first(fn (string $recovery) => $code !== '' && hash_equals($recovery, $code));
+
+            if ($match) {
+                $user->replaceRecoveryCode($match);
+            }
+
+            $valid = $match !== null;
+        } else {
+            $code = preg_replace('/\D/', '', $code);
+            $valid = $code !== '' && $provider->verify(Fortify::currentEncrypter()->decrypt($user->two_factor_secret), $code);
+        }
+
+        if (! $valid) {
+            RateLimiter::hit($key, self::LOGIN_DECAY_SECONDS);
+            $this->failWith('twoFactorCode', $this->useRecoveryCode ? "That recovery code didn't work." : "That code didn't work. Check your authenticator app and try again.");
+
+            return;
+        }
+
+        RateLimiter::clear($key);
+        session()->forget('login.two_factor');
+
+        if ($this->useRecoveryCode) {
+            ActivityLog::record('auth.two_factor_recovery_code_used', 'Signed in with a two-step recovery code.', user: $user);
+        }
+
+        $this->signIn($user, (bool) $pending['remember'], $pending['sso']);
     }
 
     public function selectSsoProvider(string $provider): void
@@ -390,39 +520,73 @@ new class extends Component
             }
         }
 
-        Auth::login($user);
-        session()->regenerate();
-
-        if ($chosenId !== null) {
-            session(['sso_active_practice' => ['id' => $chosenId, 'name' => $chosenName]]);
-        }
-
         if (! $user->is_active) {
-            Auth::logout();
             $this->failWith('ssoPassword', 'This account has been deactivated.');
 
             return;
         }
 
-        ActivityLog::record(
-            'sso.empower_sso_api_login',
-            "Logged in via {$this->ssoProviderLabel()} (EmpowerSSOAPI).",
-            user: $user,
-        );
+        $sso = [
+            'label' => $this->ssoProviderLabel(),
+            'practice' => $chosenId !== null ? ['id' => $chosenId, 'name' => $chosenName] : null,
+        ];
 
-        [$destination, $isPurchasing] = $this->destinationFor($user, newClientToPricing: true);
+        // Two-step verification is part of signing in here too (the partner only checked its own
+        // password). Partner-pushed sign-ins (/sso/consume) skip it, see my-account-plan.md.
+        if ($user->hasEnabledTwoFactorAuthentication()) {
+            $this->startTwoFactorChallenge($user, remember: false, sso: $sso);
 
-        // Survives the redirect: the layout's toast reads this flash on the next page.
-        session()->flash('toast', $isPurchasing ? 'Login successful - Please continue with purchasing the package' : 'Login successful');
-        session()->flash('toast_type', 'success');
+            return;
+        }
 
-        // A full page load for the LMS handoff: it ends in a redirect to another site, which SPA navigation can't follow.
-        $this->redirect($destination, navigate: ! str_starts_with($destination, route('oidc.authorize')));
+        $this->signIn($user, remember: false, sso: $sso);
     }
 };
 ?>
 
 <div>
+    @if($twoFactorChallenge)
+    {{-- Two-step verification code (after a correct password or partner sign-in) --}}
+    <form wire:submit="verifyTwoFactor" novalidate data-two-factor-challenge>
+        <h2 class="text-base font-bold text-[#173a59] mb-1">Two-step verification</h2>
+        <p class="text-sm text-[#5c778d] mb-4">
+            @if($useRecoveryCode)
+            Enter one of the recovery codes you saved when you turned on two-step verification. Each code works once.
+            @else
+            Open your authenticator app and enter the 6-digit code for the Empower portal.
+            @endif
+        </p>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="lf-two-factor-code">{{ $useRecoveryCode ? 'Recovery code' : '6-digit code' }}</label>
+            <input wire:model="twoFactorCode" id="lf-two-factor-code" wire:key="two-factor-input-{{ $useRecoveryCode ? 'recovery' : 'code' }}"
+                type="text" x-init="$el.focus()"
+                @if($useRecoveryCode) autocomplete="off" placeholder="abcde12345-fghij67890" @else inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456" @endif
+                class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition font-mono {{ $useRecoveryCode ? '' : 'tracking-[0.3em]' }}">
+            @error('twoFactorCode') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        </div>
+
+        <button type="button" wire:click="toggleRecoveryCode" class="mb-4 text-xs font-semibold text-[#0b9ed0] hover:text-[#0e3a61]">
+            {{ $useRecoveryCode ? 'Use a code from my authenticator app' : "Can't use your app? Use a recovery code" }}
+        </button>
+
+        <div class="flex items-center justify-between gap-3">
+            <button type="button" wire:click="cancelTwoFactor"
+                class="inline-flex items-center gap-2 rounded bg-white px-4 py-2 text-sm font-semibold text-[#1c3457] hover:bg-[#f5f7fa] transition-colors">
+                <span aria-hidden="true" class="text-base font-black leading-none">&#8592;</span>
+                <span>Back</span>
+            </button>
+            <button type="submit"
+                class="inline-flex items-center gap-1 rounded bg-[#2299dd] px-5 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors"
+                wire:loading.attr="disabled" wire:loading.class="opacity-70 cursor-not-allowed">
+                <span wire:loading.remove>Verify &rarr;</span>
+                <span wire:loading.inline-flex class="inline-flex items-center gap-1.5">
+                    <x-spinner class="h-3.5 w-3.5" /> Checking…
+                </span>
+            </button>
+        </div>
+    </form>
+    @else
     @if($ssoProvider === null)
     {{-- SSO sign-in options — verified server-to-server against MTBC's EmpowerSSOAPI once a
     provider is picked below; see sso.md §1a. --}}
@@ -587,5 +751,6 @@ new class extends Component
             </button>
         </div>
     </form>
+    @endif
     @endif
 </div>

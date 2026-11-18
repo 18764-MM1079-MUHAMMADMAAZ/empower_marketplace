@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'user_id', 'name', 'logo_path', 'address',
-    'specialty', 'billable_providers_count',
+    'specialty', 'billable_providers_count', 'scheduled_billable_providers',
     'is_profile_locked', 'locked_at',
     'compliance_officer_name', 'compliance_officer_phone', 'compliance_officer_email',
     'hipaa_privacy_officer_name', 'hipaa_privacy_officer_phone', 'hipaa_privacy_officer_email',
@@ -67,6 +67,7 @@ class Practice extends Model
             'account_status' => 'boolean',
             'locked_at' => 'datetime',
             'billable_providers_count' => 'integer',
+            'scheduled_billable_providers' => 'integer',
             'uses_ehcp_hotline' => 'boolean',
             'hotline_poster_count' => 'integer',
             'compliance_committee_members' => 'array',

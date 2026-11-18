@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\AdminEmail;
 use App\Enums\AiExtractionStatus;
 use App\Enums\BillingCycle;
+use App\Enums\CardBrand;
 use App\Enums\DiscountType;
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
@@ -1945,6 +1947,8 @@ new class extends Component
                     'card_expiry_month' => (int) $expMonth,
                     'card_expiry_year' => (int) ('20'.$expYear),
                     'card_last_four' => $tokenizeResult['lastFour'],
+                    'card_brand' => CardBrand::fromNumber($tokenizeResult['firstSix'] ?? $cardNumber),
+                    'card_holder_name' => trim($cardName),
                     'mtbc_reference_number' => $tokenizeResult['referenceNumber'],
                 ] : []),
             ]);
@@ -1975,7 +1979,7 @@ new class extends Component
 
             $admins = User::where('role', UserRole::Admin)->get();
 
-            $admins->each(function (User $admin) use ($order) {
+            $admins->filter(fn (User $admin) => $admin->wantsEmail(AdminEmail::Payments))->each(function (User $admin) use ($order) {
                 try {
                     Mail::to($admin->email)->queue(new AdminPaymentReceivedMail($order));
                 } catch (\Throwable $e) {
@@ -2163,6 +2167,8 @@ new class extends Component
             'card_expiry_month' => $expMonth,
             'card_expiry_year' => $expYear,
             'card_last_four' => $tokenizeResult['lastFour'],
+            'card_brand' => CardBrand::fromNumber($tokenizeResult['firstSix'] ?? $cardNumber),
+            'card_holder_name' => trim($cardName),
             'mtbc_reference_number' => $tokenizeResult['referenceNumber'],
         ]);
 
@@ -2285,6 +2291,7 @@ new class extends Component
             'card_expiry_month' => (int) $expMonth,
             'card_expiry_year' => (int) ('20'.$expYear),
             'card_last_four' => $tokenizeResult['lastFour'],
+            'card_brand' => CardBrand::fromNumber($tokenizeResult['firstSix'] ?? $cardNumber),
             'mtbc_reference_number' => $tokenizeResult['referenceNumber'],
         ]);
 
@@ -2524,7 +2531,7 @@ new class extends Component
 
         $admins = User::where('role', UserRole::Admin)->get();
 
-        $admins->each(function (User $admin) use ($primarySubmission) {
+        $admins->filter(fn (User $admin) => $admin->wantsEmail(AdminEmail::IntakeSubmissions))->each(function (User $admin) use ($primarySubmission) {
             try {
                 Mail::to($admin->email)->send(new AdminIntakeSubmittedMail($primarySubmission));
             } catch (\Throwable $e) {
@@ -2667,7 +2674,13 @@ $steps = [
 5 => 'Dashboard',
 ];
 $milestone = $this->completedMilestone;
-$progressPct = ($milestone / 4) * 100;
+// The bar stops halfway between the last finished step and the next one (Alpine below measures the
+// real circle positions; this is the no-JS approximation). Nothing done: empty; all done: full.
+$progressPct = match (true) {
+    $milestone <= 0 => 0,
+    $milestone >= 4 => 100,
+    default => (($milestone - 0.5) / 4) * 100,
+};
 @endphp
 
 <div class="space-y-4 xl:space-y-0 xl:grid xl:grid-cols-[1fr_320px] xl:gap-6 xl:items-start">
@@ -2730,9 +2743,9 @@ $progressPct = ($milestone / 4) * 100;
                     calculate price
             </div>
             @endif
-            <div class="text-empower-muted text-xs mt-1">
+            {{-- <div class="text-empower-muted text-xs mt-1">
                 {{ $heroPackages->pluck('name')->implode(' + ') }}
-            </div>
+            </div> --}}
             @if($heroProviders && ! $this->partnerBilledClient)
             <div class="text-empower-muted text-xs mt-1 pt-1 border-t border-[#eef2f6]">
                 {{ $heroProviders }} provider{{ $heroProviders === 1 ? '' : 's' }} &middot; ${{
@@ -2748,7 +2761,36 @@ $progressPct = ($milestone / 4) * 100;
 <div class="xl:col-start-1 xl:row-start-1 min-w-0 space-y-4">
 
     {{-- ── Stepper ── --}}
-    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5">
+    <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5"
+        wire:key="stepper-{{ $milestone }}" data-stepper data-milestone="{{ $milestone }}"
+        x-data="{
+            milestone: {{ $milestone }},
+            intake: window.__intakeProgress ?? null,
+            {{-- Where the bar ends, in step units (1 = first circle, 5 = last). A finished step
+            puts it halfway to the next circle. During Practice Intake it moves on from there as
+            the intake fills in, reaching halfway between steps 2 and 3 when every item is done. --}}
+            position() {
+                if (this.milestone === 1 && this.intake && this.intake.total > 0) {
+                    return 1.5 + Math.min(this.intake.done / this.intake.total, 1);
+                }
+                return this.milestone + 0.5;
+            },
+            place() {
+                const dots = this.$root.querySelectorAll('[data-step-dot]');
+                const track = this.$refs.track, fill = this.$refs.fill;
+                if (! track || ! fill || dots.length < 2) return;
+                if (this.milestone <= 0) { fill.style.width = '0%'; return; }
+                if (this.milestone >= dots.length - 1) { fill.style.width = '100%'; return; }
+                const left = track.getBoundingClientRect().left;
+                const centre = (i) => { const r = dots[i].getBoundingClientRect(); return r.left + r.width / 2 - left; };
+                const p = Math.min(this.position(), dots.length) - 1;
+                const from = Math.min(Math.floor(p), dots.length - 2);
+                const x = centre(from) + (p - from) * (centre(from + 1) - centre(from));
+                fill.style.width = Math.min(Math.max(x, 0), track.clientWidth) + 'px';
+            },
+        }"
+        x-init="$nextTick(() => place()); new ResizeObserver(() => place()).observe($el)"
+        x-on:intake-progress.window="intake = $event.detail; place()">
         <div class="flex justify-between items-center mb-4">
             <p class="text-xs text-[#5d6e7f]">Complete each step to receive your compliance documents.</p>
             <span
@@ -2757,7 +2799,7 @@ $progressPct = ($milestone / 4) * 100;
             </span>
         </div>
 
-        <div class="flex items-start gap-1.5 overflow-x-auto pb-1 -mb-1">
+        <div class="flex items-start gap-1.5 overflow-x-auto pb-1 -mb-1" x-on:scroll="place()">
             @foreach ($steps as $n => $title)
             @php
             $isDone = $n <= $milestone; $isActive=$n===$step; $reachable=$this->canReach($n);
@@ -2765,7 +2807,7 @@ $progressPct = ($milestone / 4) * 100;
                 <div class="flex flex-col items-center gap-1.5 flex-shrink-0 min-w-[5.25rem] {{ $reachable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50' }}"
                     @if($reachable && !$isActive) wire:click="goToStep({{ $n }})" wire:target="goToStep({{ $n }})"
                     wire:loading.class="opacity-50" wire:target="goToStep({{ $n }})" @endif>
-                    <div
+                    <div data-step-dot
                         class="w-9 h-9 rounded-full inline-flex items-center justify-center text-sm font-extrabold flex-shrink-0
                         {{ $isActive ? 'bg-[#12304f] text-white' : ($isDone ? 'bg-[#0b9ed0] text-white' : 'bg-[#edf2f7] text-[#5d6e7f]') }}">
                         @if($reachable && !$isActive)
@@ -2791,8 +2833,8 @@ $progressPct = ($milestone / 4) * 100;
                 @endforeach
         </div>
 
-        <div class="mt-4 h-1.5 bg-[#dbe4ee] rounded-full overflow-hidden">
-            <div class="h-full bg-[#12304f] rounded-full transition-all duration-500"
+        <div class="mt-4 h-1.5 bg-[#dbe4ee] rounded-full overflow-hidden" x-ref="track">
+            <div class="h-full bg-[#12304f] rounded-full transition-all duration-500" x-ref="fill"
                 style="width: {{ $progressPct }}%"></div>
         </div>
     </div>
@@ -3833,10 +3875,11 @@ $progressPct = ($milestone / 4) * 100;
             @php
             $answerRows = $this->answerSummaryRows;
             @endphp
-            <div class="{{ count($answerRows) > 1 ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3' : 'divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl' }}">
+            <div
+                class="{{ count($answerRows) > 1 ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3' : 'divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl' }}">
                 @foreach($answerRows as $row)
-            <div class="{{ count($answerRows) > 1 ? 'border border-[#eef2f6] rounded-xl overflow-hidden' : '' }}"
-                x-data="{ open: false }">
+                <div class="{{ count($answerRows) > 1 ? 'border border-[#eef2f6] rounded-xl overflow-hidden' : '' }}"
+                    x-data="{ open: false }">
                     <button type="button" @if(! empty($row['details'])) x-on:click="open = !open" @endif
                         @if(empty($row['details'])) disabled @endif
                         class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors {{ ! empty($row['details']) ? 'cursor-pointer hover:bg-[#f8fbfd]' : 'cursor-default' }}">
@@ -4808,8 +4851,10 @@ $progressPct = ($milestone / 4) * 100;
                                 download="compliance-hotline-poster.pdf"
                                 class="inline-flex items-center gap-2 flex-shrink-0 rounded-lg border border-[#dbe4ee] bg-white px-3 py-1.5 text-xs font-bold text-[#173045] hover:bg-[#f4f7fb] transition-colors">
                                 <svg class="h-4 w-4 text-red-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M6 2h9l5 5v15H6V2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                                    <path d="M6 2h9l5 5v15H6V2Z" stroke="currentColor" stroke-width="1.6"
+                                        stroke-linejoin="round" />
+                                    <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6"
+                                        stroke-linejoin="round" />
                                     <path d="M8 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
                                     <path d="M8 18h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
                                 </svg>

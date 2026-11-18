@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AdminEmail;
 use App\Enums\AiExtractionStatus;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
@@ -17,6 +18,8 @@ use App\Models\SpecialistCallRequest;
 use App\Models\User;
 use App\Notifications\NewSpecialistCallRequestNotification;
 use App\Services\SpecialistCallSettings;
+use App\Support\PhoneNumber;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
@@ -62,10 +65,28 @@ new class extends Component
         'encounter_list' => ['encounter'],
     ];
 
+    /** Only PDF and Word (.docx) files, up to 20 MB, can be uploaded on the documents screen. */
+    private const DOCUMENT_FILE_EXTENSIONS = ['pdf', 'docx'];
+
+    private const DOCUMENT_FILE_MAX_KB = 20480;
+
+    private const DOCUMENT_FILE_TYPE_MESSAGE = 'Only PDF or Word (.docx) files can be uploaded.';
+
+    /** Files dropped on (or picked from) the main upload box. Each pick is saved straight away and
+     *  then typed in the "What are these documents?" dialog. */
     public array $documentFiles = [];
 
-    /** Proposed document-type tag for each pending $documentFiles entry, index-aligned. */
-    public array $documentFileTags = [];
+    /** Files picked from a checklist row's "Upload" link, keyed by that row's category: the type is
+     *  already known, so they skip the dialog. */
+    public array $categoryFiles = [];
+
+    /** The "What are these documents?" dialog: the saved uploads being typed (empty = closed), the
+     *  type chosen for each (upload id => category key) and the ids whose type is our guess. */
+    public array $typingUploadIds = [];
+
+    public array $typingTags = [];
+
+    public array $suggestedTags = [];
 
     // ── Basics screens (4 sub-screens: b_profile/b_providers/b_address/b_logo) ─────────────
     public $logoFile = null;
@@ -140,8 +161,6 @@ new class extends Component
      *  left for the admin user-edit form's own separate fields, not populated from here). */
     public string $hotlineContact = '';
 
-    public ?int $hotlinePosterCount = null;
-
     public bool $committeeNone = false;
 
     /** @var array<int, array{name: string, title: string}> */
@@ -172,6 +191,64 @@ new class extends Component
 
     public bool $justSaved = false;
 
+    // ── Phone and email fields (Your team steps) ────────────────────────────
+    private const PHONE_FIELDS = [
+        'mainPhone', 'complianceOfficerPhone', 'hipaaPrivacyOfficerPhone',
+        'hipaaSecurityOfficerPhone', 'releaseOfInfoOfficerPhone', 'itContactPhone',
+    ];
+
+    private const EMAIL_FIELDS = [
+        'mainEmail', 'complianceOfficerEmail', 'hipaaPrivacyOfficerEmail',
+        'hipaaSecurityOfficerEmail', 'releaseOfInfoOfficerEmail', 'itContactEmail',
+    ];
+
+    /** "rfc" checks the address's shape; "filter" also turns away ones with no domain ending,
+     *  like "jane@practice". */
+    private const EMAIL_RULE = 'email:rfc,filter|max:150';
+
+    private const EMAIL_MESSAGE = 'Enter a valid email address, like name@practice.com.';
+
+    /** Puts every phone into (XXX) XXX-XXXX where it can be read as a US number, and trims emails. */
+    private function tidyContactFields(): void
+    {
+        foreach (self::PHONE_FIELDS as $field) {
+            $this->{$field} = PhoneNumber::tidy($this->{$field});
+        }
+
+        foreach (self::EMAIL_FIELDS as $field) {
+            $this->{$field} = trim($this->{$field});
+        }
+    }
+
+    /** @return array<string, string> */
+    private function contactMessages(): array
+    {
+        $messages = [];
+
+        foreach (self::PHONE_FIELDS as $field) {
+            $messages["{$field}.regex"] = PhoneNumber::MESSAGE;
+        }
+
+        foreach (self::EMAIL_FIELDS as $field) {
+            $messages["{$field}.email"] = self::EMAIL_MESSAGE;
+        }
+
+        return $messages;
+    }
+
+    /** Checks a phone or email as soon as the client leaves the field. Only the format is checked
+     *  here; a missing value is reported on Continue. */
+    public function updated(string $property): void
+    {
+        if (in_array($property, self::PHONE_FIELDS, true)) {
+            $this->{$property} = PhoneNumber::tidy($this->{$property});
+            $this->validateOnly($property, [$property => PhoneNumber::rules(required: false)], $this->contactMessages());
+        } elseif (in_array($property, self::EMAIL_FIELDS, true)) {
+            $this->{$property} = trim($this->{$property});
+            $this->validateOnly($property, [$property => 'nullable|'.self::EMAIL_RULE], $this->contactMessages());
+        }
+    }
+
     public function mount(array $orderIds, ?string $editScreen = null): void
     {
         $this->orderIds = $orderIds;
@@ -194,8 +271,12 @@ new class extends Component
         $this->legalPracticeName = $practice?->legal_practice_name ?: ($practice?->name ?? '');
         $this->dbaName = $practice?->dba_name ?? '';
         $this->otherEntities = $practice?->other_entities ?? '';
-        $this->mainPhone = $practice?->main_phone ?? '';
-        $this->mainEmail = $practice?->main_email ?? '';
+        // Practices that came in through "Sign in with CareCloud / talkEHR" start with the phone
+        // their sign-in sent us and the email of the account they signed in with (the partner
+        // API has a practice phone but no practice email).
+        $fromPartner = in_array($practice?->source_system, ['cch', 'talkehr'], true);
+        $this->mainPhone = $practice?->main_phone ?: ($fromPartner ? ($practice->phone ?? '') : '');
+        $this->mainEmail = $practice?->main_email ?: ($fromPartner ? (auth()->user()?->email ?? '') : '');
         $this->practiceLocations = ($practice?->practice_locations ?: null) ?? [$practice?->address ?: $this->billingAddressLine];
 
         $this->complianceOfficerName = $practice?->compliance_officer_name ?? '';
@@ -217,13 +298,15 @@ new class extends Component
         $this->itContactPhone = $practice?->it_contact_phone ?? '';
         $this->itContactEmail = $practice?->it_contact_email ?? '';
 
+        // Numbers saved before the (XXX) XXX-XXXX format (or sent by a partner as "7325550148")
+        // show in that format where they can be read as a US number.
+        $this->tidyContactFields();
+
         // uses_ehcp_hotline defaults to false at the DB level, which would otherwise look
         // identical to a deliberate "we have our own" answer — only trust it once this screen
         // has actually been reached; before that, the radio starts genuinely unanswered.
         $this->usesEhcpHotline = in_array('t_hotline', $reached, true) ? (bool) $practice?->uses_ehcp_hotline : null;
         $this->hotlineContact = $practice?->compliance_hotline_number ?: ($practice?->compliance_hotline_email ?? '');
-        $hotlineLocationCount = max(1, collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->count());
-        $this->hotlinePosterCount = $practice?->hotline_poster_count ?? ($hotlineLocationCount * 2);
 
         $this->committeeNone = (bool) ($practice?->committee_none ?? false);
         $this->complianceCommitteeMembers = $practice?->compliance_committee_members ?: [['name' => '', 'title' => '']];
@@ -309,8 +392,8 @@ new class extends Component
             [
                 'title' => $pro ? 'Any current policies, manuals or training materials' : 'Your current policies and training materials',
                 'description' => $pro
-                    ? 'Optional. PDF, Word or Excel. We keep what already works.'
-                    : 'Compliance & Ethics program, HIPAA Privacy and Security policies, and training materials. PDF, Word or Excel.',
+                    ? 'Optional. PDF or Word (.docx). We keep what already works.'
+                    : 'Compliance & Ethics program, HIPAA Privacy and Security policies, and training materials. PDF or Word (.docx).',
             ],
             ['title' => 'Practice name, specialty and address', 'description' => 'Plus your logo if you\'d like it on the cover (optional).'],
         ];
@@ -343,12 +426,12 @@ new class extends Component
         };
     }
 
-    /** Longer than the prototype's clamp(items.length * 900, 5000, 9000) — a few seconds either way
-     *  depending on how much this tier's checklist has to show. */
+    /** How long the intro's "Getting your intake ready…" bar runs before the checklist shows:
+     *  5 seconds for Essential, 8 for Professional and Advanced (their checklist is longer). */
     #[Computed]
     public function introAnimationDurationMs(): int
     {
-        return max(8000, min(12000, count($this->introItems) * 1500));
+        return $this->includesWorkflowQuestionnaire ? 8000 : 5000;
     }
 
     #[Computed]
@@ -420,22 +503,78 @@ new class extends Component
         return $this->currentSubmission->wizard_missing_document_categories ?? [];
     }
 
-    /** 'uploaded' | 'declined' | 'needed' — combines already-persisted uploads with the tags
-     *  proposed for files still sitting in $documentFiles, so the badge updates live before the
-     *  practice ever clicks Continue. */
+    /** 'uploaded' | 'declined' | 'needed'. Uploads are saved as soon as they're picked, so a row
+     *  counts as uploaded once a saved file has been given its type. */
     public function documentCategoryStatus(string $key): string
     {
         if ($this->existingDocuments->contains(fn (IntakeUpload $u) => $u->document_category === $key)) {
             return 'uploaded';
         }
 
-        foreach ($this->documentFileTags as $tag) {
-            if ($tag === $key) {
-                return 'uploaded';
-            }
+        return in_array($key, $this->missingDocumentCategories, true) ? 'declined' : 'needed';
+    }
+
+    /** Saved uploads that haven't been given a type yet (shown under "Needs a type"). */
+    #[Computed]
+    public function untypedDocuments(): Collection
+    {
+        return $this->existingDocuments->filter(fn (IntakeUpload $u) => blank($u->document_category))->values();
+    }
+
+    /** The uploads open in the "What are these documents?" dialog, in the order they were picked. */
+    #[Computed]
+    public function typingDocuments(): Collection
+    {
+        return $this->existingDocuments
+            ->whereIn('id', $this->typingUploadIds)
+            ->sortBy(fn (IntakeUpload $u) => array_search($u->id, $this->typingUploadIds))
+            ->values();
+    }
+
+    /** Every type a file can be given: this package's checklist rows, plus "Other". */
+    private function documentTypeKeys(): array
+    {
+        return [...array_keys($this->requiredDocumentCategories), 'other'];
+    }
+
+    /** Guesses a file's type from words in its name, preferring rows that still need a file. */
+    private function guessDocumentCategory(string $filename): ?string
+    {
+        $name = strtolower($filename);
+        $candidates = collect(self::DOCUMENT_CATEGORY_KEYWORDS)
+            ->filter(fn ($keywords, $key) => array_key_exists($key, $this->requiredDocumentCategories))
+            ->filter(fn ($keywords) => collect($keywords)->contains(fn (string $kw) => str_contains($name, $kw)))
+            ->keys();
+
+        return $candidates->first(fn ($key) => $this->documentCategoryStatus($key) === 'needed') ?? $candidates->first();
+    }
+
+    /** A file was uploaded for these rows, so they can no longer be marked "Don't have it". */
+    private function undeclineDocumentCategories(array $keys): void
+    {
+        $missing = $this->missingDocumentCategories;
+        $remaining = array_values(array_diff($missing, $keys));
+
+        if (count($remaining) !== count($missing)) {
+            $this->currentSubmission->update(['wizard_missing_document_categories' => $remaining]);
         }
 
-        return in_array($key, $this->missingDocumentCategories, true) ? 'declined' : 'needed';
+        $this->forgetDocumentState();
+    }
+
+    /** Clears the cached document lists after an upload, a type change or a delete. */
+    private function forgetDocumentState(): void
+    {
+        unset(
+            $this->existingDocuments,
+            $this->untypedDocuments,
+            $this->typingDocuments,
+            $this->currentSubmission,
+            $this->missingDocumentCategories,
+            $this->openDocumentCategories,
+            $this->hasAnyUploadedDocument,
+            $this->bulkMissingDocumentsLabel,
+        );
     }
 
     public function toggleDocumentMissing(string $key): void
@@ -465,7 +604,7 @@ new class extends Component
     #[Computed]
     public function hasAnyUploadedDocument(): bool
     {
-        return $this->existingDocuments->isNotEmpty() || collect($this->documentFileTags)->filter()->isNotEmpty();
+        return $this->existingDocuments->isNotEmpty();
     }
 
     /** One-click alternative to marking each remaining category "I don't have this" — mirrors the
@@ -503,46 +642,168 @@ new class extends Component
         unset($this->currentSubmission, $this->missingDocumentCategories, $this->openDocumentCategories, $this->bulkMissingDocumentsLabel);
     }
 
-    /** Auto-tags a newly selected file by matching keywords in its filename against the still-
-     *  unresolved categories, mirroring the prototype's DOC_KEYWORDS matching — the practice can
-     *  still override the guess via the "Document type" dropdown. */
+    /** Main upload box: saves the files straight away (so nothing is lost if the client leaves)
+     *  with no type, then opens the dialog with a guessed type for each where the name gives one. */
     public function updatedDocumentFiles(): void
     {
-        foreach ($this->documentFiles as $i => $file) {
-            if (! empty($this->documentFileTags[$i])) {
-                continue;
-            }
+        $files = $this->documentFiles;
+        $this->documentFiles = [];
 
-            $name = strtolower($file->getClientOriginalName());
+        $uploads = $this->storePickedDocumentFiles($files);
 
-            foreach (self::DOCUMENT_CATEGORY_KEYWORDS as $key => $keywords) {
-                if ($this->documentCategoryStatus($key) !== 'needed') {
-                    continue;
-                }
-
-                if (collect($keywords)->contains(fn (string $kw) => str_contains($name, $kw))) {
-                    $this->documentFileTags[$i] = $key;
-
-                    break;
-                }
-            }
-        }
-    }
-
-    public function tagExistingDocument(int $uploadId, ?string $category): void
-    {
-        $upload = $this->existingDocuments->firstWhere('id', $uploadId);
-
-        if (! $upload || $upload->intake_submission_id !== $this->currentSubmission->id) {
+        if ($uploads === []) {
             return;
         }
 
-        $upload->update(['document_category' => $category ?: null]);
-        unset($this->existingDocuments);
+        $this->typingUploadIds = [];
+        $this->typingTags = [];
+        $this->suggestedTags = [];
 
-        if ($category && in_array($category, $this->missingDocumentCategories, true)) {
-            $this->toggleDocumentMissing($category);
+        foreach ($uploads as $upload) {
+            $guess = $this->guessDocumentCategory($upload->original_filename);
+            $this->typingUploadIds[] = $upload->id;
+            $this->typingTags[$upload->id] = $guess ?? '';
+
+            if ($guess) {
+                $this->suggestedTags[] = $upload->id;
+            }
         }
+
+        $this->resetErrorBag('typingTags');
+        unset($this->typingDocuments);
+    }
+
+    /** A checklist row's "Upload" link: the row already says what the files are. */
+    public function updatedCategoryFiles(mixed $value, ?string $key = null): void
+    {
+        $category = $key === null ? null : explode('.', $key)[0];
+        $files = $category === null ? [] : ($this->categoryFiles[$category] ?? []);
+        $this->categoryFiles = [];
+
+        if ($category === null || ! array_key_exists($category, $this->requiredDocumentCategories)) {
+            return;
+        }
+
+        if ($this->storePickedDocumentFiles(is_array($files) ? $files : [$files], $category) !== []) {
+            $this->undeclineDocumentCategories([$category]);
+        }
+    }
+
+    /** Saves each acceptable file against the draft submission and reports any that were turned
+     *  away (wrong type or too large) by name.
+     *  @return array<int, IntakeUpload> */
+    private function storePickedDocumentFiles(array $files, ?string $category = null): array
+    {
+        $this->resetErrorBag(['documentFiles', 'documentFiles.*', 'categoryFiles', 'categoryFiles.*']);
+
+        $wrongType = [];
+        $tooLarge = [];
+        $stored = [];
+        $batchToken = (string) Str::ulid();
+
+        foreach ($files as $file) {
+            if (! $file instanceof UploadedFile) {
+                continue;
+            }
+
+            $name = $file->getClientOriginalName();
+            $typeOk = in_array(strtolower($file->getClientOriginalExtension()), self::DOCUMENT_FILE_EXTENSIONS, true)
+                && Validator::make(['file' => $file], ['file' => 'file|mimes:'.implode(',', self::DOCUMENT_FILE_EXTENSIONS)])->passes();
+
+            if (! $typeOk) {
+                $wrongType[] = $name;
+
+                continue;
+            }
+
+            if ($file->getSize() > self::DOCUMENT_FILE_MAX_KB * 1024) {
+                $tooLarge[] = $name;
+
+                continue;
+            }
+
+            $stored[] = IntakeUpload::create([
+                'intake_submission_id' => $this->currentSubmission->id,
+                'upload_type' => IntakeUploadType::ClientDocumentForReview,
+                'document_category' => $category,
+                'original_filename' => $name,
+                'storage_path' => $file->store("uploads/batch/{$batchToken}"),
+                'mime_type' => $file->getMimeType(),
+                'file_size' => $file->getSize(),
+                // Left as-is while the client is still drafting the wizard, so re-uploading or
+                // removing a file mid-draft never burns an OpenAI call. ⚡portal.blade.php's
+                // finalizeIntake() flips this to Pending and dispatches the AI compliance review
+                // once the intake is actually submitted.
+                'ai_extraction_status' => AiExtractionStatus::NotApplicable,
+            ]);
+        }
+
+        $problems = array_filter([
+            $wrongType ? self::DOCUMENT_FILE_TYPE_MESSAGE.' Not added: '.implode(', ', $wrongType).'.' : null,
+            $tooLarge ? 'Files must be 20 MB or smaller. Not added: '.implode(', ', $tooLarge).'.' : null,
+        ]);
+
+        if ($problems !== []) {
+            $this->addError('documentFiles', implode(' ', $problems));
+        }
+
+        $this->justSaved = false;
+        $this->forgetDocumentState();
+
+        return $stored;
+    }
+
+    /** "Change type" on a row's file, or "Choose type" under "Needs a type". */
+    public function openDocumentTypeDialog(int $uploadId): void
+    {
+        $upload = $this->existingDocuments->firstWhere('id', $uploadId);
+
+        if (! $upload) {
+            return;
+        }
+
+        $guess = blank($upload->document_category) ? $this->guessDocumentCategory($upload->original_filename) : null;
+
+        $this->typingUploadIds = [$upload->id];
+        $this->typingTags = [$upload->id => $upload->document_category ?: ($guess ?? '')];
+        $this->suggestedTags = $guess ? [$upload->id] : [];
+        $this->resetErrorBag('typingTags');
+        unset($this->typingDocuments);
+    }
+
+    /** The dialog's main button: every file needs a type; "Decide later" is the way out. */
+    public function confirmDocumentTypes(): void
+    {
+        $uploads = $this->typingDocuments;
+        $allowed = $this->documentTypeKeys();
+        $chosen = fn (IntakeUpload $u) => (string) ($this->typingTags[$u->id] ?? '');
+
+        $unset = $uploads->reject(fn (IntakeUpload $u) => in_array($chosen($u), $allowed, true));
+
+        if ($unset->isNotEmpty()) {
+            $this->addError('typingTags', $uploads->count() === 1
+                ? 'Choose what this document is.'
+                : 'Choose a type for each file, or choose "Decide later".');
+
+            return;
+        }
+
+        foreach ($uploads as $upload) {
+            $upload->update(['document_category' => $chosen($upload)]);
+        }
+
+        $this->closeDocumentTypeDialog();
+        $this->undeclineDocumentCategories($uploads->map($chosen)->all());
+    }
+
+    /** "Decide later", ✕ or Escape: the files stay saved; any without a type wait under "Needs a type". */
+    public function closeDocumentTypeDialog(): void
+    {
+        $this->typingUploadIds = [];
+        $this->typingTags = [];
+        $this->suggestedTags = [];
+        $this->resetErrorBag('typingTags');
+        unset($this->typingDocuments);
     }
 
     #[Computed]
@@ -1158,14 +1419,6 @@ new class extends Component
 
     // ── Documents ─────────────────────────────────────────────────────────
 
-    public function removeDocumentFile(int $index): void
-    {
-        unset($this->documentFiles[$index], $this->documentFileTags[$index]);
-        $this->documentFiles = array_values($this->documentFiles);
-        $this->documentFileTags = array_values($this->documentFileTags);
-        $this->resetErrorBag('documentFiles');
-    }
-
     public function deleteExistingDocument(int $uploadId): void
     {
         $upload = $this->existingDocuments->firstWhere('id', $uploadId);
@@ -1179,7 +1432,17 @@ new class extends Component
         }
 
         $upload->delete();
-        unset($this->existingDocuments);
+
+        // Drop it from the dialog too, closing the dialog if it was the last file in it.
+        $this->typingUploadIds = array_values(array_diff($this->typingUploadIds, [$uploadId]));
+        unset($this->typingTags[$uploadId]);
+        $this->suggestedTags = array_values(array_diff($this->suggestedTags, [$uploadId]));
+
+        if ($this->typingUploadIds === []) {
+            $this->closeDocumentTypeDialog();
+        }
+
+        $this->forgetDocumentState();
     }
 
     /** @param bool $skipValidation "Skip for now"/"Save & continue later" bypass this screen's
@@ -1193,20 +1456,18 @@ new class extends Component
         // Professional/Advanced treat this screen as fully optional, same as the prototype's
         // isPro() bypass — only Essential enforces the checks below.
         if (! $skipValidation && ! $this->includesWorkflowQuestionnaire) {
-            if ($this->existingDocuments->isEmpty() && empty($this->documentFiles)) {
+            if ($this->existingDocuments->isEmpty()) {
                 $this->addError('documentFiles', 'Please upload at least one existing document, so our team has something to review.');
 
                 return;
             }
 
-            $untagged = collect($this->documentFiles)
-                ->filter(fn ($file, $i) => empty($this->documentFileTags[$i]))
-                ->count();
+            $untagged = $this->untypedDocuments->count();
 
             if ($untagged > 0) {
                 $this->addError('documentFiles', $untagged > 1
-                    ? "Tell us what {$untagged} files are, using the \"Document type\" menu."
-                    : 'Tell us what your file is, using the "Document type" menu.');
+                    ? "Choose a type for the {$untagged} files under \"Needs a type\"."
+                    : 'Choose a type for the file under "Needs a type".');
 
                 return;
             }
@@ -1222,33 +1483,8 @@ new class extends Component
             }
         }
 
-        $this->validate([
-            'documentFiles.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png,docx|max:20480',
-        ]);
-
-        $submission = $this->currentSubmission;
-        $batchToken = (string) Str::ulid();
-
-        foreach ($this->documentFiles as $i => $file) {
-            IntakeUpload::create([
-                'intake_submission_id' => $submission->id,
-                'upload_type' => IntakeUploadType::ClientDocumentForReview,
-                'document_category' => $this->documentFileTags[$i] ?? null,
-                'original_filename' => $file->getClientOriginalName(),
-                'storage_path' => $file->store("uploads/batch/{$batchToken}"),
-                'mime_type' => $file->getMimeType(),
-                'file_size' => $file->getSize(),
-                // Left as-is while the client is still drafting the wizard, so re-uploading or
-                // removing a file mid-draft never burns an OpenAI call. ⚡portal.blade.php's
-                // finalizeIntake() flips this to Pending and dispatches the AI compliance review
-                // once the intake is actually submitted.
-                'ai_extraction_status' => AiExtractionStatus::NotApplicable,
-            ]);
-        }
-
-        $this->documentFiles = [];
-        $this->documentFileTags = [];
-        unset($this->existingDocuments);
+        // Files are saved the moment they're picked, so there's nothing left to store here.
+        $this->closeDocumentTypeDialog();
 
         if ($stayOnScreen) {
             $this->justSaved = true;
@@ -1446,6 +1682,7 @@ new class extends Component
     public function continueFromPractice(bool $skipValidation = false, bool $stayOnScreen = false): void
     {
         $this->justSaved = false;
+        $this->tidyContactFields();
 
         if (! $skipValidation) {
             $validator = Validator::make(
@@ -1457,12 +1694,12 @@ new class extends Component
                 ],
                 [
                     'legalPracticeName' => 'required|string|max:200',
-                    'mainPhone' => 'required|string|max:30',
-                    'mainEmail' => 'required|email|max:150',
+                    'mainPhone' => PhoneNumber::rules(),
+                    'mainEmail' => 'required|'.self::EMAIL_RULE,
                     'practiceLocations' => 'required|array|min:1',
                     'practiceLocations.*' => 'nullable|string|max:255',
                 ],
-                ['practiceLocations.required' => 'Add at least one location.'],
+                ['practiceLocations.required' => 'Add at least one location.', ...$this->contactMessages()],
             );
 
             $validator->after(function ($validator) {
@@ -1654,22 +1891,18 @@ new class extends Component
     public function continueFromOfficers(bool $skipValidation = false, bool $stayOnScreen = false): void
     {
         $this->justSaved = false;
+        $this->tidyContactFields();
 
         if (! $skipValidation) {
-            $this->validate([
-                'complianceOfficerName' => 'required|string|max:150',
-                'complianceOfficerPhone' => 'required|string|max:30',
-                'complianceOfficerEmail' => 'required|email|max:150',
-                'hipaaPrivacyOfficerName' => 'required|string|max:150',
-                'hipaaPrivacyOfficerPhone' => 'required|string|max:30',
-                'hipaaPrivacyOfficerEmail' => 'required|email|max:150',
-                'hipaaSecurityOfficerName' => 'required|string|max:150',
-                'hipaaSecurityOfficerPhone' => 'required|string|max:30',
-                'hipaaSecurityOfficerEmail' => 'required|email|max:150',
-                'releaseOfInfoOfficerName' => 'required|string|max:150',
-                'releaseOfInfoOfficerPhone' => 'required|string|max:30',
-                'releaseOfInfoOfficerEmail' => 'required|email|max:150',
-            ]);
+            $rules = [];
+
+            foreach (array_keys(self::OFFICER_PREFIXES) as $prefix) {
+                $rules["{$prefix}Name"] = 'required|string|max:150';
+                $rules["{$prefix}Phone"] = PhoneNumber::rules();
+                $rules["{$prefix}Email"] = 'required|'.self::EMAIL_RULE;
+            }
+
+            $this->validate($rules, $this->contactMessages());
         }
 
         $this->practice?->update([
@@ -1709,21 +1942,23 @@ new class extends Component
     public function continueFromIt(bool $skipValidation = false, bool $stayOnScreen = false): void
     {
         $this->justSaved = false;
+        $this->tidyContactFields();
 
         if (! $skipValidation) {
             $rules = ['itMode' => 'required|in:vendor,inhouse'];
 
             if ($this->itMode === 'vendor') {
                 $rules['itVendorName'] = 'required|string|max:150';
-                $rules['itContactPhone'] = 'required|string|max:30';
-                $rules['itContactEmail'] = 'required|email|max:150';
             } elseif ($this->itMode === 'inhouse') {
                 $rules['itContactName'] = 'required|string|max:150';
-                $rules['itContactPhone'] = 'required|string|max:30';
-                $rules['itContactEmail'] = 'required|email|max:150';
             }
 
-            $this->validate($rules);
+            if (in_array($this->itMode, ['vendor', 'inhouse'], true)) {
+                $rules['itContactPhone'] = PhoneNumber::rules();
+                $rules['itContactEmail'] = 'required|'.self::EMAIL_RULE;
+            }
+
+            $this->validate($rules, $this->contactMessages());
         }
 
         $this->practice?->update([
@@ -1767,16 +2002,13 @@ new class extends Component
             $this->validate($rules, ['usesEhcpHotline.required' => 'Choose one option.']);
         }
 
-        $locationCount = max(1, collect($this->practiceLocations)->filter(fn ($l) => trim($l) !== '')->count());
-        $posterCount = $this->hotlinePosterCount ?? ($locationCount * 2);
-
+        // The poster count is no longer asked here; any count already saved (or set by an admin
+        // on the submission) is left as it is.
         $this->practice?->update([
             'uses_ehcp_hotline' => (bool) $this->usesEhcpHotline,
             'compliance_hotline_number' => $this->usesEhcpHotline === false ? $this->hotlineContact : null,
-            'hotline_poster_count' => $posterCount,
         ]);
         unset($this->practice);
-        $this->hotlinePosterCount = $posterCount;
 
         if ($stayOnScreen) {
             $this->justSaved = true;
@@ -2344,7 +2576,7 @@ new class extends Component
 
         $admins = User::where('role', UserRole::Admin)->get();
 
-        $admins->each(function (User $admin) use ($callRequest) {
+        $admins->filter(fn (User $admin) => $admin->wantsEmail(AdminEmail::SpecialistCalls))->each(function (User $admin) use ($callRequest) {
             try {
                 Mail::to($admin->email)->send(new NewSpecialistCallRequestMail($callRequest));
             } catch (\Throwable $e) {
@@ -2392,6 +2624,12 @@ new class extends Component
     ];
     @endphp
 
+    {{-- Tells the portal's step progress bar how far through the intake the client is. The key
+    changes with the counts, so Livewire swaps this element in and x-init runs again. --}}
+    <div hidden data-intake-progress wire:key="intake-progress-{{ $chapterHeaderData['doneItems'] }}-{{ $chapterHeaderData['totalItems'] }}"
+        x-data x-init="window.__intakeProgress = { done: {{ (int) $chapterHeaderData['doneItems'] }}, total: {{ (int) $chapterHeaderData['totalItems'] }} };
+            window.dispatchEvent(new CustomEvent('intake-progress', { detail: window.__intakeProgress }))"></div>
+
     {{-- ── Intro: a tier-aware checklist + an animated load on a first-ever visit, or a static
     recap when revisited via the "What you'll need" dropdown item ($returnToScreen set means
     the latter). Either way, it waits for an explicit "Continue to the intake" click — it
@@ -2406,7 +2644,7 @@ new class extends Component
         <div class="flex flex-col items-center text-center px-6 py-12 lg:py-16 max-w-xl mx-auto" @unless($isRevisit)
             x-data="{ progress: 0, ready: false }" x-init="
                 setTimeout(() => progress = 100, 50);
-                setTimeout(() => ready = true, {{ $introDuration }});
+                setTimeout(() => ready = true, {{ $introDuration + 50 }});
             " @endunless>
             <h2 class="text-2xl font-extrabold text-[#0e1b30] mb-5">Before you start, here&rsquo;s what you&rsquo;ll
                 need</h2>
@@ -2415,10 +2653,9 @@ new class extends Component
             <p class="text-sm text-[#5d6e7f] mb-5 max-w-md">Your intake is ready. It takes {{ $this->introTimeEstimate
                 }}, and your
                 answers save as you go. Missing something? You can skip any question and come back to it.</p>
+            {{-- The intake is already loaded, so the "getting ready" bar shows as complete. --}}
             <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
-                <div class="h-full bg-[#0b9ed0] rounded-full"
-                    style="width: {{ $this->chapterProgress['totalItems'] > 0 ? round($this->chapterProgress['doneItems'] / $this->chapterProgress['totalItems'] * 100) : 0 }}%">
-                </div>
+                <div class="h-full bg-[#0b9ed0] rounded-full" style="width: 100%"></div>
             </div>
             @else
             <div class="flex items-center gap-2 text-sm font-semibold text-[#0b9ed0] mb-3" x-show="!ready">
@@ -2430,7 +2667,7 @@ new class extends Component
                 answers save as you go. Missing something? You can skip any question and come back to it.</p>
             <div class="w-full max-w-sm h-1.5 rounded-full bg-[#eef2f6] overflow-hidden mb-8">
                 <div class="h-full bg-[#0b9ed0] rounded-full transition-all ease-linear"
-                    style="transition-duration: {{ $introDuration }}ms" :style="`width: ${progress}%`"></div>
+                    style="width: 0%; transition-duration: {{ $introDuration }}ms" :style="{ width: progress + '%' }"></div>
             </div>
             @endif
 
@@ -2496,34 +2733,77 @@ new class extends Component
                     @endif
                 </p>
 
-                <ul class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl mb-4">
-                    @foreach($this->requiredDocumentCategories as $key => $label)
+                {{-- Checklist. Each row lists the files given its type; its "Upload" link opens the file
+                picker for that row, so those files skip the "What are these documents?" dialog. --}}
+                @php
+                $documentRows = $this->requiredDocumentCategories;
+                $typedDocuments = $this->existingDocuments->filter(fn ($d) => filled($d->document_category));
+                $docsByCategory = $typedDocuments->groupBy('document_category');
+                // "Other", plus any type this package doesn't list (e.g. after a package change), so no
+                // saved file ever disappears from the screen.
+                $otherDocuments = $typedDocuments->reject(fn ($d) => array_key_exists($d->document_category, $documentRows))->values();
+                @endphp
+                <ul class="divide-y divide-[#eef2f6] border border-[#eef2f6] rounded-xl mb-4" x-data data-document-checklist>
+                    @foreach($documentRows as $key => $label)
                     @php
                     $status = $this->documentCategoryStatus($key);
+                    $rowDocuments = $docsByCategory->get($key, collect());
                     @endphp
-                    <li class="flex items-center justify-between gap-3 px-4 py-3">
-                        <span class="text-sm font-semibold text-[#173045]">
-                            {{ $label }}
-                            @if($this->includesWorkflowQuestionnaire)
-                            <span class="text-xs font-normal text-[#8592a1]">(if you have it)</span>
-                            @endif
-                        </span>
-                        <span class="flex items-center gap-3">
-                            <span
-                                class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
-                            {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
-                                {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" :
-                                ($this->includesWorkflowQuestionnaire ? 'Optional' : 'Needed')) }}
+                    <li class="px-4 py-3" wire:key="doc-row-{{ $key }}" data-document-row="{{ $key }}">
+                        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                            <span class="text-sm font-semibold text-[#173045]">
+                                {{ $label }}
+                                @if($this->includesWorkflowQuestionnaire)
+                                <span class="text-xs font-normal text-[#8592a1]">(if you have it)</span>
+                                @endif
                             </span>
-                            @if($status !== 'uploaded')
-                            <button type="button" wire:click="toggleDocumentMissing('{{ $key }}')"
-                                class="text-xs font-semibold text-[#1a7aad] hover:underline">
-                                {{ $status === 'declined' ? 'Undo' : "I don't have this" }}
-                            </button>
-                            @endif
-                        </span>
+                            <span class="flex items-center gap-3">
+                                <span
+                                    class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold tracking-wide uppercase
+                                {{ $status === 'uploaded' ? 'bg-[#d7f3ea] text-[#117a51]' : ($status === 'declined' ? 'bg-[#eef1f5] text-[#5d6e7f]' : 'bg-[#fdf3e0] text-[#a3690f]') }}">
+                                    {{ $status === 'uploaded' ? 'Uploaded' : ($status === 'declined' ? "Don't have it" :
+                                    ($this->includesWorkflowQuestionnaire ? 'Optional' : 'Needed')) }}
+                                </span>
+                                @if($status !== 'declined')
+                                <span wire:loading wire:target="categoryFiles.{{ $key }}"
+                                    class="text-xs font-semibold text-[#5d6e7f]">Uploading&hellip;</span>
+                                <button type="button" wire:loading.remove wire:target="categoryFiles.{{ $key }}"
+                                    x-on:click="$refs['row-upload-{{ $key }}'].click()" data-row-upload="{{ $key }}"
+                                    class="text-xs font-semibold text-[#1a7aad] hover:underline">
+                                    {{ $status === 'uploaded' ? 'Add another' : 'Upload' }}
+                                </button>
+                                @endif
+                                @if($status !== 'uploaded')
+                                <button type="button" wire:click="toggleDocumentMissing('{{ $key }}')"
+                                    class="text-xs font-semibold text-[#1a7aad] hover:underline">
+                                    {{ $status === 'declined' ? 'Undo' : "I don't have this" }}
+                                </button>
+                                @endif
+                                <input type="file" x-ref="row-upload-{{ $key }}" wire:model="categoryFiles.{{ $key }}"
+                                    multiple accept=".pdf,.docx" class="hidden" aria-label="Upload {{ $label }}">
+                            </span>
+                        </div>
+
+                        @if($rowDocuments->isNotEmpty())
+                        <ul class="mt-2.5 space-y-1.5">
+                            @foreach($rowDocuments as $doc)
+                            @include('components.portal._intake-document-file', ['doc' => $doc, 'action' => 'Change type'])
+                            @endforeach
+                        </ul>
+                        @endif
                     </li>
                     @endforeach
+
+                    @if($otherDocuments->isNotEmpty())
+                    <li class="px-4 py-3" wire:key="doc-row-other" data-document-row="other">
+                        <span class="text-sm font-semibold text-[#173045]">Other documents</span>
+                        <ul class="mt-2.5 space-y-1.5">
+                            @foreach($otherDocuments as $doc)
+                            @include('components.portal._intake-document-file', ['doc' => $doc, 'action' => 'Change type'])
+                            @endforeach
+                        </ul>
+                    </li>
+                    @endif
                 </ul>
 
                 @if(! $this->includesWorkflowQuestionnaire &&
@@ -2541,10 +2821,11 @@ new class extends Component
                     x-on:dragleave.prevent="dragging = false"
                     x-on:drop.prevent="dragging = false; $refs.documentFilesInput.files = $event.dataTransfer.files; $refs.documentFilesInput.dispatchEvent(new Event('change'))"
                     x-on:click="$refs.documentFilesInput.click()"
-                    x-on:livewire-upload-start.window="uploading = true; progress = 0"
-                    x-on:livewire-upload-finish.window="uploading = false"
-                    x-on:livewire-upload-error.window="uploading = false"
-                    x-on:livewire-upload-progress.window="progress = $event.detail.progress"
+                    x-on:livewire-upload-start="uploading = true; progress = 0"
+                    x-on:livewire-upload-finish="uploading = false"
+                    x-on:livewire-upload-error="uploading = false"
+                    x-on:livewire-upload-cancel="uploading = false"
+                    x-on:livewire-upload-progress="progress = $event.detail.progress"
                     x-bind:class="dragging ? 'border-[#009bde] bg-[#edf6ff]' : 'border-[#b9cfe0] bg-[#f7fbfd]'"
                     class="border-2 border-dashed rounded-[1rem] p-6 text-center cursor-pointer transition-colors">
                     <template x-if="!uploading">
@@ -2556,7 +2837,7 @@ new class extends Component
                             <p class="text-sm text-[#173045]"><strong class="font-semibold">Click to upload
                                     files</strong> or drag
                                 them here</p>
-                            <p class="text-xs text-[#8592a1] mt-1">PDF, DOCX or XLSX</p>
+                            <p class="text-xs text-[#8592a1] mt-1">PDF or DOCX</p>
                         </div>
                     </template>
                     <template x-if="uploading">
@@ -2565,15 +2846,30 @@ new class extends Component
                             </p>
                             <div class="h-1.5 rounded-full bg-[#e8eef4] overflow-hidden">
                                 <div class="h-full rounded-full bg-[#0b9ed0] transition-all duration-75"
-                                    :style="`width: ${progress}%`"></div>
+                                    :style="{ width: progress + '%' }"></div>
                             </div>
                         </div>
                     </template>
                     <input x-ref="documentFilesInput" type="file" wire:model="documentFiles" multiple
-                        accept=".pdf,.jpg,.jpeg,.png,.docx,.xls,.xlsx" class="hidden">
+                        accept=".pdf,.docx" class="hidden" x-on:click.stop="">
                 </div>
-                @error('documentFiles') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
-                @error('documentFiles.*') <p class="mt-2 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('documentFiles') <p class="mt-2 text-xs text-red-600" data-document-error>{{ $message }}</p> @enderror
+                @error('documentFiles.*') <p class="mt-2 text-xs text-red-600" data-document-error>{{ $message }}</p> @enderror
+                @error('categoryFiles.*') <p class="mt-2 text-xs text-red-600" data-document-error>{{ $message }}</p> @enderror
+
+                {{-- Files saved without a type ("Decide later", or closing the dialog) wait here. --}}
+                @if($this->untypedDocuments->isNotEmpty())
+                <div class="mt-4 rounded-xl border border-[#f1d9a8] bg-[#fdf8ee] p-3" data-needs-type>
+                    <p class="text-[0.68rem] font-extrabold uppercase tracking-wide text-[#a3690f] mb-2">
+                        Needs a type &middot; {{ $this->untypedDocuments->count() }}
+                    </p>
+                    <ul class="space-y-1.5">
+                        @foreach($this->untypedDocuments as $doc)
+                        @include('components.portal._intake-document-file', ['doc' => $doc, 'action' => 'Choose type'])
+                        @endforeach
+                    </ul>
+                </div>
+                @endif
 
                 @if($this->bulkMissingDocumentsLabel)
                 <button type="button" wire:click="markRemainingDocumentsMissing"
@@ -2583,79 +2879,6 @@ new class extends Component
                 </button>
                 @endif
 
-                @if($this->existingDocuments->isNotEmpty() || ! empty($documentFiles))
-                <ul class="mt-4 space-y-2" wire:loading.remove wire:target="documentFiles">
-                    @foreach($this->existingDocuments as $doc)
-                    <li class="border border-[#eef2f6] rounded-lg px-3 py-2.5">
-                        <div class="flex items-center gap-2 mb-2">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                class="text-[#8592a1] flex-shrink-0">
-                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6"
-                                    stroke-linejoin="round" />
-                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                            </svg>
-                            <span class="flex-1 truncate text-[#173045] font-medium text-sm">{{ $doc->original_filename
-                                }}</span>
-                            <span class="text-xs text-[#8592a1] flex-shrink-0">{{ $doc->fileSizeForHumans() }}</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <select wire:change="tagExistingDocument({{ $doc->id }}, $event.target.value)"
-                                class="flex-1 rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
-                                <option value="">Document type&hellip;</option>
-                                @foreach($this->requiredDocumentCategories as $key => $label)
-                                <option value="{{ $key }}" @selected($doc->document_category===$key)>{{ $label }}
-                                </option>
-                                @endforeach
-                                <option value="other" @selected($doc->document_category==='other')>Other</option>
-                            </select>
-                            <button type="button" wire:click="deleteExistingDocument({{ $doc->id }})"
-                                wire:confirm="Remove this document?" aria-label="Remove {{ $doc->original_filename }}"
-                                class="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                    <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" />
-                                </svg>
-                            </button>
-                        </div>
-                    </li>
-                    @endforeach
-                    @foreach($documentFiles as $i => $file)
-                    <li class="border border-[#eef2f6] rounded-lg px-3 py-2.5">
-                        <div class="flex items-center gap-2 mb-2">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                class="text-[#8592a1] flex-shrink-0">
-                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6"
-                                    stroke-linejoin="round" />
-                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-                            </svg>
-                            <span class="flex-1 truncate text-[#173045] font-medium text-sm">{{
-                                $file->getClientOriginalName() }}</span>
-                            <span class="text-xs text-[#8592a1] flex-shrink-0">{{ number_format(max(1,
-                                round($file->getSize() / 1024))) }} KB</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <select wire:model.live="documentFileTags.{{ $i }}"
-                                class="flex-1 rounded-lg border border-[#dbe4ee] bg-white px-2 py-1.5 text-xs text-[#173045]">
-                                <option value="">Document type&hellip;</option>
-                                @foreach($this->requiredDocumentCategories as $key => $label)
-                                <option value="{{ $key }}">{{ $label }}</option>
-                                @endforeach
-                                <option value="other">Other</option>
-                            </select>
-                            <button type="button" wire:click="removeDocumentFile({{ $i }})"
-                                aria-label="Remove {{ $file->getClientOriginalName() }}"
-                                class="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[#dbe4ee] text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                    <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" />
-                                </svg>
-                            </button>
-                        </div>
-                    </li>
-                    @endforeach
-                </ul>
-                @endif
-
                 @if($justSaved)
                 <p class="mt-4 text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick
                     up
@@ -2663,7 +2886,8 @@ new class extends Component
                 @endif
 
                 <div class="flex justify-between items-center mt-5">
-                    <button wire:click="$dispatch('go-to-payment-step')" wire:target="$dispatch('go-to-payment-step')"
+                    {{-- Back to the "Before you start" checklist; its "Back to the questions" button returns here. --}}
+                    <button type="button" wire:click="viewWhatYouNeed"
                         class="rounded border border-[#dbe4ee] px-5 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
                         &larr; Back
                     </button>
@@ -2710,6 +2934,90 @@ new class extends Component
                         class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
             </aside>
         </div>
+
+        {{-- "What are these documents?": opens after files are dropped on the upload box (with a
+        guessed type where the file name gives one), or from "Change type" / "Choose type". The files
+        are already saved, so "Decide later" just leaves any without a type under "Needs a type". --}}
+        @if($this->typingDocuments->isNotEmpty())
+        @php
+        $typingDocs = $this->typingDocuments;
+        $changingType = $typingDocs->count() === 1 && filled($typingDocs->first()->document_category);
+        $typingError = $errors->has('typingTags');
+        @endphp
+        <div class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:px-4"
+            role="dialog" aria-modal="true" aria-labelledby="doc-type-title" data-document-type-dialog
+            x-data x-init="$nextTick(() => $el.querySelector('select')?.focus())"
+            x-on:keydown.escape.window="$wire.closeDocumentTypeDialog()">
+            <div class="w-full sm:max-w-lg max-h-[90vh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-xl"
+                x-on:click.outside="$wire.closeDocumentTypeDialog()">
+                <div class="flex items-start justify-between gap-3 px-5 sm:px-6 pt-5 sm:pt-6 pb-3">
+                    <div>
+                        <h3 id="doc-type-title" class="text-lg font-extrabold text-[#0e1b30]">
+                            {{ $changingType ? 'Change document type' : ($typingDocs->count() === 1 ? 'What is this document?' : 'What are these documents?') }}
+                        </h3>
+                        <p class="text-sm text-[#5d6e7f] mt-1">
+                            {{ $typingDocs->count() === 1 ? 'Choose a type so we file it in the right place.' : 'Choose a type for each file so we file them in the right place.' }}
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeDocumentTypeDialog" aria-label="Close"
+                        class="shrink-0 text-[#5c778d] hover:text-[#0e3a61] transition-colors">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="px-5 sm:px-6 pb-2 space-y-2.5 overflow-y-auto">
+                    @foreach($typingDocs as $doc)
+                    @php
+                    $suggested = in_array($doc->id, $suggestedTags, true) && filled($typingTags[$doc->id] ?? null);
+                    $missingType = $typingError && blank($typingTags[$doc->id] ?? null);
+                    @endphp
+                    <div wire:key="typing-{{ $doc->id }}" x-data="{ touched: false }" data-typing-file="{{ $doc->id }}"
+                        class="rounded-xl border px-3.5 py-3 {{ $missingType ? 'border-red-300 bg-red-50/40' : 'border-[#dbe4ee]' }}">
+                        <div class="flex items-center gap-2">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="shrink-0 text-[#8592a1]" aria-hidden="true">
+                                <path d="M6 2h9l5 5v15H6V2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                                <path d="M15 2v5h5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                            </svg>
+                            <span class="min-w-0 flex-1 truncate text-sm font-semibold text-[#173045]" title="{{ $doc->original_filename }}">{{ $doc->original_filename }}</span>
+                            <span class="shrink-0 text-xs text-[#8592a1]">{{ $doc->fileSizeForHumans() }}</span>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <select wire:model="typingTags.{{ $doc->id }}" x-on:change="touched = true"
+                                aria-label="Document type for {{ $doc->original_filename }}"
+                                class="min-w-0 flex-1 rounded-lg border border-[#dbe4ee] bg-white px-2.5 py-2 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent">
+                                @php $currentTag = (string) ($typingTags[$doc->id] ?? ''); @endphp
+                                <option value="" @selected($currentTag === '')>Choose a type&hellip;</option>
+                                @foreach($this->requiredDocumentCategories as $key => $label)
+                                <option value="{{ $key }}" @selected($currentTag === $key)>{{ $label }}</option>
+                                @endforeach
+                                <option value="other" @selected($currentTag === 'other')>Other</option>
+                            </select>
+                            @if($suggested)
+                            <span x-show="!touched" data-suggested
+                                class="shrink-0 rounded-full bg-[#e6f3fb] px-2 py-0.5 text-[0.68rem] font-extrabold uppercase tracking-wide text-[#0b7ca8]">Suggested</span>
+                            @endif
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+
+                @error('typingTags') <p class="px-5 sm:px-6 pt-1 text-xs text-red-600" role="alert">{{ $message }}</p> @enderror
+
+                <div class="flex items-center justify-end gap-3 px-5 sm:px-6 py-4 mt-2 border-t border-[#eef2f6]">
+                    <button type="button" wire:click="closeDocumentTypeDialog"
+                        class="rounded-lg px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
+                        {{ $changingType ? 'Cancel' : 'Decide later' }}
+                    </button>
+                    <button type="button" wire:click="confirmDocumentTypes" wire:loading.attr="disabled" wire:target="confirmDocumentTypes"
+                        class="rounded-lg bg-[#12304f] px-5 py-2 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-60">
+                        {{ $changingType ? 'Save' : ($typingDocs->count() === 1 ? 'Add file' : 'Add '.$typingDocs->count().' files') }}
+                    </button>
+                </div>
+            </div>
+        </div>
+        @endif
     </div>
     @endif
 
@@ -3129,16 +3437,16 @@ new class extends Component
                     <div>
                         <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main phone <span
                                 class="text-red-500">*</span></label>
-                        <input wire:model="mainPhone" type="tel" inputmode="tel" required maxlength="30"
-                            pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
-                            x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
+                        <input wire:model.blur="mainPhone" type="tel" inputmode="tel" autocomplete="tel-national" required maxlength="14" placeholder="(555) 555-5555"
+                            pattern="\(\d{3}\) \d{3}-\d{4}" title="(XXX) XXX-XXXX"
+                            x-on:input="$el.value = formatUsPhone($el.value)"
                             class="w-full rounded-xl border {{ $errors->has('mainPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                         @error('mainPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Main email <span
                                 class="text-red-500">*</span></label>
-                        <input wire:model="mainEmail" type="email" required maxlength="150"
+                        <input wire:model.blur="mainEmail" type="email" autocomplete="email" required maxlength="150"
                             pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
                             title="Please include a domain extension, e.g. name@example.com"
                             class="w-full rounded-xl border {{ $errors->has('mainEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
@@ -3198,8 +3506,8 @@ new class extends Component
                     </div>
                 </div>
             </form>
-            {!! $teamAside("Section 1 starts with your legal name and addresses. Facility security policies and hotline
-            poster counts depend on your locations.") !!}
+            {!! $teamAside("Section 1 starts with your legal name and addresses. Facility security policies depend on
+            your locations.") !!}
         </div>
     </div>
     @endif
@@ -3251,16 +3559,16 @@ new class extends Component
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="{{ $prefix }}Phone" type="tel" inputmode="tel" required maxlength="30"
-                                pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
-                                x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
+                            <input wire:model.blur="{{ $prefix }}Phone" type="tel" inputmode="tel" autocomplete="tel-national" required maxlength="14" placeholder="(555) 555-5555"
+                                pattern="\(\d{3}\) \d{3}-\d{4}" title="(XXX) XXX-XXXX"
+                                x-on:input="$el.value = formatUsPhone($el.value)"
                                 class="w-full rounded-xl border {{ $errors->has($prefix.'Phone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                             @error($prefix.'Phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="{{ $prefix }}Email" type="email" required maxlength="150"
+                            <input wire:model.blur="{{ $prefix }}Email" type="email" autocomplete="email" required maxlength="150"
                                 pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
                                 title="Please include a domain extension, e.g. name@example.com"
                                 class="w-full rounded-xl border {{ $errors->has($prefix.'Email') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-white px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
@@ -3361,16 +3669,16 @@ new class extends Component
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="itContactPhone" type="tel" inputmode="tel" required maxlength="30"
-                                pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
-                                x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
+                            <input wire:model.blur="itContactPhone" type="tel" inputmode="tel" autocomplete="tel-national" required maxlength="14" placeholder="(555) 555-5555"
+                                pattern="\(\d{3}\) \d{3}-\d{4}" title="(XXX) XXX-XXXX"
+                                x-on:input="$el.value = formatUsPhone($el.value)"
                                 class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                             @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="itContactEmail" type="email" required maxlength="150"
+                            <input wire:model.blur="itContactEmail" type="email" autocomplete="email" required maxlength="150"
                                 pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
                                 title="Please include a domain extension, e.g. name@example.com"
                                 class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
@@ -3410,16 +3718,16 @@ new class extends Component
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Phone <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="itContactPhone" type="tel" inputmode="tel" required maxlength="30"
-                                pattern="[+]?[0-9\s().\-]{7,30}" title="A valid phone number"
-                                x-on:input="$el.value = $el.value.replace(/[^0-9+()\-.\s]/g, '')"
+                            <input wire:model.blur="itContactPhone" type="tel" inputmode="tel" autocomplete="tel-national" required maxlength="14" placeholder="(555) 555-5555"
+                                pattern="\(\d{3}\) \d{3}-\d{4}" title="(XXX) XXX-XXXX"
+                                x-on:input="$el.value = formatUsPhone($el.value)"
                                 class="w-full rounded-xl border {{ $errors->has('itContactPhone') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                             @error('itContactPhone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Email <span
                                     class="text-red-500">*</span></label>
-                            <input wire:model="itContactEmail" type="email" required maxlength="150"
+                            <input wire:model.blur="itContactEmail" type="email" autocomplete="email" required maxlength="150"
                                 pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
                                 title="Please include a domain extension, e.g. name@example.com"
                                 class="w-full rounded-xl border {{ $errors->has('itContactEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
@@ -3509,18 +3817,6 @@ new class extends Component
                 </div>
                 @endif
 
-                @if($usesEhcpHotline !== null)
-                @php $locationCount = max(1, collect($practiceLocations)->filter(fn ($l) => trim($l) !== '')->count());
-                @endphp
-                <div class="reveal-in rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4">
-                    <label class="block text-sm font-semibold text-[#31465b] mb-1.5">Hotline posters needed</label>
-                    <input wire:model="hotlinePosterCount" type="number" min="0" placeholder="{{ $locationCount * 2 }}"
-                        class="w-full max-w-[10rem] rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
-                    <p class="text-xs text-[#8592a1] mt-1">2 per location recommended ({{ $locationCount }} location{{
-                        $locationCount > 1 ? 's' : '' }}).</p>
-                </div>
-                @endif
-
                 @if($justSaved)
                 <p class="text-xs font-semibold text-[#1f9d6b]">&#10003; Progress saved — come back anytime to pick up
                     where
@@ -3549,8 +3845,7 @@ new class extends Component
                     </div>
                 </div>
             </form>
-            {!! $teamAside("A hotline is part of the reporting element. Section 1 recommends 2 posters per location.")
-            !!}
+            {!! $teamAside("A hotline is part of the reporting element.") !!}
         </div>
     </div>
     @endif

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\BillingCycle;
+use App\Enums\CardBrand;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
@@ -21,7 +22,8 @@ use Illuminate\Support\Facades\Storage;
     'cancelled_at', 'notes', 'terms_accepted_at', 'terms_accepted_ip',
     'discount_code_id', 'discount_code', 'discount_percentage', 'original_price', 'discount_amount',
     'trial_ends_at', 'trial_confirmed_at', 'trial_reminder_sent_at', 'clover_card_token',
-    'card_expiry_month', 'card_expiry_year', 'card_last_four', 'mtbc_reference_number',
+    'card_expiry_month', 'card_expiry_year', 'card_last_four', 'card_brand', 'card_holder_name', 'mtbc_reference_number',
+    'scheduled_billing_cycle', 'cancels_at',
     'next_bill_date', 'renewal_attempts', 'last_renewal_attempt_at', 'last_renewal_error',
     'finance_processed_at',
 ])]
@@ -32,8 +34,8 @@ class Order extends Model
 
     /**
      * Every payment_status value that means "checkout is complete, proceed to onboarding" — not
-    * strictly "money was collected" (Trialing hasn't been charged yet, SimulatedPaid never
-    * charges a real card, and ExternallyBilled is collected through a partner; all grant access).
+     * strictly "money was collected" (Trialing hasn't been charged yet, SimulatedPaid never
+     * charges a real card, and ExternallyBilled is collected through a partner; all grant access).
      */
     public const PAID_STATUSES = [
         PaymentStatus::SimulatedPaid, PaymentStatus::Paid, PaymentStatus::Trialing, PaymentStatus::PastDue,
@@ -54,6 +56,8 @@ class Order extends Model
             'paid_at' => 'datetime',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'cancels_at' => 'datetime',
+            'scheduled_billing_cycle' => BillingCycle::class,
             'finance_processed_at' => 'datetime',
             'terms_accepted_at' => 'datetime',
             'original_price' => 'decimal:2',
@@ -64,6 +68,7 @@ class Order extends Model
             'trial_reminder_sent_at' => 'datetime',
             'card_expiry_month' => 'integer',
             'card_expiry_year' => 'integer',
+            'card_brand' => CardBrand::class,
             'next_bill_date' => 'date',
             'renewal_attempts' => 'integer',
             'last_renewal_attempt_at' => 'datetime',

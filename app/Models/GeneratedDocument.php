@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'order_id', 'osha_location_id', 'intake_upload_id', 'document_type', 'status',
     'pdf_storage_path', 'docx_storage_path', 'pdf_owner_password',
-    'is_stale', 'stale_reason', 'failure_reason', 'generated_at',
+    'is_stale', 'stale_reason', 'failure_reason', 'generated_at', 'version',
     'reviewed_at', 'reviewed_by', 'revoked_at', 'delivery_source',
     'custom_storage_path', 'custom_original_filename',
 ])]
@@ -34,6 +34,7 @@ class GeneratedDocument extends Model
             'delivery_source' => DocumentDeliverySource::class,
             'is_stale' => 'boolean',
             'generated_at' => 'datetime',
+            'version' => 'integer',
             'reviewed_at' => 'datetime',
             'revoked_at' => 'datetime',
             // owner password is encrypted at rest
@@ -109,5 +110,45 @@ class GeneratedDocument extends Model
     public function markStale(string $reason): void
     {
         $this->update(['is_stale' => true, 'stale_reason' => $reason]);
+    }
+
+    /** Can the client ask for this document to be generated again from My Account? Only when it's
+     *  out of date or the last attempt failed, and never while a generation is already running. */
+    public function canBeRegeneratedByClient(): bool
+    {
+        if (in_array($this->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
+            return false;
+        }
+
+        return ($this->is_stale || $this->status === DocumentStatus::Failed)
+            && ! $this->order->blockedFromAiGeneration();
+    }
+
+    /**
+     * The status shown to the client on My Account, as [label, tone]. Tones map to the badge
+     * colours in resources/views/account/_chip.blade.php.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public function clientStatus(): array
+    {
+        return match (true) {
+            in_array($this->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) => ['Generating', 'info'],
+            $this->status === DocumentStatus::Failed => ['Failed', 'bad'],
+            $this->is_stale => ['Needs update', 'warn'],
+            $this->isReady() => ['Current', 'good'],
+            default => ['In review', 'muted'],
+        };
+    }
+
+    protected static function booted(): void
+    {
+        // Each new generation of an existing document is a new version. The first generation
+        // (generated_at going from null to a date) stays version 1.
+        static::updating(function (GeneratedDocument $document) {
+            if ($document->isDirty('generated_at') && $document->getOriginal('generated_at') !== null) {
+                $document->version = ($document->getOriginal('version') ?? 1) + 1;
+            }
+        });
     }
 }

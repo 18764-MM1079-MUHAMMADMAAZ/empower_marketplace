@@ -380,16 +380,16 @@ class AuthTest extends TestCase
         $token = Password::createToken($user);
 
         Livewire::test('auth.reset-password-form', ['token' => $token, 'email' => $user->email])
-            ->set('password', 'new-secret-123')
-            ->set('password_confirmation', 'new-secret-123')
+            ->set('password', 'New-Secret-123!')
+            ->set('password_confirmation', 'New-Secret-123!')
             ->call('resetPassword')
             ->assertHasNoErrors();
 
-        $this->assertTrue(Hash::check('new-secret-123', $user->fresh()->password));
+        $this->assertTrue(Hash::check('New-Secret-123!', $user->fresh()->password));
 
         Livewire::test('auth.login-form')
             ->set('email', $user->email)
-            ->set('password', 'new-secret-123')
+            ->set('password', 'New-Secret-123!')
             ->call('login')
             ->assertRedirect(route('home').'#pricing');
     }
@@ -399,8 +399,8 @@ class AuthTest extends TestCase
         $user = User::factory()->create();
 
         Livewire::test('auth.reset-password-form', ['token' => 'invalid-token', 'email' => $user->email])
-            ->set('password', 'new-secret-123')
-            ->set('password_confirmation', 'new-secret-123')
+            ->set('password', 'New-Secret-123!')
+            ->set('password_confirmation', 'New-Secret-123!')
             ->call('resetPassword')
             ->assertHasErrors(['email']);
     }
@@ -411,7 +411,7 @@ class AuthTest extends TestCase
         $token = Password::createToken($user);
 
         Livewire::test('auth.reset-password-form', ['token' => $token, 'email' => $user->email])
-            ->set('password', 'new-secret-123')
+            ->set('password', 'New-Secret-123!')
             ->set('password_confirmation', 'different')
             ->call('resetPassword')
             ->assertHasErrors(['password']);
@@ -419,16 +419,16 @@ class AuthTest extends TestCase
 
     public function test_reset_password_rejects_reusing_the_current_password(): void
     {
-        $user = User::factory()->create(['password' => 'old-secret-1']);
+        $user = User::factory()->create(['password' => 'Old-Secret-2025!']);
         $token = Password::createToken($user);
 
         Livewire::test('auth.reset-password-form', ['token' => $token, 'email' => $user->email])
-            ->set('password', 'old-secret-1')
-            ->set('password_confirmation', 'old-secret-1')
+            ->set('password', 'Old-Secret-2025!')
+            ->set('password_confirmation', 'Old-Secret-2025!')
             ->call('resetPassword')
             ->assertHasErrors(['password']);
 
-        $this->assertTrue(Hash::check('old-secret-1', $user->fresh()->password));
+        $this->assertTrue(Hash::check('Old-Secret-2025!', $user->fresh()->password));
     }
 
     // --- Change password (authenticated) ---
@@ -444,66 +444,72 @@ class AuthTest extends TestCase
     {
         $user = User::factory()->create();
 
+        // Changing the password now lives in My Account's "Sign-in & security" section.
+        $this->actingAs($user)
+            ->get(route('password.edit'))
+            ->assertRedirect(route('account').'#security');
+
         $this->withoutVite()
             ->actingAs($user)
-            ->get(route('password.edit'))
+            ->get(route('account'))
             ->assertOk()
-            ->assertSee('Change Password');
+            ->assertSee('Change password')
+            ->assertSee('Update Password');
     }
 
     public function test_authenticated_user_can_change_password(): void
     {
-        $user = User::factory()->create(['password' => 'old-secret-1']);
+        $user = User::factory()->create(['password' => 'Old-Secret-2025!']);
 
         Livewire::actingAs($user)
             ->test('auth.change-password-form')
-            ->set('currentPassword', 'old-secret-1')
-            ->set('password', 'new-secret-2')
-            ->set('password_confirmation', 'new-secret-2')
+            ->set('currentPassword', 'Old-Secret-2025!')
+            ->set('password', 'New-Secret-2026!')
+            ->set('password_confirmation', 'New-Secret-2026!')
             ->call('updatePassword')
             ->assertHasNoErrors();
 
-        $this->assertTrue(Hash::check('new-secret-2', $user->fresh()->password));
+        $this->assertTrue(Hash::check('New-Secret-2026!', $user->fresh()->password));
     }
 
     public function test_changing_password_requires_correct_current_password(): void
     {
-        $user = User::factory()->create(['password' => 'old-secret-1']);
+        $user = User::factory()->create(['password' => 'Old-Secret-2025!']);
 
         Livewire::actingAs($user)
             ->test('auth.change-password-form')
             ->set('currentPassword', 'wrong-password')
-            ->set('password', 'new-secret-2')
-            ->set('password_confirmation', 'new-secret-2')
+            ->set('password', 'New-Secret-2026!')
+            ->set('password_confirmation', 'New-Secret-2026!')
             ->call('updatePassword')
             ->assertHasErrors(['currentPassword']);
 
-        $this->assertTrue(Hash::check('old-secret-1', $user->fresh()->password));
+        $this->assertTrue(Hash::check('Old-Secret-2025!', $user->fresh()->password));
     }
 
     public function test_changing_password_rejects_reusing_the_current_password(): void
     {
-        $user = User::factory()->create(['password' => 'old-secret-1']);
+        $user = User::factory()->create(['password' => 'Old-Secret-2025!']);
 
         Livewire::actingAs($user)
             ->test('auth.change-password-form')
-            ->set('currentPassword', 'old-secret-1')
-            ->set('password', 'old-secret-1')
-            ->set('password_confirmation', 'old-secret-1')
+            ->set('currentPassword', 'Old-Secret-2025!')
+            ->set('password', 'Old-Secret-2025!')
+            ->set('password_confirmation', 'Old-Secret-2025!')
             ->call('updatePassword')
             ->assertHasErrors(['password']);
 
-        $this->assertTrue(Hash::check('old-secret-1', $user->fresh()->password));
+        $this->assertTrue(Hash::check('Old-Secret-2025!', $user->fresh()->password));
     }
 
     public function test_changing_password_requires_matching_confirmation(): void
     {
-        $user = User::factory()->create(['password' => 'old-secret-1']);
+        $user = User::factory()->create(['password' => 'Old-Secret-2025!']);
 
         Livewire::actingAs($user)
             ->test('auth.change-password-form')
-            ->set('currentPassword', 'old-secret-1')
-            ->set('password', 'new-secret-2')
+            ->set('currentPassword', 'Old-Secret-2025!')
+            ->set('password', 'New-Secret-2026!')
             ->set('password_confirmation', 'different')
             ->call('updatePassword')
             ->assertHasErrors(['password']);

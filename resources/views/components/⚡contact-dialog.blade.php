@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AdminEmail;
 use App\Enums\UserRole;
 use App\Mail\LeadConfirmationMail;
 use App\Mail\NewLeadNotificationMail;
@@ -144,7 +145,9 @@ new class extends Component
             report($e);
         }
 
-        User::where('role', UserRole::Admin)->pluck('email')->each(
+        User::where('role', UserRole::Admin)->get()
+            ->filter(fn (User $admin) => $admin->wantsEmail(AdminEmail::NewLeads))
+            ->pluck('email')->each(
             function (string $adminEmail) use ($lead) {
                 try {
                     Mail::to($adminEmail)->send(new NewLeadNotificationMail($lead));

@@ -74,7 +74,7 @@ class AdminUsersOrdersTest extends TestCase
             ->set('name', 'New Admin')
             ->set('email', 'new-admin@example.com')
             ->set('role', UserRole::Admin->value)
-            ->set('password', 'password123')
+            ->set('password', 'Password-123!')
             ->call('save')
             ->assertRedirect(route('admin.users'));
 
@@ -90,13 +90,13 @@ class AdminUsersOrdersTest extends TestCase
         Livewire::actingAs($admin)
             ->test('admin.user-form', ['user' => $user])
             ->set('name', 'New Name')
-            ->set('password', 'brand-new-password')
+            ->set('password', 'Brand-New-Password-1!')
             ->call('save')
             ->assertRedirect(route('admin.users'));
 
         $user->refresh();
         $this->assertSame('New Name', $user->name);
-        $this->assertTrue(Hash::check('brand-new-password', $user->password));
+        $this->assertTrue(Hash::check('Brand-New-Password-1!', $user->password));
     }
 
     public function test_admin_can_deactivate_a_user(): void
