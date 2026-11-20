@@ -7,6 +7,7 @@ use App\Enums\AdminEmail;
 use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Jobs\SyncLmsAccess;
+use App\Jobs\UpdateLmsProfile;
 use App\Mail\ResetPasswordMail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -44,12 +45,21 @@ class User extends Authenticatable
         ];
     }
 
-    /** Deactivating a client also turns off their Empower LMS account (and reactivating turns it back on). */
+    /** Keeps the client's Empower LMS (Moodle) account in step: deactivating turns it off (and
+     *  reactivating back on), and an email or name change is copied across straight away. */
     protected static function booted(): void
     {
         static::updated(function (User $user) {
-            if ($user->wasChanged('is_active') && $user->moodle_user_id !== null) {
+            if ($user->moodle_user_id === null) {
+                return;
+            }
+
+            if ($user->wasChanged('is_active')) {
                 SyncLmsAccess::dispatch($user)->afterCommit();
+            }
+
+            if ($user->wasChanged(['email', 'name'])) {
+                UpdateLmsProfile::dispatch($user)->afterCommit();
             }
         });
     }

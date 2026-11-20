@@ -49,19 +49,33 @@ class MoodleClient
      */
     public function createUser(User $user): int
     {
-        $parts = preg_split('/\s+/', trim($user->name), 2);
-
         $created = $this->call('core_user_create_users', ['users' => [[
             'username' => $user->lmsUsername(),
             'auth' => config('services.moodle.auth'),
             'password' => Str::password(32),
             'idnumber' => (string) $user->id,
-            'firstname' => $parts[0] !== '' ? $parts[0] : 'Learner',
-            'lastname' => $parts[1] ?? '-',
-            'email' => strtolower($user->email),
+            ...$this->profileFields($user),
         ]]]);
 
         return $created[0]['id'];
+    }
+
+    /** Copies a Marketplace email or name change onto the same Moodle user (spec §5: never a new one). */
+    public function updateProfile(int $moodleUserId, User $user): void
+    {
+        $this->call('core_user_update_users', ['users' => [['id' => $moodleUserId, ...$this->profileFields($user)]]]);
+    }
+
+    /** @return array{firstname: string, lastname: string, email: string} */
+    private function profileFields(User $user): array
+    {
+        $parts = preg_split('/\s+/', trim($user->name), 2);
+
+        return [
+            'firstname' => $parts[0] !== '' ? $parts[0] : 'Learner',
+            'lastname' => $parts[1] ?? '-',
+            'email' => strtolower($user->email),
+        ];
     }
 
     /** Converts an account made before single sign-on (username = email, manual password login)
