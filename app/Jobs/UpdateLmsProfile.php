@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\MoodleClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -48,13 +49,24 @@ class UpdateLmsProfile implements ShouldQueue
             return;
         }
 
-        $moodle->updateProfile($user->moodle_user_id, $user);
+        // Only ever the account confirmed as theirs (saved id checked against its ID number).
+        $moodleUserId = $moodle->findLinkedUser($user)['id'];
+
+        if ($moodleUserId === null) {
+            throw new RuntimeException("No Moodle account found for Marketplace user {$user->id}; re-run provisioning to link one.");
+        }
+
+        $moodle->updateProfile($moodleUserId, $user);
+
+        if ($moodleUserId !== $user->moodle_user_id) {
+            $user->updateQuietly(['moodle_user_id' => $moodleUserId]);
+        }
 
         ActivityLog::record(
             'lms.profile_updated',
             "Empower LMS email and name updated to {$user->email} ({$user->name}).",
             user: $user,
-            metadata: ['moodle_user_id' => $user->moodle_user_id],
+            metadata: ['moodle_user_id' => $moodleUserId],
         );
     }
 }

@@ -85,8 +85,8 @@ class MoodleProvisioningTest extends TestCase
             && $request['users'][0]['firstname'] === 'Jane'
             && $request['users'][0]['lastname'] === 'Provider'
             && ! isset($request['users'][0]['createpassword']));
-        // Username lookup, email lookup (legacy account), create, then 8 enrolments.
-        Http::assertSentCount(3 + 8);
+        // ID number, username and email lookups, create, then 8 enrolments.
+        Http::assertSentCount(4 + 8);
         Http::assertSent(fn ($request) => $request['wsfunction'] === 'enrol_manual_enrol_users'
             && $request['enrolments'][0]['courseid'] === 7
             && $request['enrolments'][0]['userid'] === 4321);
@@ -108,7 +108,8 @@ class MoodleProvisioningTest extends TestCase
             $this->assertStringContainsString('course(s) 13', $e->getMessage());
         }
 
-        Http::assertSentCount(1 + 7);
+        // ID number lookup, link + update the found user, then 7 enrolments (course 13 fails).
+        Http::assertSentCount(1 + 1 + 7);
         $this->assertSame(5, $user->fresh()->moodle_user_id);
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'lms.provisioned', 'user_id' => $user->id]);
     }

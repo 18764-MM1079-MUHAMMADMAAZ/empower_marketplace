@@ -32,14 +32,65 @@ class MoodleClient
         return $response;
     }
 
-    public function findUserIdByEmail(string $email): ?int
+    /**
+     * Finds the Moodle account that belongs to this Marketplace user, without ever guessing (spec §5,
+     * "Preventing Duplicate Accounts"). The two records point to each other: Marketplace keeps the
+     * Moodle user id (users.moodle_user_id) and Moodle keeps the Marketplace user id (ID number).
+     *
+     *  1. The saved Moodle user id (unique in Moodle), confirmed by its ID number.
+     *  2. ID number = Marketplace user id (the spec's lookup). Moodle doesn't force it to be
+     *     unique, so two matches stop provisioning instead of picking one.
+     *  3. Username mp_{id}: accounts the OpenID Connect plugin created at sign-in (no ID number yet).
+     *  4. Email: only for accounts made before single sign-on, and never one that already carries
+     *     another Marketplace user's ID number.
+     *
+     * @return array{id: int|null, warning: string|null} id null = no account yet (create one)
+     */
+    public function findLinkedUser(User $user): array
     {
-        return $this->findUserIdBy('email', strtolower($email));
-    }
+        $ownId = (string) $user->id;
+        $warning = null;
 
-    public function findUserIdByUsername(string $username): ?int
-    {
-        return $this->findUserIdBy('username', $username);
+        if ($user->moodle_user_id !== null) {
+            $saved = $this->usersBy('id', (string) $user->moodle_user_id)[0] ?? null;
+
+            // No ID number in the reply means the web-service user can't see it: rely on step 2.
+            if ($saved && in_array((string) ($saved['idnumber'] ?? $ownId), ['', $ownId], true)) {
+                return ['id' => (int) $saved['id'], 'warning' => null];
+            }
+
+            $warning = $saved
+                ? "The saved Moodle user #{$user->moodle_user_id} has ID number {$saved['idnumber']}, not {$ownId}, so it was not used."
+                : "The saved Moodle user #{$user->moodle_user_id} no longer exists in Moodle.";
+        }
+
+        $matches = $this->usersBy('idnumber', $ownId);
+
+        if (count($matches) > 1) {
+            throw new RuntimeException(count($matches)." Moodle users have ID number {$ownId} (Moodle users #".implode(', #', array_column($matches, 'id')).'). Keep one, clear the ID number on the others in Moodle, then re-run provisioning.');
+        }
+
+        if ($matches !== []) {
+            return ['id' => (int) $matches[0]['id'], 'warning' => $warning];
+        }
+
+        foreach (['username' => $user->lmsUsername(), 'email' => strtolower($user->email)] as $field => $value) {
+            $found = $this->usersBy($field, $value)[0] ?? null;
+
+            if (! $found) {
+                continue;
+            }
+
+            $claimedBy = (string) ($found['idnumber'] ?? '');
+
+            if ($claimedBy !== '' && $claimedBy !== $ownId) {
+                throw new RuntimeException("Moodle user #{$found['id']} ({$field} {$value}) belongs to Marketplace user {$claimedBy}, not {$ownId}. Check both accounts in Moodle before re-running provisioning.");
+            }
+
+            return ['id' => (int) $found['id'], 'warning' => $warning];
+        }
+
+        return ['id' => null, 'warning' => $warning];
     }
 
     /**
@@ -78,15 +129,18 @@ class MoodleClient
         ];
     }
 
-    /** Converts an account made before single sign-on (username = email, manual password login)
-     *  so the OpenID Connect plugin signs the Marketplace user into it instead of creating a second one. */
+    /** Ties a found account to the Marketplace user (username mp_{id}, OpenID Connect login, ID
+     *  number), including accounts made before single sign-on, so the plugin signs the user into
+     *  it instead of creating a second one. */
     public function linkToMarketplace(int $moodleUserId, User $user): void
     {
+        // Spec §5: "If found, it updates that user": the link fields plus the latest email and name.
         $this->call('core_user_update_users', ['users' => [[
             'id' => $moodleUserId,
             'username' => $user->lmsUsername(),
             'auth' => config('services.moodle.auth'),
             'idnumber' => (string) $user->id,
+            ...$this->profileFields($user),
         ]]]);
     }
 
@@ -99,11 +153,13 @@ class MoodleClient
         ]]]);
     }
 
-    private function findUserIdBy(string $field, string $value): ?int
+    /** @return array<int, array<string, mixed>> */
+    private function usersBy(string $field, string $value): array
     {
-        $users = $this->call('core_user_get_users_by_field', ['field' => $field, 'values' => [$value]]);
-
-        return $users[0]['id'] ?? null;
+        return array_values(array_filter(
+            $this->call('core_user_get_users_by_field', ['field' => $field, 'values' => [$value]]),
+            fn ($user) => is_array($user) && isset($user['id']),
+        ));
     }
 
     /**

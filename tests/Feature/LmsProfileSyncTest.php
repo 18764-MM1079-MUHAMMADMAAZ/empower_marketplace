@@ -18,12 +18,25 @@ class LmsProfileSyncTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** ID number Moodle reports on the saved user 900 ('' = not set yet, so it's accepted). */
+    private string $savedIdNumber = '';
+
     protected function setUp(): void
     {
         parent::setUp();
 
         config(['services.moodle.token' => 'test-token', 'services.moodle.base_url' => 'https://lms.test']);
-        Http::fake(fn () => Http::response(null));
+        // The saved Moodle user 900 exists (no ID number yet, so it's accepted and linked).
+        Http::fake(fn ($request) => Http::response(
+            $request['wsfunction'] === 'core_user_get_users_by_field'
+                ? ($request['field'] === 'id' ? [['id' => 900, 'idnumber' => $this->savedIdNumber]] : [])
+                : null
+        ));
+    }
+
+    private function updateCalls(): int
+    {
+        return Http::recorded(fn ($request) => $request['wsfunction'] === 'core_user_update_users')->count();
     }
 
     private function assertProfileSent(string $email, string $first, string $last): void
@@ -43,7 +56,7 @@ class LmsProfileSyncTest extends TestCase
 
         $user->update(['email' => 'Jane.New@Practice.com']);
 
-        Http::assertSentCount(1);
+        $this->assertSame(1, $this->updateCalls());
         $this->assertProfileSent('jane.new@practice.com', 'Jane', 'Provider');
         $this->assertDatabaseHas('activity_logs', ['event_type' => 'lms.profile_updated', 'user_id' => $user->id]);
     }
@@ -92,7 +105,23 @@ class LmsProfileSyncTest extends TestCase
 
         config(['services.moodle.token' => '']);
         $job->handle(new MoodleClient);
-        Http::assertSentCount(1);
+        $this->assertSame(1, $this->updateCalls());
+    }
+
+    public function test_the_email_is_never_written_to_a_moodle_user_that_belongs_to_someone_else(): void
+    {
+        // The saved id now points at Marketplace user 777's account, and nothing else matches.
+        $this->savedIdNumber = '777';
+        $user = User::factory()->create(['moodle_user_id' => 900]);
+
+        try {
+            (new UpdateLmsProfile($user))->handle(new MoodleClient);
+            $this->fail('Expected the update to stop.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('No Moodle account found', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->updateCalls());
     }
 
     public function test_a_refused_update_is_retried_and_then_shown_to_admins(): void

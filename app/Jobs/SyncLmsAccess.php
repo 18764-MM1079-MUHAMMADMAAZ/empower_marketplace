@@ -57,8 +57,15 @@ class SyncLmsAccess implements ShouldQueue
             return;
         }
 
-        $moodle->setSuspended($user->moodle_user_id, $suspend);
-        $user->update(['lms_suspended_at' => $suspend ? now() : null]);
+        // Only ever the account confirmed as theirs (saved id checked against its ID number).
+        $moodleUserId = $moodle->findLinkedUser($user)['id'];
+
+        if ($moodleUserId === null) {
+            return;
+        }
+
+        $moodle->setSuspended($moodleUserId, $suspend);
+        $user->update(['lms_suspended_at' => $suspend ? now() : null, 'moodle_user_id' => $moodleUserId]);
 
         ActivityLog::record(
             $suspend ? 'lms.suspended' : 'lms.reactivated',

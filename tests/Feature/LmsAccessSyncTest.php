@@ -44,12 +44,19 @@ class LmsAccessSyncTest extends TestCase
         return Order::factory()->create(['user_id' => $client->id, 'package_id' => $package->id]);
     }
 
+    /** Each change looks the account up first (saved id, cross-checked), then sends one update. */
     private function assertSuspendSent(bool $suspended, int $times = 1): void
     {
-        Http::assertSentCount($times);
+        $this->assertSame($times, $this->suspendCalls());
         Http::assertSent(fn ($request) => $request['wsfunction'] === 'core_user_update_users'
             && $request['users'][0]['id'] === 900
-            && $request['users'][0]['suspended'] === ($suspended ? 1 : 0));
+            && ($request['users'][0]['suspended'] ?? null) === ($suspended ? 1 : 0));
+    }
+
+    private function suspendCalls(): int
+    {
+        return Http::recorded(fn ($request) => $request['wsfunction'] === 'core_user_update_users'
+            && isset($request['users'][0]['suspended']))->count();
     }
 
     public function test_cancelling_the_only_lms_order_suspends_the_moodle_account(): void
@@ -122,9 +129,12 @@ class LmsAccessSyncTest extends TestCase
         $order = $this->provisionedClient();
         app(TrialBillingService::class)->cancel($order, 'term_ended');
 
+        $before = Http::recorded()->count();
         (new SyncLmsAccess($order->user))->handle(new MoodleClient);
 
-        Http::assertSentCount(1);
+        // Already suspended: no lookup and no update the second time.
+        $this->assertSame($before, Http::recorded()->count());
+        $this->assertSame(1, $this->suspendCalls());
     }
 
     public function test_unrelated_order_updates_do_not_touch_moodle(): void
@@ -143,7 +153,7 @@ class LmsAccessSyncTest extends TestCase
 
         (new ProvisionLmsAccount($order->user))->handle(new MoodleClient);
 
-        Http::assertSent(fn ($request) => $request['wsfunction'] === 'core_user_update_users' && $request['users'][0]['suspended'] === 0);
+        Http::assertSent(fn ($request) => $request['wsfunction'] === 'core_user_update_users' && ($request['users'][0]['suspended'] ?? null) === 0);
         $this->assertNull($order->user->fresh()->lms_suspended_at);
     }
 

@@ -46,21 +46,21 @@ class ProvisionLmsAccount implements ShouldQueue
             return;
         }
 
-        // Matched on the Marketplace-id username, never the email (spec §4). An account from before
-        // single sign-on (found by its stored id or by email) is converted rather than duplicated.
-        $moodleUserId = $moodle->findUserIdByUsername($this->user->lmsUsername());
-        $created = false;
+        // Saved Moodle id (cross-checked), then ID number, username, and email for accounts from
+        // before single sign-on (spec §5). Whatever is found is linked and updated, never duplicated.
+        $found = $moodle->findLinkedUser($this->user);
 
-        if ($moodleUserId === null) {
-            $legacyId = $this->user->moodle_user_id ?? $moodle->findUserIdByEmail($this->user->email);
+        if ($found['warning'] !== null) {
+            ActivityLog::record('lms.link_warning', $found['warning'], user: $this->user, metadata: ['moodle_user_id' => $this->user->moodle_user_id]);
+        }
 
-            if ($legacyId !== null) {
-                $moodle->linkToMarketplace($legacyId, $this->user);
-                $moodleUserId = $legacyId;
-            } else {
-                $moodleUserId = $moodle->createUser($this->user);
-                $created = true;
-            }
+        $created = $found['id'] === null;
+
+        if ($created) {
+            $moodleUserId = $moodle->createUser($this->user);
+        } else {
+            $moodleUserId = $found['id'];
+            $moodle->linkToMarketplace($moodleUserId, $this->user);
         }
 
         $firstTime = $this->user->moodle_user_id === null;
