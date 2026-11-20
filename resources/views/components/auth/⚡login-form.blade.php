@@ -179,6 +179,13 @@ new class extends Component
         if ($sso) {
             if ($sso['practice']) {
                 session(['sso_active_practice' => $sso['practice']]);
+
+                // The partner only tells us practice names at sign-in: keep them on this client's
+                // orders for that practice so admins see the real name (Admin › Users).
+                if (filled($sso['practice']['name'] ?? null)) {
+                    $user->orders()->where('external_practice_id', $sso['practice']['id'])
+                        ->update(['external_practice_name' => $sso['practice']['name']]);
+                }
             }
 
             ActivityLog::record('sso.empower_sso_api_login', "Logged in via {$sso['label']} (EmpowerSSOAPI).", user: $user);

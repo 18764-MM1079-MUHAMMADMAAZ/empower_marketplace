@@ -61,7 +61,8 @@ $containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-
                         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                     </a>
                     @else
-                    <a href="{{ route('home') }}#pricing" title="Buy a package to unlock training" aria-label="Go to LMS (buy a package to unlock training)" data-lms-button-locked
+                    @php($lmsLocked = auth()->user()->lmsLockedMessage())
+                    <a href="{{ route('home') }}#pricing" title="{{ $lmsLocked }}" aria-label="Go to LMS ({{ Str::lower($lmsLocked) }})" data-lms-button-locked
                         class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-empower-border bg-page px-3 py-1.5 text-xs font-bold text-empower-muted opacity-70 hover:opacity-100 transition-opacity">
                         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                         Go to LMS

@@ -704,6 +704,26 @@ class AuthTest extends TestCase
         $this->assertSame('Riverside Pediatrics', session('sso_active_practice.name'));
     }
 
+    public function test_signing_in_to_a_practice_saves_its_name_on_that_practices_orders(): void
+    {
+        $this->fakeEmpowerSsoApi($this->multiPracticePayload());
+        $user = User::factory()->create(['email' => 'jane@practice.com']);
+        $package = Package::factory()->create();
+        $order = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id, 'external_practice_id' => '1011164']);
+        $other = Order::factory()->create(['user_id' => $user->id, 'package_id' => $package->id, 'external_practice_id' => '1011163']);
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->set('ssoUsername', '1163testing')
+            ->set('ssoPassword', 't@lkTest@1234')
+            ->call('loginViaSso')
+            ->set('pickedPracticeId', '1011164')
+            ->call('choosePractice');
+
+        $this->assertSame('Riverside Pediatrics', $order->fresh()->external_practice_name);
+        $this->assertNull($other->fresh()->external_practice_name);
+    }
+
     public function test_picking_a_practice_that_is_not_in_the_list_is_refused(): void
     {
         $this->fakeEmpowerSsoApi($this->multiPracticePayload());

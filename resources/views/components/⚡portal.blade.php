@@ -920,6 +920,17 @@ new class extends Component
         return session('sso_active_practice.id') ?? auth()->user()->practice?->external_practice_id;
     }
 
+    /** The name of that same practice, saved on the order so admins see it (the partner only gives
+     *  us the name at sign-in, it isn't stored anywhere else for practices other than the user's own). */
+    private function activeExternalPracticeName(): ?string
+    {
+        if (session('sso_active_practice.id') !== null) {
+            return session('sso_active_practice.name') ?: null;
+        }
+
+        return auth()->user()->practice?->external_practice_id !== null ? (auth()->user()->practice->name ?: null) : null;
+    }
+
     public function signUpForUpdates(): void
     {
         $this->validate(['updatesEmail' => 'required|email:rfc,filter|max:255'], [], ['updatesEmail' => 'email']);
@@ -1727,6 +1738,7 @@ new class extends Component
         $order = Order::create([
             'user_id' => $user->id,
             'external_practice_id' => $this->activeExternalPracticeId(),
+            'external_practice_name' => $this->activeExternalPracticeName(),
             'package_id' => $package->id,
             'checkout_batch_id' => (string) Str::ulid(),
             'status' => OrderStatus::Paid,
@@ -1927,6 +1939,7 @@ new class extends Component
             $order = Order::create([
                 'user_id' => auth()->id(),
                 'external_practice_id' => $this->activeExternalPracticeId(),
+                'external_practice_name' => $this->activeExternalPracticeName(),
                 'package_id' => $package->id,
                 'checkout_batch_id' => $batchId,
                 'status' => OrderStatus::Paid,
@@ -2152,6 +2165,7 @@ new class extends Component
         $order = Order::create([
             'user_id' => auth()->id(),
             'external_practice_id' => $this->activeExternalPracticeId(),
+            'external_practice_name' => $this->activeExternalPracticeName(),
             'package_id' => $package->id,
             'checkout_batch_id' => (string) Str::ulid(),
             'status' => OrderStatus::Paid,

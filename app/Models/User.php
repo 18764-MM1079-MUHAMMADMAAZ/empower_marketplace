@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
@@ -101,13 +102,27 @@ class User extends Authenticatable
             return false;
         }
 
+        return $this->liveOrders()->contains(fn (Order $order) => $order->package?->includesLmsAccess());
+    }
+
+    /** Why "Go to LMS" is greyed out (spec §7): an Essential client is told to upgrade, anyone
+     *  without a live package to buy one. Both link to the packages. */
+    public function lmsLockedMessage(): string
+    {
+        return $this->liveOrders()->isNotEmpty()
+            ? 'Upgrade to Professional, Advanced or Complete to unlock training'
+            : 'Buy a package to unlock training';
+    }
+
+    /** Paid (or trialling / partner-billed) orders that haven't been cancelled. @return \Illuminate\Support\Collection<int, Order> */
+    private function liveOrders(): Collection
+    {
         return $this->orders()
             ->whereIn('payment_status', Order::PAID_STATUSES)
             ->where('status', '!=', OrderStatus::Cancelled)
             ->whereNull('cancelled_at')
             ->with('package')
-            ->get()
-            ->contains(fn (Order $order) => $order->package?->includesLmsAccess());
+            ->get();
     }
 
     public function practice(): HasOne

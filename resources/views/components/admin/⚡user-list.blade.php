@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Exports\UsersExport;
@@ -58,6 +59,85 @@ new class extends Component
         return $this->baseQuery()->paginate(10);
     }
 
+    /**
+     * The packages each client on this page has bought (live orders: paid, trialling or partner
+     * billed, not cancelled), grouped by practice. Partner (CCH / talkEHR) orders can belong to
+     * different practices of the same login; Marketplace only keeps the partner's practice id for
+     * those, so a practice other than the user's own is shown by that id.
+     *
+     * @return array<int, array<int, array{practice: string, packages: array<int, array{name: string, note: ?string}>}>>
+     */
+    #[Computed]
+    public function packageGroups(): array
+    {
+        $users = collect($this->users->items())->keyBy('id');
+
+        return Order::query()
+            ->whereIn('user_id', $users->keys())
+            ->whereIn('payment_status', Order::PAID_STATUSES)
+            ->where('status', '!=', OrderStatus::Cancelled)
+            ->whereNull('cancelled_at')
+            ->with('package')
+            ->oldest()->oldest('id')
+            ->get()
+            ->groupBy('user_id')
+            ->map(fn ($orders, $userId) => $this->groupByPractice($users[$userId], $orders))
+            ->all();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Order>  $orders
+     * @return array<int, array{practice: string, packages: array<int, array{name: string, note: ?string}>}>
+     */
+    private function groupByPractice(User $user, $orders): array
+    {
+        $ownId = (string) $user->practice?->external_practice_id;
+        $ownName = $user->practice?->name ?: 'Practice not named yet';
+
+        // Keys are prefixed: PHP turns a numeric-looking key like "1011163" into an int, which then
+        // never matched the practice profile's id and showed "Partner practice 1011163" instead.
+        return $orders
+            ->groupBy(fn (Order $order) => 'p:'.($order->external_practice_id ?? $ownId))
+            ->map(function ($practiceOrders, $key) use ($ownId, $ownName) {
+                $practiceId = substr($key, 2);
+
+                return [
+                    'practice' => match (true) {
+                        $practiceId === '' || $practiceId === $ownId => $ownName,
+                        default => $practiceOrders->pluck('external_practice_name')->filter()->last() ?? "Partner practice {$practiceId}",
+                    },
+                'packages' => $practiceOrders->map(fn (Order $order) => [
+                    'name' => $order->package?->name ?? 'Deleted package',
+                    'note' => match (true) {
+                        $order->payment_status === PaymentStatus::Trialing => 'trial',
+                        $order->cancels_at !== null => 'ends '.$order->cancels_at->format('M j'),
+                        default => null,
+                    },
+                ])->values()->all(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /** "Professional (trial); Essential" per practice, for the Excel export. */
+    private function packagesText(User $user): string
+    {
+        $orders = Order::where('user_id', $user->id)
+            ->whereIn('payment_status', Order::PAID_STATUSES)
+            ->where('status', '!=', OrderStatus::Cancelled)
+            ->whereNull('cancelled_at')
+            ->with('package')
+            ->oldest()->oldest('id')
+            ->get();
+
+        return collect($this->groupByPractice($user, $orders))
+            ->map(fn ($group) => $group['practice'].': '.collect($group['packages'])
+                ->map(fn ($package) => $package['name'].($package['note'] ? " ({$package['note']})" : ''))
+                ->implode(', '))
+            ->implode('; ');
+    }
+
     public function export()
     {
         $rows = $this->baseQuery()->get()->map(fn (User $user) => [
@@ -65,6 +145,7 @@ new class extends Component
             $user->email,
             ucfirst($user->role->value),
             $user->practice?->name,
+            $this->packagesText($user),
             $user->orders_count,
             $user->is_active ? 'Active' : 'Inactive',
             $user->created_at?->toDateTimeString(),
@@ -177,7 +258,7 @@ new class extends Component
                     <th class="px-5 py-3">Name</th>
                     <th class="px-5 py-3">Email</th>
                     <th class="px-5 py-3">Role</th>
-                    <th class="px-5 py-3">Practice</th>
+                    <th class="px-5 py-3">Practice &amp; packages</th>
                     <th class="px-5 py-3">Orders</th>
                     <th class="px-5 py-3">Status</th>
                     <th class="px-5 py-3"></th>
@@ -194,7 +275,26 @@ new class extends Component
                         </td>
                         <td class="px-5 py-3.5 text-empower-text">{{ $user->email }}</td>
                         <td class="px-5 py-3.5 text-empower-text capitalize">{{ $user->role->value }}</td>
-                        <td class="px-5 py-3.5 text-empower-text">{{ $user->practice?->name ?: '—' }}</td>
+                        <td class="px-5 py-3.5 text-empower-text" data-user-packages>
+                            @php($groups = $this->packageGroups[$user->id] ?? [])
+                            @forelse($groups as $group)
+                                <div class="{{ $loop->first ? '' : 'mt-2' }}" data-practice-group>
+                                    <p class="font-medium">{{ $group['practice'] }}</p>
+                                    <div class="mt-1 flex flex-wrap gap-1">
+                                        @foreach($group['packages'] as $package)
+                                            <span class="inline-flex items-center rounded-full bg-[#eaf4ff] px-2 py-0.5 text-[0.68rem] font-bold text-[#1a7aad]" data-package-chip>
+                                                {{ $package['name'] }}@if($package['note'])<span class="ml-1 font-semibold text-empower-muted">· {{ $package['note'] }}</span>@endif
+                                            </span>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @empty
+                                {{ $user->practice?->name ?: '—' }}
+                                @if($user->role === UserRole::Client && $user->practice)
+                                    <p class="text-xs text-empower-muted">No active package</p>
+                                @endif
+                            @endforelse
+                        </td>
                         <td class="px-5 py-3.5 text-empower-text">{{ $user->orders_count }}</td>
                         <td class="px-5 py-3.5">
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold uppercase tracking-wider {{ $user->is_active ? 'bg-[#dff7f0] text-[#0f7a4f]' : 'bg-[#fde8e8] text-red-700' }}">

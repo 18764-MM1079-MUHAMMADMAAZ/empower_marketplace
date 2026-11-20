@@ -28,7 +28,7 @@ class OidcController extends Controller
     {
         if (! $request->user()->hasLmsAccess()) {
             return redirect()->to(route('home').'#pricing')
-                ->with('toast', 'Buy a package to unlock training.')
+                ->with('toast', $request->user()->lmsLockedMessage().'.')
                 ->with('toast_type', 'error');
         }
 
@@ -100,7 +100,7 @@ class OidcController extends Controller
 
         if (! $user->hasLmsAccess()) {
             return redirect()->to(route('home').'#pricing')
-                ->with('toast', 'Buy a package to unlock training.')
+                ->with('toast', $request->user()->lmsLockedMessage().'.')
                 ->with('toast_type', 'error');
         }
 

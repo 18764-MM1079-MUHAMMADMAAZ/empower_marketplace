@@ -247,15 +247,35 @@ class OidcTest extends TestCase
             ->assertSee('Go to LMS')
             ->assertDontSee('Access LMS');
 
+        // Essential buyers are told to upgrade (spec §7)...
         $this->actingAs($this->clientWith('essential'))->get(route('portal'))
             ->assertSee('data-lms-button-locked', false)
+            ->assertSee('Upgrade to Professional, Advanced or Complete to unlock training')
+            ->assertDontSee('Buy a package to unlock training');
+
+        // ...clients with no package to buy one.
+        $this->actingAs(User::factory()->create())->get(route('account'))
+            ->assertSee('data-lms-button-locked', false)
             ->assertSee('Buy a package to unlock training');
+    }
+
+    public function test_the_locked_message_ignores_cancelled_orders(): void
+    {
+        $client = $this->clientWith('essential');
+        $client->orders()->update(['status' => OrderStatus::Cancelled, 'cancelled_at' => now()]);
+
+        $this->assertSame('Buy a package to unlock training', $client->fresh()->lmsLockedMessage());
     }
 
     public function test_launch_goes_to_moodle_only_with_access(): void
     {
         $this->actingAs($this->clientWith('professional'))->get(route('lms.launch'))->assertRedirect('https://lms.test/my/');
+
         $this->actingAs($this->clientWith('essential'))->get(route('lms.launch'))->assertRedirect(route('home').'#pricing');
+        $this->assertSame('Upgrade to Professional, Advanced or Complete to unlock training.', session('toast'));
+
+        $this->actingAs(User::factory()->create())->get(route('lms.launch'))->assertRedirect(route('home').'#pricing');
+        $this->assertSame('Buy a package to unlock training.', session('toast'));
     }
 
     public function test_marketplace_logout_also_ends_the_lms_session(): void
