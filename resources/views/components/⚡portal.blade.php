@@ -1887,6 +1887,8 @@ new class extends Component
                 'email' => $this->accountEmail,
                 'password' => $generatedPassword,
                 'role' => UserRole::Client,
+                // Emailed in the welcome message, so it must be changed at first login (spec §4).
+                'must_change_password' => true,
             ]);
 
             Practice::create([
@@ -2111,6 +2113,8 @@ new class extends Component
                 'email' => $this->accountEmail,
                 'password' => $generatedPassword,
                 'role' => UserRole::Client,
+                // Emailed in the welcome message, so it must be changed at first login (spec §4).
+                'must_change_password' => true,
             ]);
 
             Practice::create([

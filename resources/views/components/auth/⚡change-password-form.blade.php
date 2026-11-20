@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RequirePasswordChange;
 use App\Services\UserSessions;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -45,7 +46,7 @@ new class extends Component
         $this->validate();
 
         $user = Auth::user();
-        $user->forceFill(['password' => Hash::make($this->password)])->save();
+        $user->forceFill(['password' => Hash::make($this->password), 'must_change_password' => false])->save();
 
         // Anyone signed in elsewhere with the old password is signed out.
         $this->signedOutDevices = UserSessions::for($user)->signOutOthers();
@@ -53,6 +54,17 @@ new class extends Component
         $this->reset(['currentPassword', 'password', 'password_confirmation']);
         $this->updated = true;
         $this->dispatch('password-updated');
+
+        // Was held here after logging in with the emailed temporary password: carry on to where they
+        // were going (the LMS handoff, if that's how they arrived), otherwise their portal.
+        if (session()->pull(RequirePasswordChange::SESSION_KEY)) {
+            $destination = session()->pull('oidc_authorize_url') ?? route('portal');
+
+            session()->flash('toast', 'Password updated. You are all set.');
+            session()->flash('toast_type', 'success');
+
+            $this->redirect($destination, navigate: ! str_starts_with($destination, route('oidc.authorize')));
+        }
     }
 };
 ?>

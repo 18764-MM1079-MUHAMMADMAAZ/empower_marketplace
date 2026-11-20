@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\RequirePasswordChange;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\VerifySsoApiKey;
 use Illuminate\Foundation\Application;
@@ -30,6 +31,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->prependToPriorityList(SubstituteBindings::class, AdminMiddleware::class);
         $middleware->append(SecurityHeaders::class);
+
+        // Logged in with the emailed temporary password: My Account until it's changed.
+        $middleware->web(append: [RequirePasswordChange::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

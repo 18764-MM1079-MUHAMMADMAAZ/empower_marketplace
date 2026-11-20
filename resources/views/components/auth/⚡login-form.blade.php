@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Http\Middleware\RequirePasswordChange;
 use App\Mail\WelcomeCredentialsMail;
 use App\Models\ActivityLog;
 use App\Models\Practice;
@@ -181,6 +182,19 @@ new class extends Component
             }
 
             ActivityLog::record('sso.empower_sso_api_login', "Logged in via {$sso['label']} (EmpowerSSOAPI).", user: $user);
+        }
+
+        // Logged in with the temporary password from the welcome email: choose a new one first
+        // (spec §4). RequirePasswordChange keeps them on My Account until they do; any LMS
+        // handoff stays in the session and continues afterwards.
+        if (! $sso && $user->must_change_password) {
+            session([RequirePasswordChange::SESSION_KEY => true]);
+            session()->flash('toast', 'Welcome! Please choose a new password to finish signing in.');
+            session()->flash('toast_type', 'success');
+
+            $this->redirect(route('account').'#security', navigate: true);
+
+            return;
         }
 
         [$destination, $isPurchasing] = $this->destinationFor($user, newClientToPricing: true);

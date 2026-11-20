@@ -19,7 +19,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id', 'lms_suspended_at', 'external_id', 'is_practice_admin'])]
+#[Fillable(['name', 'email', 'password', 'must_change_password', 'role', 'is_active', 'moodle_user_id', 'lms_suspended_at', 'external_id', 'is_practice_admin'])]
 #[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
@@ -40,6 +40,7 @@ class User extends Authenticatable
             'notification_preferences' => 'array',
             'two_factor_confirmed_at' => 'datetime',
             'lms_suspended_at' => 'datetime',
+            'must_change_password' => 'boolean',
         ];
     }
 

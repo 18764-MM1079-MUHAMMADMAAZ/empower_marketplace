@@ -409,7 +409,8 @@ class PortalTest extends TestCase
             ->set('email', $user->email)
             ->set('password', $capturedPassword)
             ->call('login')
-            ->assertRedirect(route('portal'));
+            // The emailed password is temporary: first login goes to My Account to replace it.
+            ->assertRedirect(route('account').'#security');
     }
 
     public function test_guest_pay_requires_account_fields(): void

@@ -69,6 +69,13 @@ $others = $this->devices->where('current', false)->count();
     <h2 id="h-security" class="text-lg font-semibold text-[#12304f]">Sign-in &amp; security</h2>
     <p class="text-sm text-[#5d6e7f] mb-5">Manage how you sign in to the Empower portal.</p>
 
+    @if($user->must_change_password)
+    <div data-temporary-password role="status" class="mb-5 rounded-xl border border-[#f3d18a] bg-[#fff8e6] px-4 py-3 text-sm text-[#7a5200]">
+        <strong class="font-bold">Choose your own password.</strong>
+        You're using the temporary password from your welcome email. Enter it as your current password below, then choose a new one.
+    </div>
+    @endif
+
     <div class="grid gap-4 md:grid-cols-2">
         <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4 sm:p-5">
             <h3 class="text-base font-bold text-[#12304f] mb-3">Change password</h3>

@@ -55,7 +55,7 @@ new class extends Component
                 'token' => $this->token,
             ],
             function ($user) {
-                $user->forceFill(['password' => Hash::make($this->password)])->save();
+                $user->forceFill(['password' => Hash::make($this->password), 'must_change_password' => false])->save();
             }
         );
 
