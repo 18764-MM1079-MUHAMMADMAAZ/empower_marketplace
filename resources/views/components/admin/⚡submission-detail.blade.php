@@ -586,7 +586,7 @@ new class extends Component
         }
 
         $log = ActivityLog::where('user_id', $order->user_id)
-            ->whereIn('event_type', ['lms.provisioned', 'lms.failed'])
+            ->whereIn('event_type', ['lms.provisioned', 'lms.failed', 'lms.suspended', 'lms.reactivated', 'lms.sync_failed'])
             ->latest('id')
             ->first();
 
@@ -594,8 +594,16 @@ new class extends Component
             return ['state' => 'none', 'label' => 'Not provisioned', 'detail' => 'Runs automatically when the client submits their intake.'];
         }
 
-        if ($log->event_type === 'lms.failed') {
+        if (in_array($log->event_type, ['lms.failed', 'lms.sync_failed'], true)) {
             return ['state' => 'failed', 'label' => 'Failed', 'detail' => $log->description];
+        }
+
+        if ($log->event_type === 'lms.suspended') {
+            return ['state' => 'none', 'label' => 'Access off', 'detail' => $log->description];
+        }
+
+        if ($log->event_type === 'lms.reactivated') {
+            return ['state' => 'ok', 'label' => 'Provisioned', 'detail' => $log->description];
         }
 
         $failedCourses = $log->metadata['failed_course_ids'] ?? [];

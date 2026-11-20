@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Enums\AdminEmail;
 use App\Enums\OrderStatus;
 use App\Enums\UserRole;
+use App\Jobs\SyncLmsAccess;
 use App\Mail\ResetPasswordMail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -18,7 +19,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id', 'external_id', 'is_practice_admin'])]
+#[Fillable(['name', 'email', 'password', 'role', 'is_active', 'moodle_user_id', 'lms_suspended_at', 'external_id', 'is_practice_admin'])]
 #[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
@@ -38,7 +39,18 @@ class User extends Authenticatable
             'is_practice_admin' => 'boolean',
             'notification_preferences' => 'array',
             'two_factor_confirmed_at' => 'datetime',
+            'lms_suspended_at' => 'datetime',
         ];
+    }
+
+    /** Deactivating a client also turns off their Empower LMS account (and reactivating turns it back on). */
+    protected static function booted(): void
+    {
+        static::updated(function (User $user) {
+            if ($user->wasChanged('is_active') && $user->moodle_user_id !== null) {
+                SyncLmsAccess::dispatch($user)->afterCommit();
+            }
+        });
     }
 
     public function isAdmin(): bool
@@ -71,7 +83,7 @@ class User extends Authenticatable
     }
 
     /** Whether the client owns a live (paid, not cancelled) order for a package that includes the
-     *  Empower LMS — gates the "Access LMS" button and the OpenID Connect sign-in to Moodle. */
+     *  Empower LMS — gates the "Go to LMS" button and the OpenID Connect sign-in to Moodle. */
     public function hasLmsAccess(): bool
     {
         if ($this->isAdmin() || ! $this->is_active) {

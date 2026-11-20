@@ -239,11 +239,13 @@ class OidcTest extends TestCase
             ->assertStatus(400);
     }
 
-    public function test_header_shows_access_lms_to_paid_clients_and_a_locked_button_to_others(): void
+    public function test_header_shows_go_to_lms_to_paid_clients_and_a_locked_button_to_others(): void
     {
         $this->actingAs($this->clientWith('professional'))->get(route('portal'))
             ->assertSee('data-lms-button', false)
-            ->assertSee(route('lms.launch'), false);
+            ->assertSee(route('lms.launch'), false)
+            ->assertSee('Go to LMS')
+            ->assertDontSee('Access LMS');
 
         $this->actingAs($this->clientWith('essential'))->get(route('portal'))
             ->assertSee('data-lms-button-locked', false)

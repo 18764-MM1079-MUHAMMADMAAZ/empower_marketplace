@@ -76,6 +76,15 @@ class MoodleClient
         ]]]);
     }
 
+    /** Suspended users can't sign in, but Moodle keeps their enrolments, grades and certificates. */
+    public function setSuspended(int $moodleUserId, bool $suspended): void
+    {
+        $this->call('core_user_update_users', ['users' => [[
+            'id' => $moodleUserId,
+            'suspended' => $suspended ? 1 : 0,
+        ]]]);
+    }
+
     private function findUserIdBy(string $field, string $value): ?int
     {
         $users = $this->call('core_user_get_users_by_field', ['field' => $field, 'values' => [$value]]);

@@ -29,7 +29,7 @@ return [
         'redirect_uri' => env('OIDC_MOODLE_REDIRECT_URI', $moodleBase.'/auth/iomadoidc/'),
         // The plugin's "Front-channel Logout URL" — loaded in a hidden iframe on Marketplace logout.
         'frontchannel_logout_uri' => env('OIDC_MOODLE_FRONTCHANNEL_LOGOUT_URI', $moodleBase.'/auth/iomadoidc/logout.php'),
-        // Where the "Access LMS" button lands: the plugin's own sign-in link (what its "Empower
+        // Where the "Go to LMS" button lands: the plugin's own sign-in link (what its "Empower
         // Marketplace" button on the Moodle login page points to). It goes straight through
         // /oauth/authorize and back signed in, so the user never sees Moodle's login page.
         'launch_url' => env('OIDC_MOODLE_LAUNCH_URL', $moodleBase.'/auth/iomadoidc/?source=loginpage'),

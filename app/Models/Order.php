@@ -7,6 +7,7 @@ use App\Enums\CardBrand;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Jobs\SyncLmsAccess;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -31,6 +32,26 @@ class Order extends Model
 {
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
+
+    /**
+     * Any change that can grant or remove LMS access (cancellation, trial lapse, term end, failed
+     * renewal, a new paid order) re-checks the client's Empower LMS account. Only clients who
+     * already have a Moodle account are checked; this never creates one.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (Order $order) {
+            if (! $order->wasRecentlyCreated && ! $order->wasChanged(['status', 'payment_status', 'cancelled_at', 'package_id'])) {
+                return;
+            }
+
+            $user = $order->user;
+
+            if ($user?->moodle_user_id !== null) {
+                SyncLmsAccess::dispatch($user)->afterCommit();
+            }
+        });
+    }
 
     /**
      * Every payment_status value that means "checkout is complete, proceed to onboarding" — not

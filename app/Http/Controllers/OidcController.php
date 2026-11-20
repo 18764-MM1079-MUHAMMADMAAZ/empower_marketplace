@@ -22,7 +22,7 @@ class OidcController extends Controller
 {
     public function __construct(private OidcTokenIssuer $issuer) {}
 
-    /** The "Access LMS" button. Paid clients go to Moodle, which bounces them through authorize()
+    /** The "Go to LMS" button. Paid clients go to Moodle, which bounces them through authorize()
      *  and back signed in; everyone else is sent to the packages to buy one. */
     public function launch(Request $request): RedirectResponse
     {

@@ -68,7 +68,13 @@ class ProvisionLmsAccount implements ShouldQueue
 
         $failed = $moodle->enrol($moodleUserId, $courseIds);
 
-        $this->user->update(['moodle_user_id' => $moodleUserId]);
+        // A client who lost access and bought again: turn their suspended account back on.
+        if ($this->user->lms_suspended_at !== null) {
+            $moodle->setSuspended($moodleUserId, false);
+            ActivityLog::record('lms.reactivated', "Empower LMS access turned back on for {$this->user->email}.", user: $this->user, metadata: ['moodle_user_id' => $moodleUserId]);
+        }
+
+        $this->user->update(['moodle_user_id' => $moodleUserId, 'lms_suspended_at' => null]);
 
         ActivityLog::record(
             'lms.provisioned',
