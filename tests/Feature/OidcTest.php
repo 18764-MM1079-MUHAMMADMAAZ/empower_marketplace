@@ -174,6 +174,9 @@ class OidcTest extends TestCase
         $this->assertSame('n-123', $claims['nonce']);
         $this->assertSame((string) $user->id, $claims['sub']);
         $this->assertSame('mp_'.$user->id, $claims['preferred_username']);
+        // The plugin binds the username from upn / unique_name before falling back to sub.
+        $this->assertSame('mp_'.$user->id, $claims['upn']);
+        $this->assertSame('mp_'.$user->id, $claims['unique_name']);
         $this->assertSame(strtolower($user->email), $claims['email']);
         $this->assertSame('Jane', $claims['given_name']);
         $this->assertSame('Q Provider', $claims['family_name']);

@@ -13,6 +13,11 @@ class OidcTokenIssuer
      * derived from the Marketplace user id, never the email, so an email change can't fork the
      * LMS account (spec §4). preferred_username must match MoodleClient's username for the user.
      *
+     * upn and unique_name carry the same username: with "Binding Username Claim" on Auto, the
+     * IOMAD/Microsoft OpenID Connect plugin reads upn, then unique_name, and only falls back to
+     * sub. Without them it looked for username "53" instead of "mp_53", didn't find the
+     * provisioned account and tried to create a second one (blocked by the duplicate-email rule).
+     *
      * @return array<string, mixed>
      */
     public function claimsFor(User $user): array
@@ -22,6 +27,8 @@ class OidcTokenIssuer
         return [
             'sub' => (string) $user->id,
             'preferred_username' => $user->lmsUsername(),
+            'upn' => $user->lmsUsername(),
+            'unique_name' => $user->lmsUsername(),
             'name' => $user->name,
             'given_name' => $parts[0] !== '' ? $parts[0] : 'Learner',
             'family_name' => $parts[1] ?? '-',

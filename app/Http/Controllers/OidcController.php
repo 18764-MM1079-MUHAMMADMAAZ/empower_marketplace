@@ -53,7 +53,7 @@ class OidcController extends Controller
             'id_token_signing_alg_values_supported' => ['RS256'],
             'scopes_supported' => ['openid', 'profile', 'email'],
             'token_endpoint_auth_methods_supported' => ['client_secret_post', 'client_secret_basic'],
-            'claims_supported' => ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'name', 'given_name', 'family_name', 'preferred_username', 'email', 'email_verified'],
+            'claims_supported' => ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'name', 'given_name', 'family_name', 'preferred_username', 'upn', 'unique_name', 'email', 'email_verified'],
         ]);
     }
 
