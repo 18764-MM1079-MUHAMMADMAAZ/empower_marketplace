@@ -70,6 +70,13 @@ new class extends Component
         return Str::transliterate(Str::lower($this->ssoUsername).'|sso|'.request()->ip());
     }
 
+    /** Pre-filled from "?email=" (e.g. checkout's "this email already has an account" link). */
+    public function mount(): void
+    {
+        $email = request()->query('email');
+        $this->email = is_string($email) ? $email : '';
+    }
+
     /** @return array<int, string> */
     #[Computed]
     public function ssoProviders(): array

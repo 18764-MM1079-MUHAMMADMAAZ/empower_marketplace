@@ -11,6 +11,13 @@ new class extends Component
 
     public bool $sent = false;
 
+    /** Pre-filled from "?email=" (e.g. checkout's "this email already has an account" link). */
+    public function mount(): void
+    {
+        $email = request()->query('email');
+        $this->email = is_string($email) ? $email : '';
+    }
+
     public function sendResetLink(): void
     {
         $this->validate();

@@ -92,6 +92,27 @@ new class extends Component
 
     public string $accountEmail = '';
 
+    /** Checkout email that already belongs to an account: never a second account (spec §5). */
+    public const EMAIL_TAKEN = 'An account with this email already exists.';
+
+    /**
+     * Log in / forgot password links for an email that's already registered. They carry the chosen
+     * package, cycle and provider count, so after signing in the client lands back on this checkout.
+     *
+     * @return array{login: string, reset: string}
+     */
+    public function existingAccountLinks(): array
+    {
+        $query = array_filter([
+            'email' => $this->accountEmail,
+            'package' => $this->selectedPackage?->slug,
+            'billing_cycle' => $this->currentBillingCycle()->value,
+            'billable_providers' => $this->billableProviders ?: null,
+        ]);
+
+        return ['login' => route('login', $query), 'reset' => route('password.request', $query)];
+    }
+
     // Set only when pay()/payFreeTrial() creates a guest account in the current request, so the
     // Step 1 "Account Information" summary can announce it once. Deliberately not restored by
     // mount(), so it clears itself on the next page load instead of persisting for the life of
@@ -1556,6 +1577,8 @@ new class extends Component
     {
         return [
             'accountName.regex' => 'Please enter a valid name using letters only.',
+            // The markup turns this one into "Log in" / "reset your password" links (spec §5).
+            'accountEmail.unique' => self::EMAIL_TAKEN,
             'cardName.regex' => 'Please enter a valid name using letters only.',
             'termsAccepted.accepted' => 'Please agree to the Terms & Conditions before completing payment.',
         ];
@@ -3316,7 +3339,18 @@ $progressPct = match (true) {
                             maxlength="150" pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
                             title="Please include a domain extension, e.g. name@example.com"
                             class="w-full rounded-xl border border-empower-border bg-[#f8fbfd] px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
-                        @error('accountEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @error('accountEmail')
+                        @if($message === $this::EMAIL_TAKEN)
+                        @php $links = $this->existingAccountLinks(); @endphp
+                        <p class="mt-1 text-xs text-red-600" data-email-taken>
+                            {{ $message }}
+                            <a href="{{ $links['login'] }}" class="font-semibold underline hover:text-red-800">Log in</a>
+                            or <a href="{{ $links['reset'] }}" class="font-semibold underline hover:text-red-800">reset your password</a>.
+                        </p>
+                        @else
+                        <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                        @endif
+                        @enderror
                     </div>
                 </div>
                 <p class="text-xs text-empower-muted mt-2">We'll email you a secure, auto-generated password to log

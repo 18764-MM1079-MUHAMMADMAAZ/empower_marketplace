@@ -51,8 +51,9 @@ Route::get('/contact', function (Request $request) {
 })->name('contact');
 
 // Auth
-Route::get('/login', fn () => view('auth.login'))->name('login');
-Route::get('/register', function (Request $request) {
+// The package chosen at checkout survives a detour through log in / sign up / forgot password: after
+// signing in, the login form sends the client back to the portal with it.
+$rememberIntendedPackage = function (Request $request): void {
     if ($request->filled('package')) {
         session(['intended_package' => $request->query('package')]);
     }
@@ -65,10 +66,23 @@ Route::get('/register', function (Request $request) {
     if ($providers !== false && $providers >= 0 && $providers <= 9999) {
         session(['intended_billable_providers' => $providers]);
     }
+};
+
+Route::get('/login', function (Request $request) use ($rememberIntendedPackage) {
+    $rememberIntendedPackage($request);
+
+    return view('auth.login');
+})->name('login');
+Route::get('/register', function (Request $request) use ($rememberIntendedPackage) {
+    $rememberIntendedPackage($request);
 
     return view('auth.register');
 })->name('register');
-Route::get('/forgot-password', fn () => view('auth.forgot-password'))->name('password.request');
+Route::get('/forgot-password', function (Request $request) use ($rememberIntendedPackage) {
+    $rememberIntendedPackage($request);
+
+    return view('auth.forgot-password');
+})->name('password.request');
 Route::get('/reset-password/{token}', fn (string $token) => view('auth.reset-password', ['token' => $token]))->name('password.reset');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout')->middleware('auth');
 
