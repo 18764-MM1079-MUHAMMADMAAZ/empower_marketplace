@@ -247,11 +247,28 @@ new class extends Component
     public function incrementProviders(): void
     {
         $this->billableProviders = min(9999, $this->billableProviders + 1);
+        $this->rememberCheckoutChoice();
     }
 
     public function decrementProviders(): void
     {
         $this->billableProviders = max(0, $this->billableProviders - 1);
+        $this->rememberCheckoutChoice();
+    }
+
+    /** Keeps the package, billing cycle and provider count picked at checkout in the session, so
+     *  signing in part-way (e.g. with talkEHR or CareCloud) lands back on checkout with them filled in. */
+    private function rememberCheckoutChoice(): void
+    {
+        if ($this->step !== 1) {
+            return;
+        }
+
+        session(array_filter([
+            'intended_package' => $this->selectedPackageId ? Package::whereKey($this->selectedPackageId)->value('slug') : null,
+            'intended_billing_cycle' => $this->billingCycle,
+            'intended_billable_providers' => $this->billableProviders,
+        ], fn ($value) => $value !== null));
     }
 
     #[Computed]
@@ -1054,7 +1071,8 @@ new class extends Component
     {
         $user = auth()->user();
 
-        $queryProviders = request()->query('billable_providers');
+        // From the link (pricing quiz, sign-in redirect), else what was entered before signing in.
+        $queryProviders = request()->query('billable_providers') ?? session('intended_billable_providers');
         $requestedProviders = is_scalar($queryProviders)
             ? filter_var($queryProviders, FILTER_VALIDATE_INT)
             : false;
@@ -1083,6 +1101,11 @@ new class extends Component
             // No package chosen yet (e.g. they just signed in): leave it empty so Step 1 asks them to
             // pick one on the pricing page, instead of silently defaulting to the cheapest tier.
             $this->selectedPackageId = $resolvedId;
+
+            // Kept so signing in from here (instead of checking out as a new account) returns to it.
+            if ($resolvedId) {
+                $this->rememberCheckoutChoice();
+            }
 
             return;
         }
@@ -1595,6 +1618,10 @@ new class extends Component
             && $this->billingCycle === BillingCycle::Monthly->value
             && ! Package::find($this->selectedPackageId)?->hasMonthlyPricing()) {
             $this->billingCycle = BillingCycle::Annual->value;
+        }
+
+        if (in_array($property, ['selectedPackageId', 'billingCycle', 'billableProviders'], true)) {
+            $this->rememberCheckoutChoice();
         }
 
         if (in_array($property, $paymentFields, true)) {

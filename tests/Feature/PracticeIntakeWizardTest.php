@@ -500,7 +500,8 @@ class PracticeIntakeWizardTest extends TestCase
         // Uploading to a row marked "Don't have it" switches it back to uploaded.
         $this->assertSame('uploaded', $component->instance()->documentCategoryStatus('hipaa_privacy'));
         $this->assertNotContains('hipaa_privacy', IntakeSubmission::first()->wizard_missing_document_categories);
-        $component->assertSeeHtmlInOrder(['data-document-row="hipaa_privacy"', 'Add another', 'Notice of Privacy Practices.pdf', 'Privacy forms.pdf', 'data-document-row="hipaa_security"']);
+        // The files sit in the row's own column, in front of the type and its "Add another" link.
+        $component->assertSeeHtmlInOrder(['data-document-row="hipaa_privacy"', 'HIPAA Privacy', 'Add another', 'data-row-files="hipaa_privacy"', 'Notice of Privacy Practices.pdf', 'Privacy forms.pdf', 'data-document-row="hipaa_security"']);
     }
 
     public function test_a_row_upload_for_a_row_this_package_does_not_have_is_ignored(): void
@@ -554,6 +555,28 @@ class PracticeIntakeWizardTest extends TestCase
         $this->assertDatabaseMissing('intake_uploads', ['id' => $code->id]);
         Storage::disk('local')->assertMissing($code->storage_path);
         $this->assertSame('needed', $component->instance()->documentCategoryStatus('compliance_ethics'));
+    }
+
+    public function test_the_remove_icon_asks_in_a_popup_before_removing(): void
+    {
+        $component = $this->documentsScreen()
+            ->set('categoryFiles.compliance_ethics', [$this->pdf('Code of conduct.pdf')]);
+        $code = $this->upload('Code of conduct.pdf');
+
+        $component->assertSeeHtml('data-remove-document="'.$code->id.'"')
+            ->assertSeeHtml('data-file-icon="pdf"')
+            ->call('askToRemoveDocument', $code->id)
+            ->assertSeeHtml('data-remove-document-dialog')
+            ->assertSee('Remove this document?')
+            ->call('cancelRemoveDocument')
+            ->assertDontSeeHtml('data-remove-document-dialog');
+        $this->assertDatabaseHas('intake_uploads', ['id' => $code->id]);
+
+        $component->call('askToRemoveDocument', $code->id)
+            ->call('confirmRemoveDocument')
+            ->assertSet('removingUploadId', null)
+            ->assertDontSeeHtml('data-remove-document-dialog');
+        $this->assertDatabaseMissing('intake_uploads', ['id' => $code->id]);
     }
 
     public function test_removing_the_only_file_in_the_dialog_closes_it(): void

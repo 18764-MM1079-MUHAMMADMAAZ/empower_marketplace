@@ -64,7 +64,8 @@ class ProvisionLmsAccount implements ShouldQueue
         }
 
         $firstTime = $this->user->moodle_user_id === null;
-        $courseIds = $moodle->courseIdsFor($this->addressOrState);
+        // The courses for the client's LMS package(s) plus their state's course (spec §9).
+        $courseIds = $moodle->courseIdsFor($this->addressOrState, $this->user->lmsPackageTiers());
 
         $failed = $moodle->enrol($moodleUserId, $courseIds);
 

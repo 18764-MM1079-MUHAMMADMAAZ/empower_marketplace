@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\AdminEmail;
 use App\Enums\OrderStatus;
+use App\Enums\PackageTier;
 use App\Enums\UserRole;
 use App\Jobs\SyncLmsAccess;
 use App\Jobs\UpdateLmsProfile;
@@ -112,6 +113,19 @@ class User extends Authenticatable
         return $this->liveOrders()->isNotEmpty()
             ? 'Upgrade to Professional, Advanced or Complete to unlock training'
             : 'Buy a package to unlock training';
+    }
+
+    /** The LMS packages (Professional / Advanced / Complete) the client has live, which decide
+     *  their Moodle courses. @return array<int, PackageTier> */
+    public function lmsPackageTiers(): array
+    {
+        return $this->liveOrders()
+            ->map(fn (Order $order) => $order->package)
+            ->filter(fn (?Package $package) => $package?->includesLmsAccess())
+            ->map(fn (Package $package) => $package->tier())
+            ->unique(fn (PackageTier $tier) => $tier->value)
+            ->values()
+            ->all();
     }
 
     /** Paid (or trialling / partner-billed) orders that haven't been cancelled. @return \Illuminate\Support\Collection<int, Order> */

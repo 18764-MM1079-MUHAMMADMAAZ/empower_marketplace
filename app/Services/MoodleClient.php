@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\PackageTier;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -189,16 +190,26 @@ class MoodleClient
     }
 
     /**
-     * The shared training courses plus the state-specific course for the practice's state.
+     * The courses for the client's LMS packages plus the course for the practice's state (spec §9:
+     * "LMS content matches the purchased package"). A package without its own list in
+     * services.moodle.package_course_ids uses the general list, as does a call with no packages.
+     * A client with more than one LMS package gets every package's courses, each once.
      *
+     * @param  array<int, PackageTier>  $tiers
      * @return array<int, int>
      */
-    public function courseIdsFor(?string $addressOrState): array
+    public function courseIdsFor(?string $addressOrState, array $tiers = []): array
     {
-        $courseIds = config('services.moodle.general_course_ids');
+        $general = config('services.moodle.general_course_ids');
+        $perPackage = config('services.moodle.package_course_ids', []);
+
+        $courseIds = $tiers === []
+            ? $general
+            : collect($tiers)->flatMap(fn (PackageTier $tier) => $perPackage[$tier->value] ?? $general)->unique()->values()->all();
+
         $stateCourseId = config('services.moodle.state_course_ids')[$this->stateOf($addressOrState)] ?? null;
 
-        return $stateCourseId ? [...$courseIds, $stateCourseId] : $courseIds;
+        return $stateCourseId && ! in_array($stateCourseId, $courseIds, true) ? [...$courseIds, $stateCourseId] : $courseIds;
     }
 
     /** Accepts a bare state ("TX", "Texas") or a full address line ("1 Main St, Austin, TX 78701"). */

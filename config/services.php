@@ -76,6 +76,17 @@ return [
         // Login method for provisioned accounts: IOMAD's OpenID Connect plugin (Marketplace single sign-on).
         'auth' => env('MOODLE_AUTH_PLUGIN', 'iomadoidc'),
         'general_course_ids' => [6, 12, 13, 14, 15, 16, 18],
+        // Courses for each LMS package (gap 5, lms-enrollment-plan.md), as comma-separated Moodle
+        // course ids, e.g. MOODLE_COURSES_PROFESSIONAL="6,12,13". Empty = the general list above,
+        // so nothing changes until the Moodle team sends the per-package course ids.
+        'package_course_ids' => array_map(
+            fn (?string $ids) => array_values(array_filter(array_map('intval', explode(',', (string) $ids)))) ?: null,
+            [
+                'professional' => env('MOODLE_COURSES_PROFESSIONAL'),
+                'advanced' => env('MOODLE_COURSES_ADVANCED'),
+                'complete' => env('MOODLE_COURSES_COMPLETE'),
+            ],
+        ),
         'state_course_ids' => ['TX' => 7, 'NC' => 8, 'NY' => 9, 'IL' => 10, 'CO' => 11],
     ],
 

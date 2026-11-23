@@ -1419,6 +1419,30 @@ new class extends Component
 
     // ── Documents ─────────────────────────────────────────────────────────
 
+    /** The file waiting on the "Remove this document?" popup, if it's open. */
+    public ?int $removingUploadId = null;
+
+    /** The red remove icon on a file: opens the confirmation popup. */
+    public function askToRemoveDocument(int $uploadId): void
+    {
+        $this->removingUploadId = $this->existingDocuments->contains('id', $uploadId) ? $uploadId : null;
+    }
+
+    public function cancelRemoveDocument(): void
+    {
+        $this->removingUploadId = null;
+    }
+
+    /** "Remove" in the popup. */
+    public function confirmRemoveDocument(): void
+    {
+        if ($this->removingUploadId !== null) {
+            $this->deleteExistingDocument($this->removingUploadId);
+        }
+
+        $this->removingUploadId = null;
+    }
+
     public function deleteExistingDocument(int $uploadId): void
     {
         $upload = $this->existingDocuments->firstWhere('id', $uploadId);
@@ -2718,7 +2742,8 @@ new class extends Component
         class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)]">
         @include('components.portal._intake-wizard-chapter-header', $chapterHeaderData)
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-start gap-8 p-6 lg:p-10">
-            <div class="max-w-xl w-full">
+            {{-- Full column width, so each checklist row has room for its files in front of it. --}}
+            <div class="w-full min-w-0">
                 <h2 class="text-lg font-semibold text-[#12304f] mb-1">
                     {{ $this->includesWorkflowQuestionnaire ? 'First, upload what you already have' : 'Upload your
                     existing policies and manuals' }}
@@ -2749,7 +2774,10 @@ new class extends Component
                     $status = $this->documentCategoryStatus($key);
                     $rowDocuments = $docsByCategory->get($key, collect());
                     @endphp
-                    <li class="px-4 py-3" wire:key="doc-row-{{ $key }}" data-document-row="{{ $key }}">
+                    {{-- Each row: the type and its actions, then (on wide screens, in its own column in
+                    front of the row) the files given that type. --}}
+                    <li class="px-4 py-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)] lg:items-center lg:gap-5"
+                        wire:key="doc-row-{{ $key }}" data-document-row="{{ $key }}">
                         <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
                             <span class="text-sm font-semibold text-[#173045]">
                                 {{ $label }}
@@ -2785,9 +2813,9 @@ new class extends Component
                         </div>
 
                         @if($rowDocuments->isNotEmpty())
-                        <ul class="mt-2.5 space-y-1.5">
+                        <ul class="mt-2.5 space-y-1.5 lg:mt-0" data-row-files="{{ $key }}">
                             @foreach($rowDocuments as $doc)
-                            @include('components.portal._intake-document-file', ['doc' => $doc, 'action' => 'Change type'])
+                            @include('components.portal._intake-document-file', ['doc' => $doc, 'action' => 'Change type', 'compact' => true])
                             @endforeach
                         </ul>
                         @endif
@@ -2934,6 +2962,36 @@ new class extends Component
                         class="font-semibold text-[#0b9ed0] hover:underline">Talk to a specialist</button></p>
             </aside>
         </div>
+
+        {{-- "Remove this document?": opened by the red remove icon on a file. --}}
+        @php
+        $removingDoc = $removingUploadId !== null ? $this->existingDocuments->firstWhere('id', $removingUploadId) : null;
+        @endphp
+        @if($removingDoc)
+        <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+            role="dialog" aria-modal="true" aria-labelledby="remove-doc-title" data-remove-document-dialog
+            x-data x-init="$nextTick(() => $el.querySelector('[data-confirm-remove]')?.focus())"
+            x-on:keydown.escape.window="$wire.cancelRemoveDocument()">
+            <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6" x-on:click.outside="$wire.cancelRemoveDocument()">
+                <div class="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-[#fdecea] text-[#d93025]">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+                <h3 id="remove-doc-title" class="text-center text-lg font-extrabold text-[#0e1b30]">Remove this document?</h3>
+                <p class="mt-1.5 text-center text-sm text-[#5d6e7f]">
+                    <span class="font-semibold text-[#173045] break-all">{{ $removingDoc->original_filename }}</span>
+                    will be removed from your intake. You can upload it again later.
+                </p>
+                <div class="mt-6 flex gap-3">
+                    <button type="button" wire:click="cancelRemoveDocument"
+                        class="flex-1 rounded-lg border border-[#dbe4ee] px-4 py-2.5 text-sm font-semibold text-[#173045] hover:bg-[#f4f7fb] transition-colors">Cancel</button>
+                    <button type="button" wire:click="confirmRemoveDocument" wire:loading.attr="disabled" wire:target="confirmRemoveDocument" data-confirm-remove
+                        class="flex-1 rounded-lg bg-[#d93025] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b3261e] disabled:opacity-60 transition-colors">Remove</button>
+                </div>
+            </div>
+        </div>
+        @endif
 
         {{-- "What are these documents?": opens after files are dropped on the upload box (with a
         guessed type where the file name gives one), or from "Change type" / "Choose type". The files
