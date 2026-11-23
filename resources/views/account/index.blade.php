@@ -77,11 +77,18 @@ $sectionIcons = [
 
         <div class="min-w-0 space-y-5">
             @if($isClient)
-            <div>
-                <h1 class="text-2xl sm:text-[1.75rem] font-bold text-[#12304f] leading-tight">Welcome back, {{ str($user->name)->before(' ')->value() ?: $user->name }}</h1>
-                @if($practice?->name || $user->is_practice_admin)
-                <p class="text-sm text-[#5d6e7f] mt-1">{{ collect([$practice?->name, $user->is_practice_admin ? 'Practice administrator' : null])->filter()->implode(' · ') }}</p>
-                @endif
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h1 class="text-2xl sm:text-[1.75rem] font-bold text-[#12304f] leading-tight">Welcome back, {{ str($user->name)->before(' ')->value() ?: $user->name }}</h1>
+                    @if($practice?->name || $user->is_practice_admin)
+                    <p class="text-sm text-[#5d6e7f] mt-1">{{ collect([$practice?->name, $user->is_practice_admin ? 'Practice administrator' : null])->filter()->implode(' · ') }}</p>
+                    @endif
+                </div>
+                <a href="{{ route('portal') }}" wire:navigate data-back-to-portal
+                    class="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#cbd5e1] bg-white px-4 text-[13px] font-semibold text-[#173045] hover:bg-[#f4f7fb] transition-colors">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                    Back to dashboard
+                </a>
             </div>
 
             @if($twoFactorOff)

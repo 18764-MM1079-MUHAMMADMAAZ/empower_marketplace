@@ -107,6 +107,8 @@ class MyAccountTest extends TestCase
         $this->actingAs($user)->withoutVite()->get(route('account'))
             ->assertOk()
             ->assertSee('Welcome back, Jane')
+            ->assertSee('data-back-to-portal', false)
+            ->assertSee('href="'.route('portal').'"', false)
             ->assertSeeInOrder(['id="overview"', 'id="profile"', 'id="plan"', 'id="documents"', 'id="practice"', 'id="hotline"', 'id="security"', 'id="activity"'], false)
             ->assertDontSee('id="review"', false)
             ->assertDontSee('id="notifications"', false)

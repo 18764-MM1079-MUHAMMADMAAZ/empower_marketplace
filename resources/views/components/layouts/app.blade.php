@@ -19,7 +19,14 @@ $isAdmin = request()->routeIs('admin.*');
 // standard max-w-7xl container that leaves the main content (forms, cards) visibly squeezed, so
 // this route alone gets a wider container to compensate; every other client page is unaffected.
 $isPortal = request()->routeIs('portal');
-$containerClass = $isAdmin ? 'max-w-full' : ($isPortal ? 'max-w-[96rem]' : 'max-w-7xl');
+// My Account: the v5 design's 1400px page, so the sections beside the menu get more room.
+$isAccount = request()->routeIs('account');
+$containerClass = match (true) {
+    $isAdmin => 'max-w-full',
+    $isPortal => 'max-w-[96rem]',
+    $isAccount => 'max-w-[87.5rem]',
+    default => 'max-w-7xl',
+};
 @endphp
 
 <body class="min-h-screen flex flex-col bg-page font-sans antialiased @unless($isAdmin) client-portal @endunless"
