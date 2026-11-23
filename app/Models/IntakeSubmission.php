@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'order_id', 'status', 'handbook_answers',
-    'reviewer_notes', 'reviewed_by', 'reviewed_at', 'submitted_at', 'under_review_started_at',
+    'reviewer_notes', 'reviewed_by', 'reviewed_at', 'approval_welcome_shown_at', 'submitted_at', 'under_review_started_at',
     'certified_by_name', 'certified_by_title', 'certified_signature', 'certified_at',
     'wizard_screen', 'wizard_reached_screens', 'wizard_skipped_question_ids', 'wizard_missing_document_categories',
     'wizard_selected_services', 'wizard_section_gates', 'wizard_skipped_section_ids',
@@ -31,6 +31,7 @@ class IntakeSubmission extends Model
             'status' => IntakeSubmissionStatus::class,
             'handbook_answers' => 'array',
             'reviewed_at' => 'datetime',
+            'approval_welcome_shown_at' => 'datetime',
             'submitted_at' => 'datetime',
             'under_review_started_at' => 'datetime',
             'certified_at' => 'datetime',

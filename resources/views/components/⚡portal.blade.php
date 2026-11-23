@@ -129,6 +129,10 @@ new class extends Component
     // every time the client revisits an already-submitted Step 4.
     public bool $justSubmitted = false;
 
+    /** "Congratulations! Your profile has been approved. Thank you for choosing the … Plan." —
+     *  the plan name(s), set the first time the client sees the Dashboard after approval. */
+    public ?string $approvalWelcomePlan = null;
+
     // Reply drafts for an open reviewer question, keyed by intake_submission id.
     public array $reviewerReplyText = [];
 
@@ -1043,6 +1047,11 @@ new class extends Component
 
     public function canReach(int $step): bool
     {
+        // Once approved, the intake is closed: only the Dashboard is left.
+        if ($this->completedMilestone >= 4) {
+            return $step === 5;
+        }
+
         return match ($step) {
             1 => true,
             2 => $this->completedMilestone >= 1,
@@ -1208,6 +1217,38 @@ new class extends Component
         }
 
         $this->step = 5;
+        $this->welcomeApprovedClient();
+    }
+
+    /** Shows the approval message once: the first time the Dashboard opens after every order in
+     *  the batch is approved. Remembered per submission, so later visits don't repeat it. */
+    private function welcomeApprovedClient(): void
+    {
+        if ($this->completedMilestone < 4) {
+            return;
+        }
+
+        $submissions = $this->batchOrders->map(fn ($o) => $o->intakeSubmission)->filter();
+
+        if ($submissions->every(fn ($s) => $s->approval_welcome_shown_at !== null)) {
+            return;
+        }
+
+        $plans = $this->batchOrders
+            ->map(fn ($o) => $o->package ? Str::of($o->package->tier()->label())->replaceLast(' Compliance', '')->toString() : null)
+            ->filter()->unique()->values();
+
+        $this->approvalWelcomePlan = $plans->isEmpty()
+            ? 'your plan'
+            : 'the '.$plans->join(', ', ' and ').' Plan'.($plans->count() > 1 ? 's' : '');
+
+        IntakeSubmission::whereKey($submissions->pluck('id'))->whereNull('approval_welcome_shown_at')
+            ->update(['approval_welcome_shown_at' => now()]);
+    }
+
+    public function dismissApprovalWelcome(): void
+    {
+        $this->approvalWelcomePlan = null;
     }
 
     public function goToStep(int $step): void
@@ -2643,6 +2684,7 @@ new class extends Component
             $this->dashboardOrderId ??= $orders->max('id');
             unset($this->completedMilestone, $this->batchOrders);
             $this->step = 5;
+            $this->welcomeApprovedClient();
         }
     }
 
@@ -2828,7 +2870,8 @@ $progressPct = match (true) {
 {{-- ── Main column (everything but the hero) — its own track in the xl grid above ── --}}
 <div class="xl:col-start-1 xl:row-start-1 min-w-0 space-y-4">
 
-    {{-- ── Stepper ── --}}
+    {{-- ── Stepper ── hidden once approved, when only the Dashboard is left --}}
+    @if($milestone < 4)
     <div class="bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5"
         wire:key="stepper-{{ $milestone }}" data-stepper data-milestone="{{ $milestone }}"
         x-data="{
@@ -2906,6 +2949,30 @@ $progressPct = match (true) {
                 style="width: {{ $progressPct }}%"></div>
         </div>
     </div>
+    @endif
+
+    {{-- ── Approved: shown once, the first time the Dashboard opens after approval ── --}}
+    @if($approvalWelcomePlan)
+    <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+        role="dialog" aria-modal="true" aria-labelledby="approval-welcome-title" data-approval-welcome
+        x-data x-on:keydown.escape.window="$wire.dismissApprovalWelcome()">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-7 text-center" x-on:click.outside="$wire.dismissApprovalWelcome()">
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#d7f3ea] text-[#117a51]">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </div>
+            <h3 id="approval-welcome-title" class="text-xl font-extrabold text-[#0e1b30]">Congratulations!</h3>
+            <p class="mt-2 text-sm text-[#5d6e7f] leading-relaxed">
+                Your profile has been approved. Thank you for choosing {{ $approvalWelcomePlan }}.
+            </p>
+            <button type="button" wire:click="dismissApprovalWelcome" x-init="$nextTick(() => $el.focus())"
+                class="mt-6 w-full rounded-lg bg-[#12304f] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#0c233b] transition-colors">
+                Go to my dashboard
+            </button>
+        </div>
+    </div>
+    @endif
 
     {{-- ── Step 1: Payment ── --}}
     @if($step === 1)
@@ -5062,16 +5129,7 @@ $progressPct = match (true) {
             </div>
         </div>
 
-        <div class="flex justify-start">
-            <button wire:click="goToStep(4)" wire:target="goToStep(4)" wire:loading.attr="disabled"
-                wire:target="goToStep(4)"
-                class="rounded border border-[#dbe4ee] px-4 py-2 text-sm font-semibold text-[#5d6e7f] hover:bg-[#f4f7fb] transition-colors">
-                <span wire:loading.remove wire:target="goToStep(4)">Back to Review</span>
-                <span wire:loading.inline-flex wire:target="goToStep(4)" class="inline-flex items-center gap-1.5">
-                    <x-spinner class="h-3.5 w-3.5" /> Loading…
-                </span>
-            </button>
-        </div>
+        {{-- No "Back to Review": once approved the intake steps are closed. --}}
     </div>
 
     {{-- Shared "Cancel subscription" confirmation modal — one Alpine scope wraps the whole
