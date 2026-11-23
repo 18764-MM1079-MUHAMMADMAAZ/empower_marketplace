@@ -2742,12 +2742,12 @@ $steps = [
 5 => 'Dashboard',
 ];
 $milestone = $this->completedMilestone;
-// The bar stops halfway between the last finished step and the next one (Alpine below measures the
-// real circle positions; this is the no-JS approximation). Nothing done: empty; all done: full.
+// The bar reaches the circle of the step being worked on (the one after the last finished step).
+// Alpine below measures the real circle positions; this is the no-JS approximation.
 $progressPct = match (true) {
     $milestone <= 0 => 0,
     $milestone >= 4 => 100,
-    default => (($milestone - 0.5) / 4) * 100,
+    default => ($milestone / 4) * 100,
 };
 @endphp
 
@@ -2834,14 +2834,14 @@ $progressPct = match (true) {
         x-data="{
             milestone: {{ $milestone }},
             intake: window.__intakeProgress ?? null,
-            {{-- Where the bar ends, in step units (1 = first circle, 5 = last). A finished step
-            puts it halfway to the next circle. During Practice Intake it moves on from there as
-            the intake fills in, reaching halfway between steps 2 and 3 when every item is done. --}}
+            {{-- Where the bar ends, in step units (1 = first circle, 5 = last): the circle of the
+            step being worked on. During Practice Intake it also moves on towards step 3 as the
+            intake fills in, stopping just short of it until the intake is finished. --}}
             position() {
                 if (this.milestone === 1 && this.intake && this.intake.total > 0) {
-                    return 1.5 + Math.min(this.intake.done / this.intake.total, 1);
+                    return 2 + 0.9 * Math.min(this.intake.done / this.intake.total, 1);
                 }
-                return this.milestone + 0.5;
+                return this.milestone + 1;
             },
             place() {
                 const dots = this.$root.querySelectorAll('[data-step-dot]');
@@ -2895,7 +2895,7 @@ $progressPct = match (true) {
                     </div>
                 </div>
                 @if(!$loop->last)
-                <div class="flex-1 h-0.5 mt-[1.125rem] min-w-4 {{ $n < $milestone ? 'bg-[#0b9ed0]' : 'bg-[#dfe7ef]' }}">
+                <div class="flex-1 h-0.5 mt-[1.125rem] min-w-4 {{ $n <= $milestone ? 'bg-[#0b9ed0]' : 'bg-[#dfe7ef]' }}">
                 </div>
                 @endif
                 @endforeach
