@@ -128,6 +128,13 @@ class User extends Authenticatable
             ->all();
     }
 
+    /** Whether the client also has a live package without the LMS (Essential): getting LMS access
+     *  then counts as an upgrade ("LMS access is now on", spec §4). */
+    public function hasLiveNonLmsPackage(): bool
+    {
+        return $this->liveOrders()->contains(fn (Order $order) => $order->package !== null && ! $order->package->includesLmsAccess());
+    }
+
     /** Paid (or trialling / partner-billed) orders that haven't been cancelled. @return \Illuminate\Support\Collection<int, Order> */
     private function liveOrders(): Collection
     {

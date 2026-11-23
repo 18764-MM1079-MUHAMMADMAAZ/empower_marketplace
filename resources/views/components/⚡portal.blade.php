@@ -1778,6 +1778,51 @@ new class extends Component
         return $cycle;
     }
 
+    /** Gap 1 (lms-enrollment-plan.md): creates the client's LMS account and enrols the courses as
+     *  soon as an order with an LMS package is placed: card payment, free trial or CCH/talkEHR
+     *  order form (Casey, 2026-11-23). The state course comes from the practice address, else the
+     *  billing state. Also re-run at intake submission; repeating it never duplicates anything.
+     *  $perOrder: run once per order ID (order placement). The intake re-run passes false so it
+     *  always runs and can add the practice's state course.
+     *  @param  iterable<int, Order>  $orders */
+    private function provisionLms(iterable $orders, bool $perOrder = true, ?string $welcomePassword = null): void
+    {
+        $orders = collect($orders);
+
+        if (! $orders->contains(fn (Order $order) => $order->package?->includesLmsAccess())) {
+            return;
+        }
+
+        $user = auth()->user();
+        $address = $user->practice?->address
+            ?: $orders->map(fn (Order $order) => $order->billing_address['state'] ?? null)->filter()->first();
+
+        $orderIds = $perOrder
+            ? $orders->filter(fn (Order $order) => $order->package?->includesLmsAccess())->pluck('id')->values()->all()
+            : [];
+
+        ProvisionLmsAccount::dispatch($user, $address, $orderIds, $welcomePassword);
+    }
+
+    /** A new sign-up's welcome email (gap 2, spec §4). Without an LMS package it's sent now. With
+     *  one it waits for the LMS account, so the client gets one email with the "Go to LMS" part:
+     *  returns the password for provisionLms() to hand to the provisioning job.
+     *  @param  \Illuminate\Support\Collection<int, Package>  $packages */
+    private function sendWelcomeUnlessLms(User $user, string $password, \Illuminate\Support\Collection $packages): ?string
+    {
+        if ($packages->contains(fn (Package $package) => $package->includesLmsAccess())) {
+            return $password;
+        }
+
+        try {
+            Mail::to($user->email)->queue(new WelcomeCredentialsMail($user, $password));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return null;
+    }
+
     public function continuePartnerCheckout(): void
     {
         abort_unless($this->isSsoClient(), 403);
@@ -1849,6 +1894,9 @@ new class extends Component
         );
 
         app(FinanceOrderForms::class)->sendNewOrder($order);
+
+        // The order form counts as confirmed, the same as a card payment (Casey, 2026-11-23).
+        $this->provisionLms([$order->setRelation('package', $package)]);
 
         $this->orderIds = [$order->id];
         $this->dashboardOrderId = $order->id;
@@ -1982,6 +2030,8 @@ new class extends Component
 
         // Charge succeeded — only now do we create an account or any orders, so a decline never
         // leaves behind an orphaned guest account.
+        $welcomePassword = null;
+
         if (auth()->guest()) {
             $generatedPassword = Str::password(16);
 
@@ -1999,11 +2049,7 @@ new class extends Component
                 'name' => '',
             ]);
 
-            try {
-                Mail::to($user->email)->queue(new WelcomeCredentialsMail($user, $generatedPassword));
-            } catch (\Throwable $e) {
-                report($e);
-            }
+            $welcomePassword = $this->sendWelcomeUnlessLms($user, $generatedPassword, $packages);
 
             Auth::login($user);
             $this->newAccountEmail = $user->email;
@@ -2022,6 +2068,7 @@ new class extends Component
 
         $batchId = (string) Str::ulid();
         $orderIds = [];
+        $placedOrders = [];
 
         foreach ($packages as $package) {
             $packagePrice = ($package->priceForCycle($cycle) ?? 0.0) * $providers;
@@ -2108,7 +2155,10 @@ new class extends Component
             app(FinanceOrderForms::class)->sendNewOrder($order);
 
             $orderIds[] = $order->id;
+            $placedOrders[] = $order->setRelation('package', $package);
         }
+
+        $this->provisionLms($placedOrders, welcomePassword: $welcomePassword);
 
         $discountCode?->increment('used_count');
         $this->appliedDiscountCodeId = null;
@@ -2209,6 +2259,8 @@ new class extends Component
         }
 
         // Tokenize succeeded — only now do we create an account or any orders, same as pay().
+        $welcomePassword = null;
+
         if (auth()->guest()) {
             $generatedPassword = Str::password(16);
 
@@ -2226,11 +2278,7 @@ new class extends Component
                 'name' => '',
             ]);
 
-            try {
-                Mail::to($user->email)->queue(new WelcomeCredentialsMail($user, $generatedPassword));
-            } catch (\Throwable $e) {
-                report($e);
-            }
+            $welcomePassword = $this->sendWelcomeUnlessLms($user, $generatedPassword, collect([$package]));
 
             Auth::login($user);
             $this->newAccountEmail = $user->email;
@@ -2311,6 +2359,8 @@ new class extends Component
         }
 
         app(FinanceOrderForms::class)->sendNewOrder($order);
+
+        $this->provisionLms([$order->setRelation('package', $package)], welcomePassword: $welcomePassword);
 
         $discountCode->increment('used_count');
         $this->appliedDiscountCodeId = null;
@@ -2628,12 +2678,9 @@ new class extends Component
             }
         }
 
-        // Intake submission is what unlocks the LMS: enrol the client in the training courses (plus
-        // the course for the practice's state) once, if any package in this batch includes access.
-        if ($orders->contains(fn (Order $order) => $order->package?->includesLmsAccess())) {
-            $practiceAddress = auth()->user()->practice?->address ?: ($primaryOrder->billing_address['state'] ?? null);
-            ProvisionLmsAccount::dispatch(auth()->user(), $practiceAddress);
-        }
+        // The LMS account already exists from when the order was placed. Running again now that the
+        // intake has the practice's own address adds that state's course if it differs (safe to repeat).
+        $this->provisionLms($orders, perOrder: false);
 
         $primarySubmission->refresh();
         $primarySubmission->setRelation('order', $primaryOrder);
@@ -3042,6 +3089,7 @@ $progressPct = match (true) {
                     @endif
                 </div>
                 @endforeach
+                @include('components.portal._lms-order-cta', ['orders' => $this->batchOrders])
             </section>
             <aside class="flex flex-col justify-between bg-[#f2f8fd] border border-[#d4e5f1] rounded-[1.25rem] p-5">
                 <div>
@@ -3294,6 +3342,7 @@ $progressPct = match (true) {
                         @endif
                     </p>
                 </div>
+                @include('components.portal._lms-order-cta', ['orders' => $this->batchOrders])
             </div>
         </div>
         @elseif(! $this->selectedPackage && $milestone < 1) <div

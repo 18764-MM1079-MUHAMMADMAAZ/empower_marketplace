@@ -21,6 +21,18 @@ For security, we recommend changing this password after you log in (Account menu
 Log In
 </x-mail::button>
 
+@if($lmsCourseCount !== null)
+## Your training (Empower LMS)
+
+Your package includes the **Empower LMS**, and your training account is ready. You're enrolled in **{{ $lmsCourseCount }} training {{ $lmsCourseCount === 1 ? 'course' : 'courses' }}**, including the courses for your practice's state.
+
+You use the **same email and password** for the LMS: no separate login. Use the **Go to LMS** button at the top of your Marketplace portal, or the one below.
+
+<x-mail::button :url="$lmsUrl">
+Go to LMS
+</x-mail::button>
+@endif
+
 Thanks,<br>
 {{ config('app.name') }}
 </x-mail::message>

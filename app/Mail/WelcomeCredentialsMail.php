@@ -14,7 +14,9 @@ class WelcomeCredentialsMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public User $user, public string $password) {}
+    /** @param  int|null  $lmsCourseCount  set when the LMS account is ready: the email then also has
+     *  the "Go to LMS" part, so a new LMS client gets one welcome email (gap 2, spec §4). */
+    public function __construct(public User $user, public string $password, public ?int $lmsCourseCount = null) {}
 
     public function envelope(): Envelope
     {
@@ -31,6 +33,9 @@ class WelcomeCredentialsMail extends Mailable implements ShouldQueue
                 'user' => $this->user,
                 'password' => $this->password,
                 'loginUrl' => route('login'),
+                'lmsCourseCount' => $this->lmsCourseCount,
+                // Goes through Marketplace sign-in, then single sign-on into Moodle.
+                'lmsUrl' => route('lms.launch'),
             ],
         );
     }

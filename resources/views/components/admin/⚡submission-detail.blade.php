@@ -591,7 +591,7 @@ new class extends Component
             ->first();
 
         if ($log === null) {
-            return ['state' => 'none', 'label' => 'Not provisioned', 'detail' => 'Runs automatically when the client submits their intake.'];
+            return ['state' => 'none', 'label' => 'Not provisioned', 'detail' => 'Runs automatically when the order is placed.'];
         }
 
         if (in_array($log->event_type, ['lms.failed', 'lms.sync_failed'], true)) {
@@ -625,6 +625,7 @@ new class extends Component
 
         try {
             ProvisionLmsAccount::dispatchSync($order->user, $address);
+            $order->refresh();
             $this->dispatch('toast', message: 'LMS access provisioned.', type: 'success');
         } catch (Throwable $e) {
             $this->dispatch('toast', message: 'LMS provisioning failed — see the card for details.', type: 'error');
@@ -1278,6 +1279,12 @@ new class extends Component
                 <span class="inline-flex rounded-full px-2.5 py-0.5 text-[0.68rem] font-extrabold uppercase tracking-wider {{ $lmsPill }}">{{ $lms['label'] }}</span>
             </div>
             <p class="mt-1 text-xs text-empower-muted">{{ $lms['detail'] }}</p>
+            @php
+            $lmsProvisionedAt = $this->submission->order->lms_provisioned_at;
+            @endphp
+            <p class="mt-1 text-xs text-empower-muted" data-order-lms-provisioned>
+                This order: {{ $lmsProvisionedAt ? 'provisioned '.$lmsProvisionedAt->format('M j, Y g:i A') : 'not provisioned yet' }}
+            </p>
         </div>
         <button type="button" wire:click="provisionLms" wire:loading.attr="disabled" wire:target="provisionLms"
             class="rounded-lg border border-empower-border px-4 py-2 text-xs font-bold text-navy hover:bg-page transition-colors disabled:opacity-60">
