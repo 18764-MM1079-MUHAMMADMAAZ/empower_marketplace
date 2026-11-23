@@ -169,22 +169,22 @@ $recoveryCodes = $enabled && $showingRecoveryCodes ? $user->recoveryCodes() : []
 $inputClass = 'w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition';
 @endphp
 
-<div class="md:col-span-2 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4 sm:p-5" data-two-factor data-two-factor-state="{{ $enabled ? 'on' : ($settingUp ? 'setup' : 'off') }}">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0">
-            <h3 class="text-base font-bold text-[#12304f] flex items-center gap-2">
+<div class="py-4.5 border-t border-[#eef2f6]" data-two-factor data-two-factor-state="{{ $enabled ? 'on' : ($settingUp ? 'setup' : 'off') }}">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex-1 min-w-[16rem]">
+            <h3 class="text-sm font-semibold text-[#173045] flex items-center gap-2">
                 Two-step verification
                 @if($enabled)
-                <span class="rounded-full bg-[#eef8f3] border border-[#bfe3d2] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0f7a4f]">On</span>
+                <span class="rounded-full bg-[#e7f5ee] px-2.5 py-0.5 text-xs font-semibold text-[#146c43]">On</span>
                 @else
-                <span class="rounded-full bg-[#f1f4f7] border border-[#dbe4ee] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#5d6e7f]">Off</span>
+                <span class="rounded-full bg-[#fdf0d8] px-2.5 py-0.5 text-xs font-semibold text-[#7a4a00]">Off</span>
                 @endif
             </h3>
-            <p class="text-xs text-[#5d6e7f] max-w-xl">
+            <p class="mt-0.5 text-[13px] text-[#5d6e7f] max-w-xl">
                 @if($enabled)
                 Signing in asks for a code from your authenticator app as well as your password. On since {{ $user->two_factor_confirmed_at->format('M j, Y') }}.
                 @else
-                Add a second step to sign-in: after your password, enter a 6-digit code from an authenticator app such as Google Authenticator, Microsoft Authenticator or 1Password.
+                After your password, enter a 6-digit code from an authenticator app such as Google Authenticator, Microsoft Authenticator or 1Password.
                 @endif
             </p>
         </div>
@@ -195,7 +195,7 @@ $inputClass = 'w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 te
             <button type="button" wire:click="start('codes')" class="rounded-lg border border-[#d4e5f1] bg-white px-3 py-1.5 text-xs font-bold text-[#173a59] hover:bg-[#eef8fd] transition-colors" @if($showingRecoveryCodes) hidden @endif>Show recovery codes</button>
             <button type="button" wire:click="start('disable')" class="rounded-lg border border-[#d4e5f1] bg-white px-3 py-1.5 text-xs font-bold text-[#b42318] hover:bg-[#fff5f5] transition-colors" data-two-factor-disable>Turn off</button>
             @else
-            <button type="button" wire:click="start('enable')" class="rounded bg-[#2299dd] px-4 py-2 text-sm font-bold text-white hover:bg-[#087fa9] transition-colors" data-two-factor-enable>Turn on</button>
+            <button type="button" wire:click="start('enable')" class="inline-flex h-10 items-center rounded-lg bg-[#2299dd] px-4 text-[13px] font-semibold text-white hover:bg-[#087fa9] transition-colors" data-two-factor-enable>Turn on</button>
             @endif
         </div>
         @endif

@@ -21,13 +21,17 @@ new class extends Component
 <div class="flex items-center gap-3">
     @auth
         <div class="relative" x-data="{ open: false }">
-            <button @click="open = !open" aria-label="Account menu" class="flex items-center gap-2 whitespace-nowrap rounded-lg border border-[#9ed3e9] bg-white px-3 sm:px-4 py-2 text-sm font-medium text-[#087fa9] hover:bg-[#eef8fd] transition-colors">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span class="hidden sm:inline max-w-[10rem] truncate">{{ auth()->user()->name ?: 'Account' }}</span>
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 9l-7 7-7-7" />
+            @php
+            $menuName = auth()->user()->name ?: 'Account';
+            $menuParts = preg_split('/\s+/', trim($menuName)) ?: [];
+            $menuInitials = Str::upper(Str::substr($menuParts[0] ?? '', 0, 1).(count($menuParts) > 1 ? Str::substr(end($menuParts), 0, 1) : ''));
+            @endphp
+            <button @click="open = !open" aria-label="Account menu for {{ $menuName }}" aria-haspopup="menu" x-bind:aria-expanded="open"
+                class="flex h-11 items-center gap-2 whitespace-nowrap rounded-[9px] border border-[#cbd5e1] bg-white px-2 sm:px-3 text-[13px] font-semibold text-[#0f2a44] hover:bg-page transition-colors">
+                <span aria-hidden="true" class="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-[#12385c] text-[11px] font-bold text-white">{{ $menuInitials }}</span>
+                <span class="hidden sm:inline max-w-[10rem] truncate">{{ $menuName }}</span>
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 9l6 6 6-6" />
                 </svg>
             </button>
 
@@ -37,7 +41,7 @@ new class extends Component
                 @if(auth()->user()->isAdmin())
                     <a href="{{ route('admin.dashboard') }}" wire:navigate class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Admin Panel</a>
                 @else
-                    <a href="{{ route('home') }}#pricing" class="block px-4 py-2 text-sm text-empower-text hover:bg-page">Back to Packages</a>
+                    <a href="{{ route('home') }}#pricing" class="block px-4 py-2 text-sm text-empower-text hover:bg-page" data-upgrade-package-link>Upgrade Your Package</a>
                 @endif
                 <div class="my-1 border-t border-empower-border"></div>
                 <form method="POST" action="{{ route('logout') }}">

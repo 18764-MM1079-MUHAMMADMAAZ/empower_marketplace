@@ -52,8 +52,8 @@ class MyAccountSecurityTest extends TestCase
             ->assertSee('data-account-nav="notifications"', false)
             ->assertDontSee('data-account-nav="overview"', false)
             ->assertDontSee('data-account-nav="plan"', false)
-            ->assertSee('Signed-in devices')
-            ->assertSee('Administrator')
+            ->assertSee("Where you're signed in", false)
+            ->assertSee('Sign-in method')
             ->assertSee(AdminEmail::Payments->label())
             ->assertSee(AdminEmail::NewLeads->label());
     }
@@ -172,7 +172,7 @@ class MyAccountSecurityTest extends TestCase
 
         Livewire::test('account.security')
             ->assertSeeHtmlInOrder(['data-current-device', 'Chrome on Windows', 'This device', 'Safari on iPhone', '203.0.113.9'])
-            ->assertSee('Sign out all other devices');
+            ->assertSee('Sign out of all other devices');
     }
 
     public function test_signing_out_another_device_removes_its_session_and_keeps_this_one(): void

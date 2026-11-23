@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\BillingCycle;
 use App\Enums\OrderStatus;
 use App\Models\ActivityLog;
 use App\Models\Order;
@@ -23,6 +24,12 @@ new class extends Component
 
     public string $notes = '';
 
+    /** Billing period, for a client's "Request a change" (My Account › Plan). Takes effect at the
+     *  next renewal: nothing is charged and the next bill date doesn't move. */
+    public string $billingCycle = 'annual';
+
+    public bool $monthlyAvailable = false;
+
     public function mount(Order $order): void
     {
         $order->loadMissing('user', 'package');
@@ -35,6 +42,8 @@ new class extends Component
         $this->amountPaid = $order->amount_paid !== null ? (string) $order->amount_paid : null;
         $this->paymentReference = $order->payment_reference ?? '';
         $this->notes = $order->notes ?? '';
+        $this->billingCycle = ($order->billing_cycle ?? BillingCycle::Annual)->value;
+        $this->monthlyAvailable = (bool) $order->package?->hasMonthlyPricing();
     }
 
     public function save(): void
@@ -44,16 +53,31 @@ new class extends Component
             'amountPaid' => 'nullable|numeric|min:0',
             'paymentReference' => 'nullable|string|max:255',
             'notes' => 'nullable|string|max:2000',
-        ]);
+            'billingCycle' => 'required|in:'.($this->monthlyAvailable ? 'annual,monthly' : 'annual'),
+        ], ['billingCycle.in' => "This package has no monthly price."]);
 
         $order = Order::findOrFail($this->orderId);
+        $previousCycle = ($order->billing_cycle ?? BillingCycle::Annual)->value;
 
         $order->update([
             'status' => $this->status,
             'amount_paid' => $this->amountPaid !== null && $this->amountPaid !== '' ? $this->amountPaid : null,
             'payment_reference' => $this->paymentReference ?: null,
             'notes' => $this->notes ?: null,
+            'billing_cycle' => $this->billingCycle,
+            // A change the client had scheduled is replaced by the one the admin just made.
+            ...($previousCycle !== $this->billingCycle ? ['scheduled_billing_cycle' => null] : []),
         ]);
+
+        if ($previousCycle !== $this->billingCycle) {
+            // On the client, so it shows in their My Account › Activity Log.
+            ActivityLog::record(
+                'plan.billing_cycle_updated_by_admin',
+                'Billing period changed to '.($this->billingCycle === 'monthly' ? 'monthly' : 'annually').' by the Empower team',
+                user: $order->user,
+                order: $order,
+            );
+        }
 
         ActivityLog::record(
             'order.updated',
@@ -105,6 +129,17 @@ new class extends Component
                 <input wire:model="amountPaid" type="number" step="0.01" min="0"
                     class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
                 @error('amountPaid') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-[#173a59] mb-1.5" for="of-billing-cycle">Billing period</label>
+                <select wire:model="billingCycle" id="of-billing-cycle" data-order-billing-cycle
+                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    <option value="annual">Annually</option>
+                    @if($monthlyAvailable)<option value="monthly">Monthly</option>@endif
+                </select>
+                <p class="mt-1 text-xs text-empower-muted">Takes effect at the next renewal. Nothing is charged now.</p>
+                @error('billingCycle') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="sm:col-span-2">

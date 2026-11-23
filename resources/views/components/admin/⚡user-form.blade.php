@@ -24,6 +24,9 @@ new class extends Component
 
     public bool $isActive = true;
 
+    /** My Profile › User type (v5): 'actual' or 'dummy'. Set only here, by admins. */
+    public string $userType = 'actual';
+
     public string $password = '';
 
     public ?int $practiceId = null;
@@ -96,6 +99,7 @@ new class extends Component
         $this->email = $user->email;
         $this->role = $user->role->value;
         $this->isActive = $user->is_active;
+        $this->userType = $user->user_type ?? 'actual';
         $this->termsAcceptedAt = $user->orders()->whereNotNull('terms_accepted_at')->max('terms_accepted_at');
 
         $practice = $user->practice;
@@ -183,6 +187,7 @@ new class extends Component
             'name' => 'required|string|max:150|regex:/^[\p{L}\s.\'-]+$/u',
             'email' => 'required|email:rfc,filter|max:255|unique:users,email'.($this->userId ? ",{$this->userId}" : ''),
             'role' => 'required|in:'.implode(',', array_map(fn ($case) => $case->value, UserRole::cases())),
+            'userType' => 'required|in:'.implode(',', array_keys(User::USER_TYPES)),
             'password' => [$this->userId ? 'nullable' : 'required', 'string', Password::defaults()],
         ];
 
@@ -201,6 +206,7 @@ new class extends Component
             'name' => $this->name,
             'email' => $this->email,
             'role' => $this->role,
+            'user_type' => $this->userType,
         ];
 
         if (! $this->isEditingSelf()) {
@@ -213,7 +219,13 @@ new class extends Component
 
         if ($this->userId) {
             $user = User::findOrFail($this->userId);
+            $previousType = $user->user_type ?? 'actual';
             $user->update($data);
+
+            // Shown in the client's My Account › Activity Log (recorded on the client).
+            if ($previousType !== $this->userType) {
+                ActivityLog::record('account.user_type_changed', 'User type changed to '.User::USER_TYPES[$this->userType].' by the Empower team', user: $user, subject: $user);
+            }
 
             ActivityLog::record('user.updated', "{$user->name} ({$user->email}) was updated.", user: auth()->user(), subject: $user);
             $toastMessage = "{$user->name} updated.";
@@ -287,6 +299,12 @@ new class extends Component
             ]);
 
             ActivityLog::record('practice.updated', "{$practice->name}'s practice profile was updated by an admin.", user: auth()->user(), subject: $practice);
+
+            // A provider change (e.g. from the client's "Request a change") shows in their Activity Log.
+            if ($practice->wasChanged('billable_providers_count')) {
+                $count = (int) $practice->billable_providers_count;
+                ActivityLog::record('plan.providers_updated_by_admin', "Billable providers changed to {$count} by the Empower team", user: $practice->user, subject: $practice);
+            }
         }
 
         session()->flash('toast', $toastMessage);
@@ -480,6 +498,20 @@ new class extends Component
                 <p class="mt-1 text-xs text-empower-muted">At least 12 characters, with upper and lower case letters, a number and a symbol.</p>
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
+
+            @if($role !== 'admin')
+            <div>
+                <label class="block text-sm font-semibold text-[#173a59] mb-1.5" for="uf-user-type">User type</label>
+                <select wire:model="userType" id="uf-user-type" data-user-type-select
+                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                    @foreach(App\Models\User::USER_TYPES as $typeValue => $typeLabel)
+                    <option value="{{ $typeValue }}">{{ $typeLabel }}</option>
+                    @endforeach
+                </select>
+                <p class="mt-1 text-xs text-empower-muted">Empower admins only. Shown on the client's My Account › My Profile.</p>
+                @error('userType') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+            @endif
 
             @if($userId)
                 <div class="sm:col-span-2">

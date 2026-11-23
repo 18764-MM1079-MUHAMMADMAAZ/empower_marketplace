@@ -34,6 +34,7 @@ class SsoController extends Controller
         }
 
         Auth::login($loginToken->user);
+        session(['sign_in_method' => $loginToken->ssoPartner->name]);
 
         ActivityLog::record(
             'sso.login_completed',

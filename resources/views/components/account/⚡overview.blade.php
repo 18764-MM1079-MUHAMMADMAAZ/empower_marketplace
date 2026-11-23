@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\BillingCycle;
 use App\Enums\IntakeSubmissionStatus;
 use App\Services\ClientAccount;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
+/** My Account › Overview (v5): account status, next billed date, subscription type, payment type. */
 new class extends Component
 {
     #[Computed]
@@ -19,128 +21,103 @@ new class extends Component
     {
         unset($this->account);
     }
-
-    /** The banner's "Regenerate documents" button: every out-of-date document, in one go. */
-    public function regenerateAll(): void
-    {
-        $count = $this->account->staleDocuments()
-            ->filter(fn ($document) => $this->account->regenerate($document))
-            ->count();
-
-        $this->dispatch('toast', message: $count > 0
-            ? "{$count} ".str('document')->plural($count).' queued to regenerate. They need a quick review by our team before you can download them.'
-            : 'There are no documents to regenerate.', type: $count > 0 ? 'success' : 'error');
-        $this->dispatch('account-updated');
-    }
 };
 ?>
 
 @php
-$user = auth()->user();
 $account = $this->account;
 $order = $account->primaryOrder();
-$practice = $user->practice;
 $submission = $order?->intakeSubmission;
 $state = $order ? $account->billingState($order) : null;
-$nextCharge = $order ? $account->nextCharge($order) : null;
-$providers = $practice?->billable_providers_count;
-$memberSince = $account->orders()->pluck('paid_at')->filter()->min() ?? $user->created_at;
-$documents = $account->documents();
-$currentDocs = $documents->filter(fn ($d) => $d->clientStatus()[0] === 'Current')->count();
-$stale = $account->staleDocuments();
-$attention = $documents->filter(fn ($d) => in_array($d->clientStatus()[0], ['Needs update', 'Failed'], true))->count();
-$staleSince = $stale->max('updated_at');
+$partner = $account->user->practice?->source_system === 'cch' ? 'CareCloud' : 'talkEHR';
+$openQuestions = $submission?->reviewerQuestions->reject->isAnswered()->count() ?? 0;
+$planName = $order?->package ? str($order->package->name)->replaceLast(' Compliance', '')->value() : null;
+$annual = ($order?->billing_cycle ?? BillingCycle::Annual) === BillingCycle::Annual;
 
-[$reviewLabel, $reviewTone] = match ($submission?->status) {
-    IntakeSubmissionStatus::Approved => ['Approved', 'good'],
-    IntakeSubmissionStatus::Rejected => ['Changes requested', 'bad'],
-    IntakeSubmissionStatus::UnderReview => ['In review', 'info'],
-    IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::Pending => ['Submitted', 'info'],
-    null => ['Not started', 'muted'],
-    default => ['Not submitted', 'muted'],
+// Account status, as the design's four states (plus "Not submitted" before the intake is sent).
+[$statusLabel, $statusLine, $tone] = match (true) {
+    $submission?->status === IntakeSubmissionStatus::Approved => ['Approved', 'Approved'.($submission->reviewed_at ? ' on '.$submission->reviewed_at->format('M j, Y') : '').' by the Empower compliance team', 'good'],
+    $submission?->status === IntakeSubmissionStatus::Rejected => ['Action needed', 'The Empower compliance team sent your intake back for changes', 'warn'],
+    $openQuestions > 0 => ['Action needed', "The Empower compliance team has {$openQuestions} ".Str::plural('question', $openQuestions).' for you', 'warn'],
+    $submission?->status === IntakeSubmissionStatus::UnderReview => ['In progress', 'Being reviewed by the Empower compliance team', 'info'],
+    in_array($submission?->status, [IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::Pending], true) => ['Submitted', 'Submitted'.($submission->submitted_at ? ' on '.$submission->submitted_at->format('M j, Y') : '').' · awaiting the Empower compliance team', 'muted'],
+    default => ['Not submitted', 'Finish your practice intake in My Portal', 'muted'],
 };
-$reviewWhen = match ($submission?->status) {
-    IntakeSubmissionStatus::Approved, IntakeSubmissionStatus::Rejected => $submission->reviewed_at ? 'On '.$submission->reviewed_at->format('M j, Y') : null,
-    IntakeSubmissionStatus::UnderReview => $submission->under_review_started_at ? 'Since '.$submission->under_review_started_at->format('M j, Y') : null,
-    IntakeSubmissionStatus::Submitted, IntakeSubmissionStatus::Pending => $submission->submitted_at ? 'Sent '.$submission->submitted_at->format('M j, Y') : null,
-    default => 'Finish your intake in My Portal',
+$toneClasses = [
+    'good' => ['tile' => 'border-[#bfe3cf] bg-[#f3faf6]', 'chip' => 'bg-[#e7f5ee] text-[#146c43]', 'dot' => 'bg-[#1f9d61]', 'icon' => 'text-[#146c43]'],
+    'warn' => ['tile' => 'border-[#f3d9a4] bg-[#fff8eb]', 'chip' => 'bg-[#fdf0d8] text-[#7a4a00]', 'dot' => 'bg-[#d98a00]', 'icon' => 'text-[#7a4a00]'],
+    'info' => ['tile' => 'border-[#bdd6ee] bg-[#f5f9fd]', 'chip' => 'bg-[#e8f1fa] text-[#145a93]', 'dot' => 'bg-[#1a6fb5]', 'icon' => 'text-[#145a93]'],
+    'muted' => ['tile' => 'border-[#cbd5e1] bg-[#f8fafc]', 'chip' => 'bg-[#e2e8f0] text-[#334155]', 'dot' => 'bg-[#64748b]', 'icon' => 'text-[#334155]'],
+][$tone];
+
+[$nextBilled, $nextBilledLine] = match ($state) {
+    'partner' => [$order->next_bill_date?->format('M j, Y') ?? '—', "Billed with your {$partner} Plan"],
+    'trial' => [$order->trial_ends_at?->format('M j, Y') ?? '—', 'Free trial ends, then billed to your card'],
+    'ending' => ['—', 'Plan ends '.$order->cancels_at->format('M j, Y')],
+    'cancelled' => ['—', 'Subscription cancelled'],
+    null => ['—', ''],
+    default => [$order->next_bill_date?->format('M j, Y') ?? '—', $order->card_last_four ? 'Billed to card ending '.$order->card_last_four : 'Billed to your card'],
 };
-$money = fn (float $amount) => '$'.number_format($amount, $amount == floor($amount) ? 0 : 2);
+$label = 'text-[13px] font-semibold text-[#334155]';
+$iconBox = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg';
 @endphp
 
-<div>
-    <section id="overview" data-account-section aria-labelledby="h-overview" class="scroll-mt-32 lg:scroll-mt-24">
-        <p class="text-[10px] font-extrabold uppercase tracking-wide text-accent-dark">My account</p>
-        <h1 id="h-overview" class="text-2xl font-bold text-navy mt-0.5">Welcome back, {{ str($user->name)->before(' ')->value() ?: $user->name }}</h1>
-        <p class="text-sm text-[#5d6e7f] mt-1">
-            {{ collect([$practice?->name, $order?->package?->name, 'Member since '.$memberSince->format('M j, Y')])->filter()->implode(' · ') }}
-        </p>
+<section id="overview" data-account-section aria-labelledby="h-overview"
+    class="scroll-mt-32 lg:scroll-mt-24 bg-white border border-[#dbe4ee] rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 sm:p-6">
+    <h2 id="h-overview" class="text-lg font-semibold text-[#12304f]">Overview</h2>
 
-        @if($order)
-        <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
-            <div class="rounded-xl border border-[#dbe4ee] bg-white px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Plan</p>
-                <p class="text-base font-bold text-[#173045]">{{ $order->package?->name ?? '—' }}</p>
-                <p class="text-xs text-[#5d6e7f] mt-0.5">
-                    @if($providers){{ $providers }} {{ Str::plural('provider', $providers) }} · @endif
-                    @if($state === 'partner') billed through your partner
-                    @elseif($state === 'trial') free trial
-                    @else billed {{ ($order->billing_cycle?->label() ?? 'Annual') === 'Annual' ? 'annually' : 'monthly' }}
-                    @endif
-                </p>
+    @if($order)
+    <ul aria-label="Account overview" class="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        <li class="flex flex-col gap-2 rounded-xl border p-4 {{ $toneClasses['tile'] }}" data-account-status="{{ $statusLabel }}">
+            <div class="flex items-center gap-2.5">
+                <span class="{{ $iconBox }} bg-white {{ $toneClasses['icon'] }}" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></svg></span>
+                <span class="{{ $label }}">Account status</span>
             </div>
-            <div class="rounded-xl border border-[#dbe4ee] bg-white px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">{{ $state === 'trial' ? 'First payment' : 'Next payment' }}</p>
-                @if($nextCharge)
-                <p class="text-base font-bold text-[#173045]">{{ $money($nextCharge['amount']) }}</p>
-                <p class="text-xs text-[#5d6e7f] mt-0.5">{{ $nextCharge['date']->format('M j, Y') }}@if($order->card_last_four) · {{ $order->card_brand?->label() ?? 'Card' }} ••{{ $order->card_last_four }}@endif</p>
-                @elseif($state === 'partner')
-                <p class="text-base font-bold text-[#173045]">Partner billed</p>
-                <p class="text-xs text-[#5d6e7f] mt-0.5">Invoiced by your partner</p>
-                @elseif($state === 'ending')
-                <p class="text-base font-bold text-[#173045]">None</p>
-                <p class="text-xs text-[#b7791f] font-semibold mt-0.5">Plan ends {{ $order->cancels_at->format('M j, Y') }}</p>
-                @elseif($state === 'cancelled')
-                <p class="text-base font-bold text-[#173045]">None</p>
-                <p class="text-xs text-[#5d6e7f] mt-0.5">Subscription cancelled</p>
-                @else
-                <p class="text-base font-bold text-[#173045]">—</p>
-                @endif
-            </div>
-            <div class="rounded-xl border border-[#dbe4ee] bg-white px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Review</p>
-                <p class="mb-0.5">@include('account._chip', ['label' => $reviewLabel, 'tone' => $reviewTone])</p>
-                @if($reviewWhen)<p class="text-xs text-[#5d6e7f] mt-1">{{ $reviewWhen }}</p>@endif
-            </div>
-            <div class="rounded-xl border border-[#dbe4ee] bg-white px-4 py-3">
-                <p class="text-[10px] font-extrabold uppercase tracking-wide text-[#8592a1] mb-1">Documents</p>
-                <p class="text-base font-bold text-[#173045]">{{ $currentDocs }} current</p>
-                <p class="text-xs mt-0.5 {{ $attention ? 'text-[#b7791f] font-semibold' : 'text-[#5d6e7f]' }}">
-                    @if($attention){{ $attention }} {{ $attention === 1 ? 'needs' : 'need' }} your attention @else Nothing needs your attention @endif
-                </p>
-            </div>
-        </div>
-        @else
-        <div class="mt-4 rounded-xl border border-[#dbe4ee] bg-white px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-            <p class="text-sm text-[#5d6e7f]">You don't have a compliance package yet. Choose one to start your practice intake.</p>
-            <a href="{{ route('home') }}#pricing" class="rounded-lg bg-[#2299dd] px-4 py-2 text-sm font-semibold text-white hover:bg-[#087fa9] transition-colors">View packages</a>
-        </div>
-        @endif
-    </section>
+            <div><span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[15px] font-bold {{ $toneClasses['chip'] }}"><span class="h-2 w-2 rounded-full {{ $toneClasses['dot'] }}" aria-hidden="true"></span>{{ $statusLabel }}</span></div>
+            <p class="text-xs text-[#5d6e7f]">{{ $statusLine }}</p>
+        </li>
 
-    @if($stale->isNotEmpty())
-    <div role="status" data-stale-banner
-        class="mt-5 flex flex-wrap sm:flex-nowrap items-start gap-3 rounded-xl border border-[#f1d9a8] bg-[#fdf3e0] px-4 py-3.5 text-sm text-[#7a5212]">
-        <svg class="h-5 w-5 shrink-0 text-[#b7791f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
-        <div class="flex-1 min-w-0">
-            <strong class="text-[#5c3d0c]">Your practice details changed{{ $staleSince ? ' on '.$staleSince->format('M j') : '' }}.</strong>
-            {{ $stale->count() }} {{ Str::plural('document', $stale->count()) }} still {{ $stale->count() === 1 ? 'shows' : 'show' }} the old details. Regenerate {{ $stale->count() === 1 ? 'it' : 'them' }} so your manuals stay current.
-        </div>
-        <button type="button" wire:click="regenerateAll" wire:loading.attr="disabled" wire:target="regenerateAll"
-            class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[#e2c58c] bg-white px-3.5 py-1.5 text-xs font-bold text-[#7a5212] hover:bg-[#fff9ee] transition-colors">
-            <span wire:loading.remove wire:target="regenerateAll">Regenerate documents</span>
-            <span wire:loading.inline-flex wire:target="regenerateAll" class="inline-flex items-center gap-1.5"><x-spinner class="h-3.5 w-3.5" /> Queueing…</span>
-        </button>
+        <li class="flex flex-col gap-2 rounded-xl border border-[#e3e8ef] bg-white p-4" data-next-billed>
+            <div class="flex items-center gap-2.5">
+                <span class="{{ $iconBox }} bg-[#eef2f6] text-[#334155]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg></span>
+                <span class="{{ $label }}">Next billed date</span>
+            </div>
+            <p class="text-xl font-bold leading-tight text-[#0f2a44]">{{ $nextBilled }}</p>
+            <p class="text-xs text-[#5d6e7f]">{{ $nextBilledLine }}</p>
+        </li>
+
+        <li class="flex flex-col gap-2 rounded-xl border border-[#e3e8ef] bg-white p-4">
+            <div class="flex items-center gap-2.5">
+                <span class="{{ $iconBox }} bg-[#eef2f6] text-[#334155]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg></span>
+                <span class="{{ $label }}">Plan Subscription Type</span>
+            </div>
+            <p class="text-xl font-bold leading-tight text-[#0f2a44]">{{ $annual ? 'Annual' : 'Monthly' }}</p>
+            <p class="text-xs text-[#5d6e7f]">Plan: {{ $planName ?? '—' }}</p>
+        </li>
+
+        <li class="flex flex-col gap-2 rounded-xl border p-4 {{ $annual ? 'border-[#d9cdf3] bg-[#f4f0fc]' : 'border-[#bdd6ee] bg-[#eef5fc]' }}" data-payment-type="{{ $annual ? 'Annually' : 'Monthly' }}">
+            <div class="flex items-center gap-2.5">
+                <span class="{{ $iconBox }} bg-white {{ $annual ? 'text-[#6d4bc3]' : 'text-[#1a6fb5]' }}" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11v-1a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 01-4 4H3" /></svg></span>
+                <span class="{{ $label }}">Payment type</span>
+            </div>
+            <div><span class="inline-flex rounded-full px-3 py-1 text-[15px] font-bold text-white {{ $annual ? 'bg-[#6d4bc3]' : 'bg-[#1a6fb5]' }}">{{ $annual ? 'Annually' : 'Monthly' }}</span></div>
+            <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#334155]">
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-[#1a6fb5]" aria-hidden="true"></span>Monthly</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-[#6d4bc3]" aria-hidden="true"></span>Annually</span>
+            </div>
+        </li>
+    </ul>
+
+    @if($submission?->status === IntakeSubmissionStatus::Approved && $submission->reviewed_at)
+    <p class="mt-4 pt-3.5 border-t border-[#eef2f6] flex items-center gap-2 text-[13px] text-[#334155]" data-next-policy-review>
+        <svg class="h-4 w-4 shrink-0 text-[#5d6e7f]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+        <span>Next annual policy review: <strong class="font-semibold text-[#0f2a44]">{{ $submission->reviewed_at->copy()->addYear()->format('M j, Y') }}</strong></span>
+    </p>
+    @endif
+    @else
+    <div class="mt-4 rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm text-[#5d6e7f]">You don't have a compliance package yet. Choose one to start your practice intake.</p>
+        <a href="{{ route('home') }}#pricing" class="rounded-lg bg-[#2299dd] px-4 py-2 text-sm font-semibold text-white hover:bg-[#087fa9] transition-colors">View packages</a>
     </div>
     @endif
-</div>
+</section>

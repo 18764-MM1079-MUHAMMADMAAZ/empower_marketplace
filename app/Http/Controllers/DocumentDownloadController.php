@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\DocumentDeliverySource;
+use App\Models\ActivityLog;
 use App\Models\GeneratedDocument;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -41,6 +42,9 @@ class DocumentDownloadController extends Controller
         if (! $storagePath || ! Storage::disk('local')->exists($storagePath)) {
             abort(404);
         }
+
+        // My Account › Activity Log ("Downloaded Compliance & Ethics Manual").
+        ActivityLog::record('document.downloaded', "Downloaded {$document->document_type->label()}", user: $request->user(), order: $document->order, subject: $document);
 
         return Storage::disk('local')->download($storagePath, $filename, ['Content-Type' => $mime]);
     }

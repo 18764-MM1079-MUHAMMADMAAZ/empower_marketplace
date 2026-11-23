@@ -47,14 +47,13 @@ new class extends Component
 ?>
 
 <div class="relative" x-data="{ open: false }" wire:poll.30s>
-    <button type="button" x-on:click="open = !open" aria-label="Notifications"
-        class="relative flex items-center justify-center h-10 w-10 rounded-lg border border-empower-border text-empower-muted hover:bg-page hover:text-navy transition-colors">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+    <button type="button" x-on:click="open = !open" aria-label="Notifications{{ $this->unreadCount ? ', '.$this->unreadCount.' unread' : '' }}"
+        class="relative flex items-center justify-center h-11 w-11 rounded-[9px] border border-[#cbd5e1] bg-white text-[#0f2a44] hover:bg-page transition-colors">
+        <svg class="h-[17px] w-[17px]" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 003.4 0" />
         </svg>
         @if($this->unreadCount > 0)
-        <span class="absolute -top-1 -right-1 flex items-center justify-center h-5 min-w-[1.25rem] px-1 rounded-full bg-red-600 text-[10px] font-bold text-white">
+        <span aria-hidden="true" class="absolute -top-[5px] -right-[5px] flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded-full border-2 border-white bg-[#c62828] text-[10px] font-bold text-white">
             {{ $this->unreadCount > 9 ? '9+' : $this->unreadCount }}
         </span>
         @endif

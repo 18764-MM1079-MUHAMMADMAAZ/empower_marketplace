@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\IntakeSubmission;
 use App\Services\IntakeAnswersPdfGenerator;
 use Illuminate\Http\Request;
@@ -18,6 +19,8 @@ class IntakeAnswersDownloadController extends Controller
         }
 
         $pdf = $generator->generate($submission);
+
+        ActivityLog::record('intake_answers.downloaded', 'Downloaded intake answers', user: $request->user(), order: $submission->order, subject: $submission);
         $filename = 'intake-answers-'.$submission->id.'.pdf';
 
         return response($pdf, 200, [

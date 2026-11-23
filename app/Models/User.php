@@ -22,7 +22,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'password', 'must_change_password', 'role', 'is_active', 'moodle_user_id', 'lms_suspended_at', 'external_id', 'is_practice_admin'])]
+#[Fillable(['name', 'email', 'password', 'must_change_password', 'role', 'user_type', 'is_active', 'moodle_user_id', 'lms_suspended_at', 'external_id', 'is_practice_admin'])]
 #[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
@@ -69,6 +69,14 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;
+    }
+
+    /** My Profile › User type, set by Empower admins: 'actual' (default) or 'dummy'. */
+    public const USER_TYPES = ['actual' => 'Actual user', 'dummy' => 'Dummy user'];
+
+    public function userTypeLabel(): string
+    {
+        return self::USER_TYPES[$this->user_type ?? 'actual'] ?? self::USER_TYPES['actual'];
     }
 
     /** Whether this user still gets an optional email (My Account › Notifications). Emails are on

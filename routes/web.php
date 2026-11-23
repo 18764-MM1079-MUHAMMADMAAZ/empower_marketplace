@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\OrderStatus;
+use App\Http\Controllers\AccountActivityExportController;
 use App\Http\Controllers\Admin\GeneratedDocumentDownloadController;
 use App\Http\Controllers\Admin\IntakeUploadDownloadController;
 use App\Http\Controllers\Auth\AuthController;
@@ -128,6 +129,10 @@ Route::middleware('auth')->group(function () {
         ->name('password.edit');
     Route::get('/payments/{paymentLog}/receipt', [PaymentReceiptController::class, 'show'])
         ->name('payments.receipt');
+    // My Account › Activity Log › Export CSV / Export PDF (the list as currently filtered).
+    Route::get('/account/activity/export/{format}', AccountActivityExportController::class)
+        ->whereIn('format', ['csv', 'pdf'])
+        ->name('account.activity.export');
 });
 
 // Admin panel

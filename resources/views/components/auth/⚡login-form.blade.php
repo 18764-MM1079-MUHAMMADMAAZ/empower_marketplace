@@ -147,6 +147,13 @@ new class extends Component
         // needs its code first.
         if (! Auth::validate(['email' => $this->email, 'password' => $this->password])) {
             RateLimiter::hit($this->throttleKey(), self::LOGIN_DECAY_SECONDS);
+
+            // Shown in that account's Activity Log (My Account). Only for a registered email, and the
+            // message below stays the same either way, so it doesn't reveal which emails exist.
+            if ($attempted = User::where('email', $this->email)->first()) {
+                ActivityLog::record('auth.login_failed', 'Sign-in attempt: incorrect password', user: $attempted);
+            }
+
             $this->failWith('email', 'These credentials do not match our records.');
 
             return;
@@ -195,8 +202,13 @@ new class extends Component
                 }
             }
 
-            ActivityLog::record('sso.empower_sso_api_login', "Logged in via {$sso['label']} (EmpowerSSOAPI).", user: $user);
+            ActivityLog::record('sso.empower_sso_api_login', "Signed in via {$sso['label']} SSO", user: $user);
+        } else {
+            ActivityLog::record('auth.login', 'Signed in with email & password', user: $user);
         }
+
+        // My Account › Where you're signed in shows how each device signed in.
+        session(['sign_in_method' => $sso ? $sso['label'] : 'password']);
 
         // Logged in with the temporary password from the welcome email: choose a new one first
         // (spec §4). RequirePasswordChange keeps them on My Account until they do; any LMS

@@ -32,7 +32,7 @@ class UserSessions
     /**
      * Newest first, with this device on top.
      *
-     * @return Collection<int, array{id: string, browser: string, platform: string, mobile: bool, ip: ?string, last_active: Carbon, current: bool}>
+     * @return Collection<int, array{id: string, browser: string, platform: string, mobile: bool, ip: ?string, sign_in_method: ?string, last_active: Carbon, current: bool}>
      */
     public function all(): Collection
     {
@@ -44,16 +44,52 @@ class UserSessions
 
         return $this->query()
             ->orderByDesc('last_activity')
-            ->get(['id', 'ip_address', 'user_agent', 'last_activity'])
+            ->get(['id', 'ip_address', 'user_agent', 'last_activity', 'payload'])
             ->map(fn (object $row) => [
                 'id' => $row->id,
                 ...self::describe($row->user_agent),
                 'ip' => $row->ip_address,
+                'sign_in_method' => $row->id === $currentId ? session('sign_in_method') : self::signInMethod($row->payload),
                 'last_active' => Carbon::createFromTimestamp($row->last_activity),
                 'current' => $row->id === $currentId,
             ])
             ->sortByDesc('current')
             ->values();
+    }
+
+    /**
+     * How a stored session signed in ('password', or the partner's name such as 'talkEHR'), saved by
+     * the login form as `sign_in_method`. Null for older sessions or when it can't be read.
+     */
+    private static function signInMethod(?string $payload): ?string
+    {
+        if (blank($payload)) {
+            return null;
+        }
+
+        try {
+            $raw = base64_decode($payload, true);
+
+            if ($raw !== false && config('session.encrypt')) {
+                $raw = app('encrypter')->decrypt($raw, false);
+            }
+
+            $data = $raw === false ? false : @unserialize($raw, ['allowed_classes' => false]);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($data) && is_string($data['sign_in_method'] ?? null) ? $data['sign_in_method'] : null;
+    }
+
+    /** "Email & password", "via talkEHR SSO"… for a sign_in_method value. */
+    public static function signInMethodLabel(?string $method): ?string
+    {
+        return match (true) {
+            $method === null => null,
+            $method === 'password' => 'Email & password',
+            default => "via {$method} SSO",
+        };
     }
 
     /** Signs out one of the user's other devices. Returns false for this device or an unknown id. */

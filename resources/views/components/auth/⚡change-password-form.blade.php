@@ -51,6 +51,8 @@ new class extends Component
         // Anyone signed in elsewhere with the old password is signed out.
         $this->signedOutDevices = UserSessions::for($user)->signOutOthers();
 
+        \App\Models\ActivityLog::record('account.password_changed', 'Changed password', user: $user);
+
         $this->reset(['currentPassword', 'password', 'password_confirmation']);
         $this->updated = true;
         $this->dispatch('password-updated');
@@ -85,6 +87,11 @@ new class extends Component
     <form wire:submit="updatePassword" novalidate
         x-data="{
             pw: '',
+            cf: '',
+            {{-- The list shown under the field: the strength rules plus the confirmation matching. --}}
+            get checklist() {
+                return [...this.rules, { label: 'Passwords match', met: this.pw.length > 0 && this.pw === this.cf }];
+            },
             get rules() {
                 return [
                     { label: 'At least 12 characters', met: this.pw.length >= 12 },
@@ -103,7 +110,7 @@ new class extends Component
                 return { bars: 4, label: strong ? 'Strong' : 'Good', color: 'bg-[#1c9a63]', text: 'text-[#0f7a4f]' };
             },
         }"
-        x-on:password-updated.window="pw = ''">
+        x-on:password-updated.window="pw = ''; cf = ''">
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cpf-current-password">Current password</label>
             <input wire:model="currentPassword" id="cpf-current-password" type="password" autocomplete="current-password"
@@ -130,7 +137,7 @@ new class extends Component
                 </div>
                 <p class="mt-1 text-xs font-semibold" :class="strength.text" x-show="pw.length" x-text="strength.label" x-cloak></p>
                 <ul id="cpf-password-rules" class="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                    <template x-for="rule in rules" :key="rule.label">
+                    <template x-for="rule in checklist" :key="rule.label">
                         <li class="flex items-center gap-1.5" :class="rule.met ? 'text-[#0f7a4f]' : 'text-[#5d6e7f]'">
                             <span class="w-3 text-center" x-text="rule.met ? '✓' : '•'" aria-hidden="true"></span>
                             <span x-text="rule.label"></span>
@@ -144,6 +151,7 @@ new class extends Component
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cpf-password-confirmation">Confirm new password</label>
             <input wire:model="password_confirmation" id="cpf-password-confirmation" type="password" autocomplete="new-password"
+                x-on:input="cf = $event.target.value"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
                 placeholder="••••••••">
         </div>

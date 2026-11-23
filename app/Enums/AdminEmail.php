@@ -10,6 +10,7 @@ enum AdminEmail: string
     case IntakeSubmissions = 'admin_intake_submissions';
     case SpecialistCalls = 'admin_specialist_calls';
     case NewLeads = 'admin_new_leads';
+    case PlanChangeRequests = 'admin_plan_change_requests';
 
     public function label(): string
     {
@@ -18,6 +19,7 @@ enum AdminEmail: string
             self::IntakeSubmissions => 'Intake submissions',
             self::SpecialistCalls => 'Specialist call requests',
             self::NewLeads => 'New leads',
+            self::PlanChangeRequests => 'Plan change requests',
         };
     }
 
@@ -28,6 +30,7 @@ enum AdminEmail: string
             self::IntakeSubmissions => 'When a client submits their intake for review.',
             self::SpecialistCalls => 'When a client asks for a call with a compliance specialist.',
             self::NewLeads => 'When someone sends the contact or quote form on the website.',
+            self::PlanChangeRequests => 'When a client asks to change their provider count or billing period (My Account › Plan).',
         };
     }
 }
