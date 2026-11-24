@@ -11,6 +11,7 @@ use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
+use App\Http\Controllers\CareCloudMsaController;
 use App\Jobs\GenerateComplianceDocument;
 use App\Jobs\ProcessIntakeUpload;
 use App\Mail\AdminIntakeSubmittedMail;
@@ -1093,6 +1094,64 @@ class PortalTest extends TestCase
             ->assertHasErrors(['termsAccepted']);
 
         $this->assertDatabaseMissing('orders', ['user_id' => $user->id]);
+    }
+
+    public function test_pay_requires_the_carecloud_msa_to_have_been_opened(): void
+    {
+        $this->fakeSuccessfulCharge();
+        session()->forget(CareCloudMsaController::SESSION_KEY);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->assertSeeHtml('href="'.route('carecloud.msa').'"')
+            ->assertSee('Please open and review the CareCloud MSA before agreeing.')
+            ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
+            ->assertHasErrors(['termsAccepted'])
+            ->assertSee('Please open and review the CareCloud MSA before agreeing to the Terms &amp; Conditions.', false);
+
+        $this->assertDatabaseMissing('orders', ['user_id' => $user->id]);
+    }
+
+    public function test_free_trial_requires_the_carecloud_msa_to_have_been_opened(): void
+    {
+        $this->fakeSuccessfulTokenize();
+        session()->forget(CareCloudMsaController::SESSION_KEY);
+        $package = Package::factory()->create(['slug' => 'essential', 'annual_price' => 999, 'is_active' => true]);
+        DiscountCode::factory()->freeTrial(30)->create(['code' => 'TRIAL30']);
+        $user = User::factory()->create();
+        Practice::factory()->create(['user_id' => $user->id]);
+
+        Livewire::actingAs($user)
+            ->test('portal')
+            ->set('selectedPackageId', $package->id)
+            ->set('billingAddress1', '7 Clyde Road')
+            ->set('billingCity', 'Somerset')
+            ->set('billingState', 'NJ')
+            ->set('billingZip', '08873')
+            ->set('discountCodeInput', 'TRIAL30')
+            ->call('applyDiscountCode')
+            ->call('payFreeTrial', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
+            ->assertHasErrors(['termsAccepted']);
+
+        $this->assertDatabaseMissing('orders', ['user_id' => $user->id]);
+    }
+
+    public function test_opening_the_carecloud_msa_link_records_it_and_redirects_to_the_msa(): void
+    {
+        config(['services.carecloud.msa_url' => 'https://carecloud.example/msa']);
+        session()->forget(CareCloudMsaController::SESSION_KEY);
+
+        $this->get(route('carecloud.msa'))
+            ->assertRedirect('https://carecloud.example/msa')
+            ->assertSessionHas(CareCloudMsaController::SESSION_KEY);
     }
 
     public function test_pay_succeeds_when_terms_are_accepted(): void

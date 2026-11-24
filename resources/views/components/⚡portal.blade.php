@@ -10,6 +10,7 @@ use App\Enums\DocumentType;
 use App\Enums\IntakeSubmissionStatus;
 use App\Enums\IntakeUploadType;
 use App\Enums\OrderStatus;
+use App\Http\Controllers\CareCloudMsaController;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Exceptions\EmpowerPaymentApiException;
@@ -1648,6 +1649,30 @@ new class extends Component
         ];
     }
 
+    /**
+     * The Terms & Conditions box must be ticked, and the CareCloud MSA must have been opened first:
+     * the popup's "Read the CareCloud MSA" link goes through route('carecloud.msa'), which records
+     * that in the session before redirecting to the MSA. Checked here too, so skipping the popup
+     * (or calling pay() directly) can't get around it.
+     */
+    private function validateTermsAcceptance(bool $termsAccepted): void
+    {
+        $validator = Validator::make(compact('termsAccepted'), ['termsAccepted' => 'accepted'], $this->messages())
+            ->after(function ($validator) {
+                if ($validator->errors()->isEmpty() && ! session()->has(CareCloudMsaController::SESSION_KEY)) {
+                    $validator->errors()->add('termsAccepted', 'Please open and review the CareCloud MSA before agreeing to the Terms & Conditions.');
+                }
+            });
+
+        try {
+            $validator->validate();
+        } catch (ValidationException $e) {
+            $this->cardErrors = array_merge($this->cardErrors, $e->validator->errors()->messages());
+
+            throw $e;
+        }
+    }
+
     public function updated(string $property): void
     {
         $paymentFields = ['selectedPackageId', 'accountName', 'accountEmail', 'billableProviders', 'billingAddress1', 'billingCity', 'billingState', 'billingZip'];
@@ -1922,13 +1947,7 @@ new class extends Component
         // Checked separately from the fields above: the popup that sets this can only ever be
         // reached after validateBillingAndCardFields() already passed once, so a failure here
         // only happens via a bypass attempt (e.g. calling pay() directly, skipping the popup).
-        try {
-            Validator::make(compact('termsAccepted'), ['termsAccepted' => 'accepted'], $this->messages())->validate();
-        } catch (ValidationException $e) {
-            $this->cardErrors = array_merge($this->cardErrors, $e->validator->errors()->messages());
-
-            throw $e;
-        }
+        $this->validateTermsAcceptance($termsAccepted);
 
         $packages = Package::whereIn('id', array_filter([$this->selectedPackageId]))->get();
 
@@ -2200,13 +2219,7 @@ new class extends Component
 
         $this->validateBillingAndCardFields($cardName, $cardNumber, $cardExpiry, $cardCvc);
 
-        try {
-            Validator::make(compact('termsAccepted'), ['termsAccepted' => 'accepted'], $this->messages())->validate();
-        } catch (ValidationException $e) {
-            $this->cardErrors = array_merge($this->cardErrors, $e->validator->errors()->messages());
-
-            throw $e;
-        }
+        $this->validateTermsAcceptance($termsAccepted);
 
         $package = $this->selectedPackageId ? Package::find($this->selectedPackageId) : null;
 
@@ -3524,6 +3537,7 @@ $progressPct = match (true) {
 
         <div x-data="{
                     cardNameValid: false, cardNumberValid: false, cardExpiryError: '', cardCvcValid: false, showTerms: false, termsAccepted: false,
+                    msaOpened: @js(session()->has(CareCloudMsaController::SESSION_KEY)),
                 }"
             class="flex flex-col bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-4">
             <p class="text-xs font-extrabold uppercase tracking-widest text-empower-muted mb-1">Step 1.2</p>
@@ -3677,13 +3691,20 @@ $progressPct = match (true) {
                     <p class="text-sm text-empower-muted mb-4">Before we process your payment, please confirm you
                         agree
                         to our Terms &amp; Conditions and the CareCloud Master Services Agreement (MSA).</p>
-                    <a href="{{ config('services.carecloud.msa_url') }}" target="_blank" rel="noopener noreferrer"
-                        class="inline-flex items-center gap-1 text-sm font-semibold text-[#1a7aad] hover:underline mb-4">
+                    {{-- Opening the MSA is required before the box below can be ticked: the link goes
+                    through route('carecloud.msa'), which records it in the session (pay() and
+                    payFreeTrial() check that too) before redirecting to the MSA. --}}
+                    <a href="{{ route('carecloud.msa') }}" target="_blank" rel="noopener noreferrer"
+                        x-on:click="msaOpened = true" data-msa-link
+                        class="inline-flex items-center gap-1 text-sm font-semibold text-[#1a7aad] hover:underline mb-2">
                         Read the CareCloud MSA &#8599;
                     </a>
-                    <label class="flex items-start gap-2.5 mb-5 cursor-pointer">
-                        <input type="checkbox" x-model="termsAccepted"
-                            class="mt-0.5 h-4 w-4 rounded border-empower-border text-accent focus:ring-accent">
+                    <p x-show="!msaOpened" class="text-xs font-semibold text-[#9a6700] mb-3" data-msa-required>
+                        Please open and review the CareCloud MSA before agreeing.</p>
+                    <p x-show="msaOpened" x-cloak class="text-xs font-semibold text-[#117a51] mb-3">&#10003; MSA opened</p>
+                    <label class="flex items-start gap-2.5 mb-5" :class="msaOpened ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'">
+                        <input type="checkbox" x-model="termsAccepted" :disabled="!msaOpened"
+                            class="mt-0.5 h-4 w-4 rounded border-empower-border text-accent focus:ring-accent disabled:cursor-not-allowed">
                         <span class="text-sm text-empower-text">I agree to the Terms &amp; Conditions.</span>
                     </label>
                     <div class="flex justify-end gap-3">

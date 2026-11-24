@@ -416,7 +416,7 @@ class MyAccountTest extends TestCase
         Livewire::test('account.hotline')
             ->assertSee('Empower Compliance Hotline')
             ->assertSee(Practice::EMPOWER_HOTLINE_PHONE)
-            ->assertSee(Practice::EMPOWER_HOTLINE_EMAIL)
+            ->assertDontSee('Anonymous reporting is also available')
             ->assertSee('Use our own number')
             ->assertDontSee('No number added')
             ->assertDontSee('Not added yet');

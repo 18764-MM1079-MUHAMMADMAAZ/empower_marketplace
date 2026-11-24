@@ -175,11 +175,6 @@ $button ='inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font-
         <span class="rounded-full bg-[#fdf0d8] px-2.5 py-0.5 text-xs font-semibold text-[#7a4a00]">Not added yet</span>
         @endif
     </div>
-    @if($usesEmpower)
-    <p class="mt-3 text-[13px] text-[#5d6e7f]" data-hotline-empower>Anonymous reporting is also available online at
-        <a href="{{ Practice::EMPOWER_HOTLINE_URL }}" target="_blank" rel="noopener noreferrer" class="font-semibold text-[#0b7fb3] hover:underline break-all">my.compliancehotline.com/report/empowerhcp</a>
-        or by email at <a href="mailto:{{ Practice::EMPOWER_HOTLINE_EMAIL }}" class="font-semibold text-[#0b7fb3] hover:underline break-all">{{ Practice::EMPOWER_HOTLINE_EMAIL }}</a>.</p>
-    @endif
     @if($saved)
     <p role="status" class="mt-3 text-[13px] text-[#146c43]">Hotline saved. Your compliance manuals will be regenerated with the new details.</p>
     @endif

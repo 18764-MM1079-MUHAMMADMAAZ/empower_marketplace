@@ -5,6 +5,7 @@ use App\Http\Controllers\AccountActivityExportController;
 use App\Http\Controllers\Admin\GeneratedDocumentDownloadController;
 use App\Http\Controllers\Admin\IntakeUploadDownloadController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\CareCloudMsaController;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Http\Controllers\IntakeAnswersDownloadController;
 use App\Http\Controllers\OidcController;
@@ -90,6 +91,10 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout')->middl
 // Client portal — guest-accessible: a first-time visitor creates their account as part of
 // paying for a package in Step 1, matching the marketplace's combined signup + payment flow.
 Route::get('/portal', fn () => view('portal'))->name('portal');
+
+// The checkout's "Read the CareCloud MSA" link: records that the MSA was opened (required before
+// the Terms & Conditions can be accepted), then redirects to it. Guest-accessible, like checkout.
+Route::get('/carecloud-msa', CareCloudMsaController::class)->name('carecloud.msa');
 
 // SSO — browser-facing half of the token handoff issued by Api\SsoController::issueToken(). Lives
 // here (not routes/api.php) because logging in needs the session/cookie middleware the api group
