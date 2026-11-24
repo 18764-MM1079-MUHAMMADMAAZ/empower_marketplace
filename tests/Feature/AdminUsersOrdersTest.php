@@ -52,6 +52,21 @@ class AdminUsersOrdersTest extends TestCase
         $this->get(route('admin.orders.edit', $order))->assertOk();
     }
 
+    public function test_admin_user_form_password_has_generate_and_show_buttons(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $client = User::factory()->create();
+
+        $this->withoutVite()->actingAs($admin);
+
+        foreach ([route('admin.users.create'), route('admin.users.edit', $client)] as $url) {
+            $this->get($url)
+                ->assertOk()
+                ->assertSee('data-generate-password', false)
+                ->assertSee('aria-label="Show password"', false);
+        }
+    }
+
     public function test_admin_can_view_and_search_the_users_list(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);

@@ -113,18 +113,18 @@ new class extends Component
         x-on:password-updated.window="pw = ''; cf = ''">
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cpf-current-password">Current password</label>
-            <input wire:model="currentPassword" id="cpf-current-password" type="password" autocomplete="current-password"
+            <x-password-input wire:model="currentPassword" id="cpf-current-password" autocomplete="current-password"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                placeholder="••••••••">
+                placeholder="••••••••" />
             @error('currentPassword') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
 
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cpf-password">New password</label>
-            <input wire:model="password" id="cpf-password" type="password" autocomplete="new-password"
+            <x-password-input wire:model="password" id="cpf-password" autocomplete="new-password"
                 x-on:input="pw = $event.target.value" aria-describedby="cpf-password-rules"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                placeholder="••••••••">
+                placeholder="••••••••" />
             @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
             {{-- Strength meter: the same rules as Password::defaults() in AppServiceProvider --}}
@@ -150,10 +150,10 @@ new class extends Component
 
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="cpf-password-confirmation">Confirm new password</label>
-            <input wire:model="password_confirmation" id="cpf-password-confirmation" type="password" autocomplete="new-password"
+            <x-password-input wire:model="password_confirmation" id="cpf-password-confirmation" autocomplete="new-password"
                 x-on:input="cf = $event.target.value"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                placeholder="••••••••">
+                placeholder="••••••••" />
         </div>
 
         <button type="submit"

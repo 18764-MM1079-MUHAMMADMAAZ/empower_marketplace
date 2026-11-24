@@ -212,7 +212,7 @@ $inputClass = 'w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 te
                 default => 'Enter your password to see your recovery codes',
             } }}
         </label>
-        <input wire:model="password" id="tf-password" type="password" autocomplete="current-password" class="{{ $inputClass }}" placeholder="••••••••" x-init="$el.focus()">
+        <x-password-input wire:model="password" id="tf-password" autocomplete="current-password" class="{{ $inputClass }}" placeholder="••••••••" x-init="$el.focus()" />
         @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         <div class="mt-3 flex gap-2">
             <button type="submit" class="rounded px-4 py-2 text-sm font-bold text-white transition-colors {{ $pendingAction === 'disable' ? 'bg-[#c03a3a] hover:bg-[#a12f2f]' : 'bg-[#2299dd] hover:bg-[#087fa9]' }}"

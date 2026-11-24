@@ -227,7 +227,61 @@ class AuthTest extends TestCase
             ->assertSee('Sign in with');
     }
 
+    public function test_password_fields_have_a_show_password_toggle(): void
+    {
+        $this->withoutVite()
+            ->get(route('login'))
+            ->assertOk()
+            ->assertSee('id="lf-password"', false)
+            ->assertSee(":type=\"show ? 'text' : 'password'\"", false)
+            ->assertSee('aria-label="Show password"', false)
+            ->assertDontSee('data-generate-password', false);
+
+        Livewire::test('auth.login-form')
+            ->call('selectSsoProvider', 'talkehr')
+            ->assertSeeHtml('id="sso-password"')
+            ->assertSeeHtml('aria-label="Show password"');
+    }
+
+    public function test_sso_query_param_opens_that_providers_form_on_the_login_page(): void
+    {
+        Livewire::withQueryParams(['sso' => 'talkehr'])
+            ->test('auth.login-form')
+            ->assertSet('ssoProvider', 'talkehr');
+    }
+
+    public function test_unknown_sso_query_param_is_ignored(): void
+    {
+        Livewire::withQueryParams(['sso' => 'nope'])
+            ->test('auth.login-form')
+            ->assertSet('ssoProvider', null);
+    }
+
     // --- Register page ---
+
+    public function test_register_page_offers_signing_in_with_talkehr_or_carecloud_instead(): void
+    {
+        config(['services.empower_sso_api.providers' => ['talkehr' => 'https://talkehr.test', 'carecloud' => 'https://cch.test/login']]);
+
+        $this->withoutVite()
+            ->get(route('register', ['package' => 'essential']))
+            ->assertOk()
+            ->assertSee('Already use talkEHR or CareCloud?')
+            ->assertSee(route('login', ['sso' => 'talkehr']), false)
+            ->assertSee(route('login', ['sso' => 'carecloud']), false);
+
+        $this->assertSame('essential', session('intended_package'));
+    }
+
+    public function test_register_page_hides_partner_options_when_no_provider_is_configured(): void
+    {
+        config(['services.empower_sso_api.providers' => ['talkehr' => null, 'carecloud' => null]]);
+
+        $this->withoutVite()
+            ->get(route('register'))
+            ->assertOk()
+            ->assertDontSee('data-sso-signup-options', false);
+    }
 
     public function test_register_page_renders(): void
     {

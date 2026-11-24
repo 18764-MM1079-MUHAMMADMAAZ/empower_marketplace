@@ -493,8 +493,8 @@ new class extends Component
                 <label class="block text-sm font-semibold text-[#173a59] mb-1.5">
                     {{ $userId ? 'New Password' : 'Password' }}
                 </label>
-                <input wire:model="password" type="password" placeholder="{{ $userId ? 'Leave blank to keep current password' : '' }}"
-                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition">
+                <x-password-input :generate="true" wire:model="password" placeholder="{{ $userId ? 'Leave blank to keep current password' : '' }}"
+                    class="w-full rounded-xl border border-empower-border bg-page px-4 py-2.5 text-sm text-empower-text focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition" />
                 <p class="mt-1 text-xs text-empower-muted">At least 12 characters, with upper and lower case letters, a number and a symbol.</p>
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>

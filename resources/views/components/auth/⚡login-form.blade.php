@@ -70,11 +70,19 @@ new class extends Component
         return Str::transliterate(Str::lower($this->ssoUsername).'|sso|'.request()->ip());
     }
 
-    /** Pre-filled from "?email=" (e.g. checkout's "this email already has an account" link). */
+    /** Pre-filled from "?email=" (e.g. checkout's "this email already has an account" link), and
+     *  "?sso=talkehr|carecloud" opens that platform's form straight away (the Sign Up page's
+     *  "Already use talkEHR / CareCloud?" buttons). */
     public function mount(): void
     {
         $email = request()->query('email');
         $this->email = is_string($email) ? $email : '';
+
+        $sso = request()->query('sso');
+
+        if (is_string($sso)) {
+            $this->selectSsoProvider($sso);
+        }
     }
 
     /** @return array<int, string> */
@@ -724,8 +732,8 @@ new class extends Component
 
         <div class="mb-4">
             <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="sso-password">Password</label>
-            <input wire:model="ssoPassword" id="sso-password" type="password" autocomplete="current-password"
-                class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
+            <x-password-input wire:model="ssoPassword" id="sso-password" autocomplete="current-password"
+                class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition" />
             @error('ssoPassword') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
 
@@ -766,9 +774,9 @@ new class extends Component
                     class="text-xs font-semibold text-[#0b9ed0] hover:text-[#0e3a61] transition-colors">Forgot
                     password?</a>
             </div>
-            <input wire:model="password" id="lf-password" type="password" autocomplete="current-password"
+            <x-password-input wire:model="password" id="lf-password" autocomplete="current-password"
                 class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                placeholder="••••••••">
+                placeholder="••••••••" />
             @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
         </div>
 

@@ -93,18 +93,18 @@ new class extends Component
 
             <div class="mb-4">
                 <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="rpf-password">New password</label>
-                <input wire:model="password" id="rpf-password" type="password" autocomplete="new-password"
+                <x-password-input wire:model="password" id="rpf-password" autocomplete="new-password"
                     class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                    placeholder="••••••••">
+                    placeholder="••••••••" />
                 <p class="mt-1 text-xs text-[#5c778d]">At least 12 characters, with upper and lower case letters, a number and a symbol.</p>
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="mb-4">
                 <label class="block text-sm font-medium text-[#173a59] mb-1.5" for="rpf-password-confirmation">Confirm new password</label>
-                <input wire:model="password_confirmation" id="rpf-password-confirmation" type="password" autocomplete="new-password"
+                <x-password-input wire:model="password_confirmation" id="rpf-password-confirmation" autocomplete="new-password"
                     class="w-full rounded-xl border border-[#d4e5f1] bg-white px-4 py-2.5 text-sm text-[#173a59] placeholder-[#5c778d]/60 focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition"
-                    placeholder="••••••••">
+                    placeholder="••••••••" />
             </div>
 
             <button type="submit"
