@@ -14,8 +14,17 @@ use Illuminate\Support\Carbon;
  */
 class ClientActivity
 {
-    /** Times are shown in UTC for now (my-account-plan.md); change it here to move to another zone. */
-    public const TIMEZONE = 'UTC';
+    /** Times are shown in the application's time zone (config app.timezone: US Eastern). */
+    public static function timezone(): string
+    {
+        return config('app.timezone');
+    }
+
+    /** The zone's current abbreviation for labels, e.g. "EST" (or "EDT" during daylight saving). */
+    public static function timezoneLabel(): string
+    {
+        return now(self::timezone())->format('T');
+    }
 
     public const TYPES = [
         'signin' => 'Sign-in',
@@ -137,7 +146,7 @@ class ClientActivity
         };
 
         return [
-            'when' => $log->created_at->copy()->timezone(self::TIMEZONE),
+            'when' => $log->created_at->copy()->timezone(self::timezone()),
             'title' => $log->description,
             'actor' => match (true) {
                 $byClient => $this->user->name,

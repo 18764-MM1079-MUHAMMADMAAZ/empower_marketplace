@@ -49,7 +49,7 @@ class ClientActivityLogTest extends TestCase
             ->assertDontSee('Empower LMS account created')
             ->assertDontSee('Test order')
             ->assertDontSee('Someone else signed in')
-            ->assertSee('Showing 1–2 of 2 activities · Times shown in UTC');
+            ->assertSee('Showing 1–2 of 2 activities · Times shown in '.now('America/New_York')->format('T'));
     }
 
     public function test_type_date_range_and_search_filter_the_list(): void
@@ -156,7 +156,7 @@ class ClientActivityLogTest extends TestCase
         $csv = $this->actingAs($user)->get(route('account.activity.export', ['format' => 'csv', 'type' => 'documents']));
         $csv->assertOk()->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
         $body = $csv->getContent();
-        $this->assertStringContainsString('"When (UTC)"', $body);
+        $this->assertStringContainsString('"When ('.now('America/New_York')->format('T').')"', $body);
         $this->assertStringContainsString('Downloaded HIPAA Security Manual', $body);
         $this->assertStringNotContainsString('Signed in with email', $body);
 

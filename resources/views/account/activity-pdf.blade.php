@@ -1,6 +1,6 @@
 {{-- My Account › Activity Log › Export PDF (rendered by TCPDF, so plain tables and inline styles only). --}}
 <p style="font-size:10pt;color:#334155;">{{ $user->name }} · {{ $user->email }}@if($user->practice?->name) · {{ $user->practice->name }}@endif<br>
-Exported {{ now(\App\Services\ClientActivity::TIMEZONE)->format('M j, Y g:i A') }} {{ $tz }} · {{ $rows->count() }} {{ Str::plural('activity', $rows->count()) }} · Kept permanently; entries are never edited or deleted.</p>
+Exported {{ now(\App\Services\ClientActivity::timezone())->format('M j, Y g:i A') }} {{ $tz }} · {{ $rows->count() }} {{ Str::plural('activity', $rows->count()) }} · Kept permanently; entries are never edited or deleted.</p>
 <table cellpadding="4" style="font-size:8.5pt;border-collapse:collapse;">
     <thead>
         <tr style="background-color:#f1f5f9;color:#334155;font-weight:bold;">

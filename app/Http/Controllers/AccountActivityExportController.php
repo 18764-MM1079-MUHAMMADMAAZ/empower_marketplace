@@ -23,8 +23,8 @@ class AccountActivityExportController extends Controller
         $rows = $activity->query($type, $range, $search)->limit(5000)->get()
             ->values()
             ->map(fn ($log, $i) => ['sr' => $i + 1, ...$activity->present($log)]);
-        $tz = ClientActivity::TIMEZONE === 'UTC' ? 'UTC' : now(ClientActivity::TIMEZONE)->format('T');
-        $name = 'activity-log-'.now(ClientActivity::TIMEZONE)->format('Y-m-d');
+        $tz = ClientActivity::timezoneLabel();
+        $name = 'activity-log-'.now(ClientActivity::timezone())->format('Y-m-d');
 
         if ($format === 'csv') {
             $csv = fopen('php://temp', 'r+');

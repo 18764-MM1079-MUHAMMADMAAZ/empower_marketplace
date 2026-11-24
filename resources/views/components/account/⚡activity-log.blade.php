@@ -85,7 +85,7 @@ $typeChip = [
 $practiceName = auth()->user()->practice?->name;
 $field = 'h-10 rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm text-[#0f2a44] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0]';
 $pageButton = 'inline-flex h-10 items-center justify-center rounded-lg border px-3 text-[13px] font-semibold transition-colors';
-$tz = ClientActivity::TIMEZONE === 'UTC' ? 'UTC' : now(ClientActivity::TIMEZONE)->format('T');
+$tz = ClientActivity::timezoneLabel();
 @endphp
 
 <section id="activity" data-account-section aria-labelledby="h-activity"
