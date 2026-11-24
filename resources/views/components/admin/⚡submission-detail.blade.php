@@ -560,7 +560,9 @@ new class extends Component
         // contrast, are dispatched independently as soon as their source upload finishes
         // processing, so a Pending status on those really does mean "generating."
         $documentPending = $this->documentsForReview->contains(function (GeneratedDocument $d) {
-            if (! in_array($d->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
+            // Manual-upload-only reports stay Pending until an admin uploads them; nothing is generating.
+            if ($d->document_type->isManualUploadOnly()
+                || ! in_array($d->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
                 return false;
             }
 
@@ -1091,7 +1093,7 @@ new class extends Component
             ->where('order_id', $submission->order_id)
             ->firstOrFail();
 
-        if ($document->document_type === DocumentType::ExclusionsScreeningReport
+        if ($document->document_type->isManualUploadOnly()
             && $deliverySource !== DocumentDeliverySource::Custom) {
             return;
         }
@@ -1532,9 +1534,12 @@ new class extends Component
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @forelse($documentsForReview as $document)
                     @php
+                        $manualUploadOnly = $document->document_type->isManualUploadOnly();
                         $badge = match(true) {
                             $document->is_stale => ['Outdated', 'bg-[#fde2e2] text-[#a53b3b]'],
                             $document->isApproved() => ['Approved', 'bg-[#dff7f0] text-[#0f7a4f]'],
+                            $manualUploadOnly && ! $document->hasCustomDocument() => ['Awaiting Upload', 'bg-[#fff3cd] text-[#9a6700]'],
+                            $manualUploadOnly => ['Pending Review', 'bg-[#eef6fb] text-empower-muted'],
                             $document->status === DocumentStatus::Completed => ['Pending Review', 'bg-[#eef6fb] text-empower-muted'],
                             $document->status === DocumentStatus::Failed => ['Failed', 'bg-[#fde2e2] text-[#a53b3b]'],
                             $document->status === DocumentStatus::Pending => ['Not Started', 'bg-[#edf2f7] text-empower-muted'],
@@ -1545,7 +1550,6 @@ new class extends Component
                         // A document can only be checked into a box while it's awaiting a decision —
                         // once approved or marked outdated, the boxes go read-only (see below).
                         $reviewable = ! $document->isApproved() && ! $document->is_stale;
-                        $manualUploadOnly = $document->document_type === DocumentType::ExclusionsScreeningReport;
                         $aiSelected = ! $manualUploadOnly && $reviewable && $document->delivery_source === DocumentDeliverySource::AiGenerated;
                         $customSelected = $reviewable && $document->delivery_source === DocumentDeliverySource::Custom;
                     @endphp

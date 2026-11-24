@@ -44,6 +44,7 @@ use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class AdminPanelTest extends TestCase
@@ -775,7 +776,7 @@ class AdminPanelTest extends TestCase
         Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaSecurityManual);
     }
 
-    public function test_starting_review_on_an_essential_submission_dispatches_the_exclusions_screening_report(): void
+    public function test_starting_review_never_dispatches_the_manual_upload_only_exclusions_screening_report(): void
     {
         Bus::fake();
 
@@ -790,10 +791,17 @@ class AdminPanelTest extends TestCase
             ->test('admin.submission-detail', ['submission' => $submission])
             ->call('startReview');
 
-        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::ExclusionsScreeningReport);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::ExclusionsScreeningReport);
+
+        // Its placeholder is still there, waiting for the admin's upload.
+        $this->assertDatabaseHas('generated_documents', [
+            'order_id' => $order->id,
+            'document_type' => DocumentType::ExclusionsScreeningReport->value,
+            'status' => DocumentStatus::Pending->value,
+        ]);
     }
 
-    public function test_starting_review_on_an_advanced_submission_also_dispatches_the_sra_and_mini_audit_report(): void
+    public function test_starting_review_on_an_advanced_submission_does_not_ai_generate_the_sra_or_mini_audit_report(): void
     {
         Bus::fake();
 
@@ -818,8 +826,17 @@ class AdminPanelTest extends TestCase
             ->test('admin.submission-detail', ['submission' => $submission])
             ->call('startReview');
 
-        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::SecurityRiskAssessment);
-        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::CodingMiniAuditReport);
+        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::HipaaSecurityManual);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::SecurityRiskAssessment);
+        Bus::assertNotDispatched(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::CodingMiniAuditReport);
+
+        foreach ([DocumentType::SecurityRiskAssessment, DocumentType::CodingMiniAuditReport] as $type) {
+            $this->assertDatabaseHas('generated_documents', [
+                'order_id' => $order->id,
+                'document_type' => $type->value,
+                'status' => DocumentStatus::Pending->value,
+            ]);
+        }
     }
 
     public function test_starting_review_on_an_advanced_submission_skips_the_mini_audit_report_without_an_encounter_list(): void
@@ -842,7 +859,6 @@ class AdminPanelTest extends TestCase
             ->test('admin.submission-detail', ['submission' => $submission])
             ->call('startReview');
 
-        Bus::assertDispatched(GenerateComplianceDocument::class, fn ($job) => $job->order->id === $order->id && $job->documentType === DocumentType::SecurityRiskAssessment);
         Bus::assertNotDispatched(GenerateComplianceDocument::class, fn ($job) => $job->documentType === DocumentType::CodingMiniAuditReport);
 
         $this->assertDatabaseMissing('generated_documents', [
@@ -1500,21 +1516,56 @@ class AdminPanelTest extends TestCase
         $this->assertNull($document->reviewed_at);
     }
 
-    public function test_exclusions_screening_report_requires_a_manual_upload_and_hides_ai_file(): void
+    /** @return array<string, array{0: DocumentType}> */
+    public static function manualUploadOnlyReports(): array
+    {
+        return [
+            'Exclusions Screening Report' => [DocumentType::ExclusionsScreeningReport],
+            'Security Risk Assessment' => [DocumentType::SecurityRiskAssessment],
+            'Coding & Documentation Mini Audit' => [DocumentType::CodingMiniAuditReport],
+        ];
+    }
+
+    #[DataProvider('manualUploadOnlyReports')]
+    public function test_manual_upload_only_report_waits_for_an_upload_without_showing_as_generating(DocumentType $type): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        $submission = $this->makeSubmission(IntakeSubmissionStatus::UnderReview);
+        $document = GeneratedDocument::factory()->create([
+            'order_id' => $submission->order_id,
+            'document_type' => $type,
+            'status' => DocumentStatus::Pending,
+        ]);
+
+        $component = Livewire::actingAs($admin)
+            ->test('admin.submission-detail', ['submission' => $submission])
+            ->assertSee('Awaiting Upload')
+            ->assertSee('Manual File Upload')
+            ->assertDontSee('Waiting on AI generation');
+
+        $this->assertFalse($component->instance()->isGenerating);
+
+        $this->assertSame(['In review', 'muted'], $document->fresh()->clientStatus());
+        $this->assertFalse($document->fresh()->canBeRegeneratedByClient());
+    }
+
+    #[DataProvider('manualUploadOnlyReports')]
+    public function test_manual_upload_only_report_requires_a_manual_upload_and_hides_ai_file(DocumentType $type): void
     {
         Mail::fake();
 
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $submission = $this->makeSubmission(IntakeSubmissionStatus::Approved);
+        // An AI file left over from before these reports went manual-only must never be delivered.
         $document = GeneratedDocument::factory()->completed()->create([
             'order_id' => $submission->order_id,
-            'document_type' => DocumentType::ExclusionsScreeningReport,
+            'document_type' => $type,
         ]);
 
         $component = Livewire::actingAs($admin)
             ->test('admin.submission-detail', ['submission' => $submission])
             ->assertSee('Manual File Upload')
-            ->assertSee('No manual file uploaded.')
+            ->assertSeeHtml('wire:model="customDocumentFiles.'.$document->id.'"')
             ->assertDontSee('AI-Generated File')
             ->assertDontSee('Download AI-Generated File')
             ->call('approveDocument', $document->id);

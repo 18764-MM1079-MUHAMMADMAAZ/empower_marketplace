@@ -23,7 +23,12 @@ class GeneratedDocumentFactory extends Factory
         return [
             'order_id' => Order::factory(),
             'osha_location_id' => null,
-            'document_type' => fake()->randomElement(DocumentType::cases()),
+            // Only types that get generated: a manual-upload-only report can't be approved without
+            // an admin's file, so picking one at random would make approval tests flaky.
+            'document_type' => fake()->randomElement(array_values(array_filter(
+                DocumentType::cases(),
+                fn (DocumentType $type) => ! $type->isManualUploadOnly(),
+            ))),
             'status' => DocumentStatus::Pending,
             'pdf_storage_path' => null,
             'docx_storage_path' => null,

@@ -4963,10 +4963,13 @@ $progressPct = match (true) {
                         : $type->label().($location ? ' — '.$location->name : '').($sourceUpload ? ' —
                         '.$sourceUpload->original_filename : '');
                         [$badgeClass, $badgeLabel] = match(true) {
+                        // Uploaded by Empower's team rather than generated: never "Generating" or "Failed".
+                        ! $doc && $type->isManualUploadOnly() => ['bg-[#edf2f7] text-[#5d6e7f]', 'In Review'],
                         ! $doc => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],
                         (bool) $doc->is_stale => ['bg-[#fde2e2] text-[#a53b3b]', 'Outdated'],
                         $doc->isReady() => ['bg-[#d7f3ea] text-[#117a51]', 'Current'],
                         $doc->wasRevoked() => ['bg-[#fde8cc] text-[#9a5b0f]', 'Updated'],
+                        $type->isManualUploadOnly() => ['bg-[#edf2f7] text-[#5d6e7f]', 'In Review'],
                         $doc->status === DocumentStatus::Failed => ['bg-[#fde2e2] text-[#a53b3b]', 'Failed'],
                         $doc->status === DocumentStatus::Completed => ['bg-[#edf2f7] text-[#5d6e7f]', 'Pending Review'],
                         default => ['bg-[#fff3cd] text-[#9a6700]', 'Generating'],

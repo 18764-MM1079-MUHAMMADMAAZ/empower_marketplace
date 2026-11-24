@@ -27,16 +27,14 @@ enum DocumentType: string
     // than merged into one of the fixed manual templates above.
     case PolishedClientDocument = 'polished_client_document';
 
-    // Advanced tier only — synthesized by AI from the practice's own data (workflow answers or
-    // an uploaded encounter list) rather than merged into a fixed template. See
-    // isAiSynthesizedReport() and GenerateComplianceDocument::generateAiSynthesizedReport().
+    // Advanced tier only. Prepared by Empower's compliance team and uploaded by an admin, never
+    // AI-generated — see isManualUploadOnly(). The Mini Audit is still only expected once the
+    // client has uploaded an encounter list.
     case SecurityRiskAssessment = 'security_risk_assessment';
     case CodingMiniAuditReport = 'coding_mini_audit_report';
 
-    // Every paid tier — synthesized by AI from the practice's own roster data (we don't hold
-    // individual provider names/NPIs today, so this documents Empower's screening process and
-    // attestation rather than a live per-person OIG LEIE/SAM.gov lookup). See
-    // isAiSynthesizedReport() and GenerateComplianceDocument::synthesizeExclusionsScreeningReport().
+    // Every paid tier. Prepared by Empower's compliance team and uploaded by an admin, never
+    // AI-generated — see isManualUploadOnly().
     case ExclusionsScreeningReport = 'exclusions_screening_report';
 
     // Professional tier's deliverable in place of Advanced's full Employee Manual — synthesized
@@ -71,9 +69,15 @@ enum DocumentType: string
      *  (workflow answers or an uploaded file) rather than merged into a fixed .docx template. */
     public function isAiSynthesizedReport(): bool
     {
+        return $this === self::TrainingPlanLmsEnrollment;
+    }
+
+    /** Delivered only as a file an admin uploads on the submission page: no AI generation is ever
+     *  run for it, and it can't be approved until that file is uploaded. */
+    public function isManualUploadOnly(): bool
+    {
         return match ($this) {
-            self::SecurityRiskAssessment, self::CodingMiniAuditReport, self::ExclusionsScreeningReport,
-            self::TrainingPlanLmsEnrollment => true,
+            self::SecurityRiskAssessment, self::CodingMiniAuditReport, self::ExclusionsScreeningReport => true,
             default => false,
         };
     }

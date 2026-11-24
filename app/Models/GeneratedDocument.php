@@ -84,7 +84,7 @@ class GeneratedDocument extends Model
     {
         return ! $this->is_stale
             && is_null($this->reviewed_at)
-            && ($this->document_type !== DocumentType::ExclusionsScreeningReport
+            && (! $this->document_type->isManualUploadOnly()
                 || ($this->delivery_source === DocumentDeliverySource::Custom && $this->hasCustomDocument()))
             && $this->activeStoragePath() !== null;
     }
@@ -116,7 +116,8 @@ class GeneratedDocument extends Model
      *  out of date or the last attempt failed, and never while a generation is already running. */
     public function canBeRegeneratedByClient(): bool
     {
-        if (in_array($this->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
+        if ($this->document_type->isManualUploadOnly()
+            || in_array($this->status, [DocumentStatus::Pending, DocumentStatus::Generating], true)) {
             return false;
         }
 
@@ -132,7 +133,12 @@ class GeneratedDocument extends Model
      */
     public function clientStatus(): array
     {
+        // Manual-upload-only reports are never generated: until the admin's file is approved
+        // they're simply "In review", not stuck on "Generating".
+        $awaitingManualUpload = $this->document_type->isManualUploadOnly() && ! $this->isReady() && ! $this->is_stale;
+
         return match (true) {
+            $awaitingManualUpload => ['In review', 'muted'],
             in_array($this->status, [DocumentStatus::Pending, DocumentStatus::Generating], true) => ['Generating', 'info'],
             $this->status === DocumentStatus::Failed => ['Failed', 'bad'],
             $this->is_stale => ['Needs update', 'warn'],

@@ -53,6 +53,12 @@ class GenerateComplianceDocument implements ShouldQueue
 
     public function handle(CompliancePdfGenerator $pdfGenerator): void
     {
+        // Uploaded by an admin, never generated. Nothing should dispatch these, but older
+        // "regenerate" actions still can: leave the document (and any uploaded file) untouched.
+        if ($this->documentType->isManualUploadOnly()) {
+            return;
+        }
+
         $doc = GeneratedDocument::firstOrCreate(
             [
                 'order_id' => $this->order->id,
@@ -84,8 +90,8 @@ class GenerateComplianceDocument implements ShouldQueue
                 return;
             }
 
-            // Advanced tier only — a report AI synthesizes from the practice's own workflow
-            // answers or an uploaded encounter list, rather than merging into a fixed template.
+            // A report AI synthesizes from the practice's own workflow answers, rather than
+            // merging into a fixed template.
             if ($this->documentType->isAiSynthesizedReport()) {
                 $this->generateAiSynthesizedReport($doc, $pdfGenerator, $basePath, $slug);
 
@@ -240,8 +246,8 @@ class GenerateComplianceDocument implements ShouldQueue
         ]);
     }
 
-    /** Advanced tier only — routes to the right AI-synthesis prompt for this document type,
-     *  renders the result straight to a protected PDF (no merge template exists for either). */
+    /** Routes to the right AI-synthesis prompt for this document type and renders the result
+     *  straight to a protected PDF (no merge template exists for it). */
     private function generateAiSynthesizedReport(
         GeneratedDocument $doc,
         CompliancePdfGenerator $pdfGenerator,
@@ -249,9 +255,6 @@ class GenerateComplianceDocument implements ShouldQueue
         string $slug,
     ): void {
         $html = match ($this->documentType) {
-            DocumentType::SecurityRiskAssessment => $this->synthesizeSecurityRiskAssessment(),
-            DocumentType::CodingMiniAuditReport => $this->synthesizeMiniAuditReport(),
-            DocumentType::ExclusionsScreeningReport => $this->synthesizeExclusionsScreeningReport(),
             DocumentType::TrainingPlanLmsEnrollment => $this->synthesizeTrainingPlanReport(),
             default => throw new \RuntimeException("No AI synthesis defined for {$this->documentType->value}"),
         };
@@ -271,137 +274,6 @@ class GenerateComplianceDocument implements ShouldQueue
             'failure_reason' => null,
             'generated_at' => now(),
         ]);
-    }
-
-    /**
-     * Synthesizes a Security Risk Assessment from the practice's own answers to the 23
-     * Security-section workflow questions — an actual risk analysis (findings, ratings,
-     * remediation recommendations) rather than a restatement of their answers.
-     */
-    private function synthesizeSecurityRiskAssessment(): string
-    {
-        $practice = $this->order->user->practice;
-        $submission = $this->order->intakeSubmission;
-
-        $securitySectionKeys = ['security_people_access', 'security_offices_devices', 'security_systems_network'];
-
-        $answersByQuestionId = $submission?->intakeAnswers()->get()->keyBy('intake_question_id') ?? collect();
-
-        $sections = IntakeSection::whereIn('key', $securitySectionKeys)
-            ->orderBy('sort_order')
-            ->with('questions')
-            ->get();
-
-        $context = '';
-
-        foreach ($sections as $section) {
-            $context .= "## {$section->label}\n";
-
-            foreach ($section->questions as $question) {
-                $answer = $answersByQuestionId->get($question->id);
-                $response = match (true) {
-                    $answer === null => 'Not yet answered.',
-                    (bool) $answer->has_documented_process => (string) $answer->response,
-                    default => 'No documented process — the policy default language applies.',
-                };
-
-                $context .= "- {$question->title}: {$question->prompt_summary}\n  Practice's answer: {$response}\n";
-            }
-        }
-
-        $prompt = <<<PROMPT
-You are a HIPAA Security Risk Assessment (SRA) consultant. Using ONLY the practice's own answers below, write a Security Risk Assessment report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li>, <table> — do not include <html>, <head> or <body> tags, and do not use markdown).
-
-Structure the report with these sections:
-<h2>Security Risk Assessment</h2>
-<h3>Executive Summary</h3> — a brief overview of the practice's overall security posture based on their answers.
-<h3>Findings by Area</h3> — one subsection per area below (People & Access, Offices & Devices, Systems & Network), each summarizing what the practice has in place and identifying specific gaps or risks where an answer indicates "Not yet answered" or "No documented process."
-<h3>Risk Ratings</h3> — a table with columns Area, Risk Level (Low/Medium/High), and Basis, rating each of the 3 areas based only on what was or wasn't answered.
-<h3>Recommendations</h3> — a numbered list of concrete remediation steps for the identified gaps.
-
-Rules:
-- Base every statement strictly on the practice's own answers below. Do not invent facts, systems, vendors, or figures not present in the answers.
-- Where an answer is missing or says "No documented process," treat that specific item as a finding/gap — do not soften it into a strength.
-- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
-
-Practice's Security answers:
-{$context}
-PROMPT;
-
-        return $this->callOpenAiForHtmlReport($prompt, 'security_risk_assessment');
-    }
-
-    /**
-     * Synthesizes a Coding & Documentation Mini Audit report from the practice's uploaded
-     * encounter list(s) — an actual audit (findings, risk areas, recommendations) rather than
-     * a restatement of the encounters.
-     */
-    private function synthesizeMiniAuditReport(): string
-    {
-        $practice = $this->order->user->practice;
-        $submission = $this->order->intakeSubmission;
-
-        $encounterText = $submission?->intakeUploads
-            ->where('document_category', 'encounter_list')
-            ->map(fn (IntakeUpload $u) => $u->ai_extracted_data['raw_text'] ?? null)
-            ->filter()
-            ->implode("\n\n") ?? '';
-
-        if (trim($encounterText) === '') {
-            throw new \RuntimeException('No encounter list content available for the Mini Audit report.');
-        }
-
-        $providers = $practice?->billable_providers_count ?? 1;
-
-        $prompt = <<<PROMPT
-You are a medical coding and documentation compliance auditor performing a Coding & Documentation Mini Audit (10 encounters per provider) for a healthcare practice. Using ONLY the encounter data below, write an audit report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li>, <table> — do not include <html>, <head> or <body> tags, and do not use markdown).
-
-Structure the report with these sections:
-<h2>Coding & Documentation Mini Audit Report</h2>
-<h3>Scope</h3> — state how many encounters were reviewed and for how many providers ({$providers} billable provider(s) expected).
-<h3>Findings</h3> — identify specific coding or documentation risk patterns actually present in the data below (e.g. code/documentation mismatches, missing documentation elements, upcoding/downcoding risk indicators, unspecified codes). Reference specific encounters where relevant.
-<h3>Risk Summary</h3> — a table with columns Risk Area, Occurrences, Severity (Low/Medium/High).
-<h3>Recommendations</h3> — a numbered list of concrete corrective actions.
-
-Rules:
-- Base every finding strictly on the encounter data below. Do not invent encounters, codes, or patterns not present in the data.
-- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
-
-Encounter data:
-{$encounterText}
-PROMPT;
-
-        return $this->callOpenAiForHtmlReport($prompt, 'coding_mini_audit_report');
-    }
-
-    /**
-     * Synthesizes an Exclusions Screening Report — every paid tier's deliverable, not just
-     * Advanced's. We don't collect individual provider/staff names or NPIs anywhere today, so
-     * this can't be a real per-person OIG LEIE / SAM.gov lookup; it documents Empower's standard
-     * screening process and attestation at the practice level instead, scoped to what we actually
-     * know (billable provider count), and recommends per-person screening going forward.
-     */
-    private function synthesizeExclusionsScreeningReport(): string
-    {
-        $practice = $this->order->user->practice;
-        $providers = $practice?->billable_providers_count ?? 1;
-
-        $prompt = <<<PROMPT
-You are a healthcare compliance consultant producing an Exclusions Screening Report as part of a practice's compliance review. Write the report as an HTML fragment (use <h2>, <h3>, <p>, <ul>/<li> — do not include <html>, <head> or <body> tags, and do not use markdown).
-
-Structure the report with these sections:
-<h2>Exclusions Screening Report</h2>
-<h3>Scope</h3> — state that this review covers the practice's {$providers} billable provider(s), and that it was performed as part of the practice's compliance program with Empower.
-<h3>Screening Process</h3> — describe, in general consulting language, that an OIG List of Excluded Individuals/Entities (LEIE) and SAM.gov exclusions check is part of Empower's standard review process, and that it should be repeated at hire and at least annually for every individual providing services for the practice.
-<h3>Recommendation</h3> — a short numbered list recommending the practice maintain a current roster of providers and staff (name and NPI where applicable) and screen each one individually, since this report is scoped at the practice level rather than by named individual.
-
-Rules:
-- Do not state or imply that any specific named individual was checked against the LEIE or SAM.gov exclusion lists — no individual names or NPIs were provided for this review.
-- Do not invent findings, exclusion results, or specific people. This is a process and scope report, not a per-person result.
-- Practice name: {$practice?->name}. Specialty: {$practice?->specialty}.
-PROMPT;
-
-        return $this->callOpenAiForHtmlReport($prompt, 'exclusions_screening_report');
     }
 
     /**

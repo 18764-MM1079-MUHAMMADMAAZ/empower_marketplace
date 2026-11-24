@@ -780,123 +780,41 @@ class GenerateComplianceDocumentTest extends TestCase
         $this->assertNull($doc->pdf_storage_path);
     }
 
-    // ── Advanced tier: AI-synthesized reports ───────────────────────────────
+    // ── Manual-upload-only reports (SRA, Mini Audit, Exclusions Screening) ───
 
-    public function test_security_risk_assessment_synthesizes_a_report_from_security_section_answers(): void
+    /** These are prepared by Empower's compliance team and uploaded by an admin: the job must never
+     *  call the AI, and must leave an existing document (and its uploaded file) exactly as it is. */
+    public function test_manual_upload_only_reports_are_never_ai_generated(): void
     {
         Storage::fake('local');
-        $this->mockPdfGenerator();
-        Http::fake([
-            'api.openai.com/*' => Http::response([
-                'model' => 'gpt-4o',
-                'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 10, 'total_tokens' => 20],
-                'choices' => [['message' => ['content' => '<h2>Security Risk Assessment</h2><p>Report body.</p>']]],
-            ]),
-        ]);
-
-        $order = $this->makeOrder();
-        $section = IntakeSection::create(['key' => 'security_people_access', 'label' => 'Security: people & access', 'sort_order' => 1]);
-        $question = IntakeQuestion::create([
-            'intake_section_id' => $section->id,
-            'sort_order' => 1,
-            'title' => 'Security Officer role',
-            'prompt_summary' => 'How does your Security Officer carry out the role?',
-            'why_we_ask' => 'HIPAA requires a named Security Officer.',
-        ]);
-        $order->intakeSubmission->intakeAnswers()->create([
-            'intake_question_id' => $question->id,
-            'response' => 'Our IT director, Sam Lee, holds this role and reports to the practice owner quarterly.',
-            'has_documented_process' => true,
-            'answered_at' => now(),
-        ]);
-
-        GenerateComplianceDocument::dispatchSync($order, DocumentType::SecurityRiskAssessment);
-
-        $doc = GeneratedDocument::where('order_id', $order->id)->where('document_type', DocumentType::SecurityRiskAssessment)->firstOrFail();
-
-        $this->assertEquals(DocumentStatus::Completed, $doc->status);
-        $this->assertNotNull($doc->pdf_storage_path);
-        Storage::disk('local')->assertExists($doc->pdf_storage_path);
-
-        Http::assertSent(fn ($request) => str_contains($request->url(), 'api.openai.com')
-            && str_contains(json_encode($request->data()), 'Security Officer role')
-            && str_contains(json_encode($request->data()), 'Sam Lee'));
-    }
-
-    public function test_coding_mini_audit_report_synthesizes_a_report_from_the_encounter_list_upload(): void
-    {
-        Storage::fake('local');
-        $this->mockPdfGenerator();
-        Http::fake([
-            'api.openai.com/*' => Http::response([
-                'model' => 'gpt-4o',
-                'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 10, 'total_tokens' => 20],
-                'choices' => [['message' => ['content' => '<h2>Coding & Documentation Mini Audit Report</h2><p>Report body.</p>']]],
-            ]),
-        ]);
-
-        $order = $this->makeOrder();
-        IntakeUpload::factory()->create([
-            'intake_submission_id' => $order->intakeSubmission->id,
-            'upload_type' => IntakeUploadType::ClientDocumentForReview,
-            'document_category' => 'encounter_list',
-            'ai_extraction_status' => AiExtractionStatus::Completed,
-            'ai_extracted_data' => ['raw_text' => '2026-01-05 | Dr. Lee | 99213 | Z00.00'],
-        ]);
-
-        GenerateComplianceDocument::dispatchSync($order, DocumentType::CodingMiniAuditReport);
-
-        $doc = GeneratedDocument::where('order_id', $order->id)->where('document_type', DocumentType::CodingMiniAuditReport)->firstOrFail();
-
-        $this->assertEquals(DocumentStatus::Completed, $doc->status);
-        $this->assertNotNull($doc->pdf_storage_path);
-        Storage::disk('local')->assertExists($doc->pdf_storage_path);
-
-        Http::assertSent(fn ($request) => str_contains($request->url(), 'api.openai.com')
-            && str_contains(json_encode($request->data()), '99213'));
-    }
-
-    public function test_exclusions_screening_report_synthesizes_a_report_for_every_tier(): void
-    {
-        Storage::fake('local');
-        $this->mockPdfGenerator();
-        Http::fake([
-            'api.openai.com/*' => Http::response([
-                'model' => 'gpt-4o',
-                'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 10, 'total_tokens' => 20],
-                'choices' => [['message' => ['content' => '<h2>Exclusions Screening Report</h2><p>Report body.</p>']]],
-            ]),
-        ]);
-
-        // Essential — the tier with no uploaded questionnaires or encounter list, proving this
-        // report needs neither.
-        $order = $this->makeOrder('essential');
-
-        GenerateComplianceDocument::dispatchSync($order, DocumentType::ExclusionsScreeningReport);
-
-        $doc = GeneratedDocument::where('order_id', $order->id)->where('document_type', DocumentType::ExclusionsScreeningReport)->firstOrFail();
-
-        $this->assertEquals(DocumentStatus::Completed, $doc->status);
-        $this->assertNotNull($doc->pdf_storage_path);
-        Storage::disk('local')->assertExists($doc->pdf_storage_path);
-
-        Http::assertSent(fn ($request) => str_contains($request->url(), 'api.openai.com')
-            && str_contains(json_encode($request->data()), 'Exclusions Screening Report')
-            && str_contains(json_encode($request->data()), (string) $order->user->practice->billable_providers_count));
-    }
-
-    public function test_mini_audit_report_fails_cleanly_when_no_encounter_list_was_uploaded(): void
-    {
-        Storage::fake('local');
+        Http::fake();
 
         $order = $this->makeOrder();
 
-        GenerateComplianceDocument::dispatchSync($order, DocumentType::CodingMiniAuditReport);
+        foreach ([DocumentType::SecurityRiskAssessment, DocumentType::CodingMiniAuditReport, DocumentType::ExclusionsScreeningReport] as $type) {
+            $this->assertTrue($type->isManualUploadOnly());
+            $this->assertFalse($type->isAiSynthesizedReport());
 
-        $doc = GeneratedDocument::where('order_id', $order->id)->where('document_type', DocumentType::CodingMiniAuditReport)->firstOrFail();
+            $doc = GeneratedDocument::factory()->create([
+                'order_id' => $order->id,
+                'document_type' => $type,
+                'status' => DocumentStatus::Pending,
+                'custom_storage_path' => "private/compliance/{$order->id}/custom/{$type->value}.pdf",
+                'custom_original_filename' => "{$type->value}.pdf",
+                'delivery_source' => 'custom',
+                'reviewed_at' => now(),
+            ]);
 
-        $this->assertEquals(DocumentStatus::Failed, $doc->status);
-        $this->assertNotNull($doc->failure_reason);
+            GenerateComplianceDocument::dispatchSync($order, $type);
+
+            $fresh = $doc->fresh();
+            $this->assertSame(DocumentStatus::Pending, $fresh->status);
+            $this->assertNull($fresh->pdf_storage_path);
+            $this->assertNotNull($fresh->reviewed_at);
+            $this->assertSame("{$type->value}.pdf", $fresh->custom_original_filename);
+        }
+
+        Http::assertNothingSent();
     }
 
     // ── Failure handling ──────────────────────────────────────────────────

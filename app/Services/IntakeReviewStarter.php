@@ -9,7 +9,6 @@ use App\Jobs\GenerateComplianceDocument;
 use App\Models\ActivityLog;
 use App\Models\GeneratedDocument;
 use App\Models\IntakeSubmission;
-use App\Models\IntakeUpload;
 use App\Models\Order;
 
 class IntakeReviewStarter
@@ -45,18 +44,12 @@ class IntakeReviewStarter
             ->where('status', '!=', DocumentStatus::Pending)
             ->pluck('document_type');
 
-        $hasEncounterList = $order->intakeSubmission?->intakeUploads
-            ->contains(fn (IntakeUpload $u) => $u->document_category === 'encounter_list') ?? false;
-
         foreach ($includedTypes as $typeValue) {
             $documentType = DocumentType::tryFrom($typeValue);
 
-            if ($documentType === null || $alreadyGeneratedTypes->contains($documentType)) {
-                continue;
-            }
-
-            // No point dispatching a Mini Audit report that will just fail without an encounter list.
-            if ($documentType === DocumentType::CodingMiniAuditReport && ! $hasEncounterList) {
+            // Manual-upload-only reports (SRA, Mini Audit, Exclusions Screening) are never
+            // generated: their placeholder waits on the submission page for an admin's upload.
+            if ($documentType === null || $documentType->isManualUploadOnly() || $alreadyGeneratedTypes->contains($documentType)) {
                 continue;
             }
 
