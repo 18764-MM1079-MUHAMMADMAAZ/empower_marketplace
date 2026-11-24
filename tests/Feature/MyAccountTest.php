@@ -289,14 +289,29 @@ class MyAccountTest extends TestCase
 
         Livewire::test('account.documents')
             ->assertSeeHtml('data-doc-tile="in-review"')
-            ->assertSeeInOrder(['In Review', '1', 'Approved', '1', 'Reference', '1', 'All Documents', '3'])
+            ->assertSeeInOrder(['In Review', '1', 'Approved', '2', 'Reference', '1', 'All Documents', '4'])
             ->assertSeeHtml(route('documents.download', $approved))
+            ->assertSee('Compliance Hotline Poster')
+            ->assertSeeHtml('href="'.asset('compliance%20hotline%20poster_empower.pdf').'"')
+            ->assertSeeHtml('download="compliance-hotline-poster.pdf"')
             ->assertSee('Not ready yet')
             ->assertSee('Available once the compliance team finishes review')
             ->assertSee('Intake answers')
             ->assertSee('Submitted and certified')
             ->assertDontSee('Version')
             ->assertDontSee('Regenerate');
+    }
+
+    /** Same rule as the portal dashboard: the poster is offered only once an intake is approved. */
+    public function test_documents_hide_the_hotline_poster_until_the_intake_is_approved(): void
+    {
+        [$user, $order] = $this->client();
+        $order->intakeSubmission->update(['status' => IntakeSubmissionStatus::UnderReview, 'submitted_at' => now()]);
+        $this->actingAs($user);
+
+        Livewire::test('account.documents')
+            ->assertDontSee('Compliance Hotline Poster')
+            ->assertDontSeeHtml('data-hotline-poster-row');
     }
 
     public function test_generating_a_document_again_bumps_its_version(): void
