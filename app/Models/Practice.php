@@ -30,6 +30,14 @@ class Practice extends Model
     /** @use HasFactory<PracticeFactory> */
     use HasFactory;
 
+    /** The shared Empower Compliance Hotline (public/compliance hotline poster_empower.pdf), used by
+     *  practices that chose "Use the Empower compliance hotline" (uses_ehcp_hotline). */
+    public const EMPOWER_HOTLINE_PHONE = '(877) 204-7634';
+
+    public const EMPOWER_HOTLINE_URL = 'https://my.compliancehotline.com/report/empowerhcp';
+
+    public const EMPOWER_HOTLINE_EMAIL = 'empowerhcp@compliancehotline.com';
+
     public const SPECIALTIES = [
         'General Practice', 'Family Medicine', 'Internal Medicine', 'Pediatrics', 'Cardiology',
         'Orthopedics', 'Dermatology', 'OB/GYN', 'Behavioral Health', 'Gastroenterology',

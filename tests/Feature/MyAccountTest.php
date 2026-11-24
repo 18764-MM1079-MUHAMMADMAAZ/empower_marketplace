@@ -353,7 +353,7 @@ class MyAccountTest extends TestCase
             ->call('save')
             ->assertHasNoErrors()
             ->assertSee('(555) 555-0100')
-            ->assertSee('Hotline number saved. Your compliance manuals will be regenerated with the new number.');
+            ->assertSee('Hotline saved. Your compliance manuals will be regenerated with the new details.');
 
         $this->assertSame('(555) 555-0100', $practice->fresh()->compliance_hotline_number);
         $this->assertTrue($document->fresh()->is_stale);
@@ -386,9 +386,68 @@ class MyAccountTest extends TestCase
             ->call('edit')
             ->assertSet('draft', '(555) 555-0100')
             ->call('save')
-            ->assertDontSee('Hotline number saved.');
+            ->assertDontSee('Hotline saved.');
 
         $this->assertFalse($document->fresh()->is_stale);
+    }
+
+    /** "Use the Empower compliance hotline" in the questionnaire's Team section stores no number of
+     *  the practice's own — the card shows the Empower hotline instead of "No number added". */
+    public function test_hotline_shows_the_empower_hotline_chosen_in_the_questionnaire(): void
+    {
+        [$user] = $this->client(practiceAttributes: ['uses_ehcp_hotline' => true, 'compliance_hotline_number' => null]);
+        $this->actingAs($user);
+
+        Livewire::test('account.hotline')
+            ->assertSee('Empower Compliance Hotline')
+            ->assertSee(Practice::EMPOWER_HOTLINE_PHONE)
+            ->assertSee(Practice::EMPOWER_HOTLINE_EMAIL)
+            ->assertSee('Use our own number')
+            ->assertDontSee('No number added')
+            ->assertDontSee('Not added yet');
+    }
+
+    /** "We have our own hotline" stores whatever was typed (a number and/or an email), shown as is. */
+    public function test_hotline_shows_the_practices_own_hotline_from_the_questionnaire(): void
+    {
+        [$user] = $this->client(practiceAttributes: ['uses_ehcp_hotline' => false, 'compliance_hotline_number' => '800-555-0199 / ethics@practice.com']);
+        $this->actingAs($user);
+
+        Livewire::test('account.hotline')
+            ->assertSee('800-555-0199 / ethics@practice.com')
+            ->assertDontSee(Practice::EMPOWER_HOTLINE_PHONE)
+            ->assertDontSee('No number added');
+    }
+
+    public function test_switching_from_the_empower_hotline_to_an_own_number_and_back(): void
+    {
+        [$user, $order, $practice] = $this->client(practiceAttributes: ['uses_ehcp_hotline' => true, 'compliance_hotline_number' => null]);
+        $document = GeneratedDocument::factory()->completed()->approved()->create(['order_id' => $order->id]);
+        $this->actingAs($user);
+
+        $component = Livewire::test('account.hotline')
+            ->call('edit')
+            ->assertSet('draft', '')
+            ->set('draft', '555 555 0100')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSee('(555) 555-0100');
+
+        $practice->refresh();
+        $this->assertFalse($practice->uses_ehcp_hotline);
+        $this->assertSame('(555) 555-0100', $practice->compliance_hotline_number);
+        $this->assertTrue($document->fresh()->is_stale);
+
+        $document->update(['is_stale' => false, 'stale_reason' => null]);
+
+        $component->call('edit')
+            ->call('useEmpowerHotline')
+            ->assertSee(Practice::EMPOWER_HOTLINE_PHONE);
+
+        $practice->refresh();
+        $this->assertTrue($practice->uses_ehcp_hotline);
+        $this->assertNull($practice->compliance_hotline_number);
+        $this->assertTrue($document->fresh()->is_stale);
     }
 
     // --- Sign-in & Security ---

@@ -8,8 +8,10 @@ use Livewire\Component;
 
 /**
  * My Account › Compliance Hotline (v5): the number staff call to report compliance concerns.
- * It's printed in the compliance manuals, so changing it marks the practice's documents as needing
- * an update (the same flag a practice-details change sets) for the compliance team to regenerate.
+ * Shows what was chosen at sign-up (the intake wizard's hotline step): the Empower Compliance
+ * Hotline (uses_ehcp_hotline) or the practice's own number. It's printed in the compliance
+ * manuals, so changing it marks the practice's documents as needing an update (the same flag a
+ * practice-details change sets) for the compliance team to regenerate.
  */
 new class extends Component
 {
@@ -44,8 +46,10 @@ new class extends Component
 
     public function edit(): void
     {
-        $current = self::digits((string) $this->practice->compliance_hotline_number);
-        $this->draft = $current ? self::format($current) : (string) $this->practice->compliance_hotline_number;
+        // On the Empower hotline, "Use our own number" starts from an empty field.
+        $own = $this->practice->uses_ehcp_hotline ? '' : (string) $this->practice->compliance_hotline_number;
+        $current = self::digits($own);
+        $this->draft = $current ? self::format($current) : $own;
         $this->saved = false;
         $this->resetErrorBag();
         $this->editing = true;
@@ -70,20 +74,44 @@ new class extends Component
 
         $practice = $this->practice;
         $number = self::format($digits);
-        $changed = $number !== $practice->compliance_hotline_number;
+        $changed = $practice->uses_ehcp_hotline || $number !== $practice->compliance_hotline_number;
 
         if ($changed) {
-            $practice->update(['compliance_hotline_number' => $number]);
-
-            GeneratedDocument::whereIn('order_id', $practice->user->orders()->pluck('id'))
-                ->where('is_stale', false)
-                ->update(['is_stale' => true, 'stale_reason' => 'hotline_updated']);
-
-            ActivityLog::record('practice.hotline_updated', "Compliance hotline number set to {$number}", user: auth()->user(), subject: $practice);
+            $practice->update(['uses_ehcp_hotline' => false, 'compliance_hotline_number' => $number]);
+            $this->flagDocuments($practice, "Compliance hotline number set to {$number}");
         }
 
+        $this->finish($changed);
+    }
+
+    /** Switches back to the shared Empower Compliance Hotline, the other choice the sign-up wizard offers. */
+    public function useEmpowerHotline(): void
+    {
+        $practice = $this->practice;
+        $changed = ! $practice->uses_ehcp_hotline;
+
+        if ($changed) {
+            $practice->update(['uses_ehcp_hotline' => true, 'compliance_hotline_number' => null]);
+            $this->flagDocuments($practice, 'Compliance hotline set to the Empower Compliance Hotline');
+        }
+
+        $this->finish($changed);
+    }
+
+    private function flagDocuments(Practice $practice, string $activity): void
+    {
+        GeneratedDocument::whereIn('order_id', $practice->user->orders()->pluck('id'))
+            ->where('is_stale', false)
+            ->update(['is_stale' => true, 'stale_reason' => 'hotline_updated']);
+
+        ActivityLog::record('practice.hotline_updated', $activity, user: auth()->user(), subject: $practice);
+    }
+
+    private function finish(bool $changed): void
+    {
         $this->editing = false;
         $this->draft = '';
+        $this->resetErrorBag();
         $this->saved = $changed;
         unset($this->practice);
     }
@@ -91,8 +119,11 @@ new class extends Component
 ?>
 
 @php
-$number = $this->practice->compliance_hotline_number;
-$button = 'inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font-semibold transition-colors';
+$usesEmpower = (bool) $this->practice->uses_ehcp_hotline;
+// What's shown: the Empower hotline's number, or the practice's own (as entered at sign-up, which
+// may also be an email).
+$number = $usesEmpower ? Practice::EMPOWER_HOTLINE_PHONE : $this->practice->compliance_hotline_number;
+$button ='inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font-semibold transition-colors';
 @endphp
 
 <section id="hotline" data-account-section aria-labelledby="h-hotline"
@@ -103,7 +134,7 @@ $button = 'inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font
             <p class="text-sm text-[#5d6e7f] mt-0.5">The number your staff can call to report compliance concerns. Shown in your compliance manuals. Changing it marks those documents for regeneration.</p>
         </div>
         @unless($editing)
-        <button type="button" wire:click="edit" data-hotline-edit class="{{ $button }} border-[#cbd5e1] bg-white text-[#173045] hover:bg-[#f4f7fb]">{{ $number ? 'Edit' : 'Add hotline number' }}</button>
+        <button type="button" wire:click="edit" data-hotline-edit class="{{ $button }} border-[#cbd5e1] bg-white text-[#173045] hover:bg-[#f4f7fb]">{{ match (true) { $usesEmpower => 'Use our own number', (bool) $number => 'Edit', default => 'Add hotline number' } }}</button>
         @endunless
     </div>
 
@@ -122,6 +153,12 @@ $button = 'inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font
                 class="{{ $button }} border-[#2299dd] bg-[#2299dd] text-white hover:bg-[#087fa9]" wire:loading.attr="disabled" wire:target="save">Save</button>
             <button type="button" wire:click="cancel" class="{{ $button }} border-[#cbd5e1] bg-white text-[#173045] hover:bg-[#f4f7fb]">Cancel</button>
         </div>
+        @unless($usesEmpower)
+        <p class="mt-3 text-[13px] text-[#5d6e7f]">Don't have a hotline of your own?
+            <button type="button" wire:click="useEmpowerHotline" data-hotline-use-empower
+                class="font-semibold text-[#0b7fb3] hover:underline">Use the Empower Compliance Hotline</button>
+            (included in your package).</p>
+        @endunless
     </form>
     @else
     <div class="mt-4.5 flex flex-wrap items-center gap-3" data-hotline-number="{{ $number }}">
@@ -129,15 +166,22 @@ $button = 'inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font
             <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z" /></svg>
         </span>
         <div>
-            <p class="text-xs text-[#5d6e7f]">Hotline number</p>
-            <p class="text-lg font-semibold {{ $number ? 'text-[#0f2a44]' : 'text-[#5d6e7f]' }}">{{ $number ?: 'No number added' }}</p>
+            <p class="text-xs text-[#5d6e7f]">{{ $usesEmpower ? 'Empower Compliance Hotline' : 'Hotline number' }}</p>
+            <p class="text-lg font-semibold break-all {{ $number ? 'text-[#0f2a44]' : 'text-[#5d6e7f]' }}">{{ $number ?: 'No number added' }}</p>
         </div>
-        @unless($number)
+        @if($usesEmpower)
+        <span class="rounded-full bg-[#e6f3fb] px-2.5 py-0.5 text-xs font-semibold text-[#0b5f86]">Included in your package</span>
+        @elseif(! $number)
         <span class="rounded-full bg-[#fdf0d8] px-2.5 py-0.5 text-xs font-semibold text-[#7a4a00]">Not added yet</span>
-        @endunless
+        @endif
     </div>
+    @if($usesEmpower)
+    <p class="mt-3 text-[13px] text-[#5d6e7f]" data-hotline-empower>Anonymous reporting is also available online at
+        <a href="{{ Practice::EMPOWER_HOTLINE_URL }}" target="_blank" rel="noopener noreferrer" class="font-semibold text-[#0b7fb3] hover:underline break-all">my.compliancehotline.com/report/empowerhcp</a>
+        or by email at <a href="mailto:{{ Practice::EMPOWER_HOTLINE_EMAIL }}" class="font-semibold text-[#0b7fb3] hover:underline break-all">{{ Practice::EMPOWER_HOTLINE_EMAIL }}</a>.</p>
+    @endif
     @if($saved)
-    <p role="status" class="mt-3 text-[13px] text-[#146c43]">Hotline number saved. Your compliance manuals will be regenerated with the new number.</p>
+    <p role="status" class="mt-3 text-[13px] text-[#146c43]">Hotline saved. Your compliance manuals will be regenerated with the new details.</p>
     @endif
     @endif
 </section>

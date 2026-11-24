@@ -77,18 +77,18 @@ $iconBox = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg';
             <p class="text-xs text-[#5d6e7f]">{{ $statusLine }}</p>
         </li>
 
-        <li class="flex flex-col gap-2 rounded-xl border border-[#e3e8ef] bg-white p-4" data-next-billed>
+        <li class="flex flex-col gap-2 rounded-xl border border-[#bfe6ef] bg-[#effafc] p-4" data-next-billed>
             <div class="flex items-center gap-2.5">
-                <span class="{{ $iconBox }} bg-[#eef2f6] text-[#334155]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg></span>
+                <span class="{{ $iconBox }} bg-white text-[#0e7490]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg></span>
                 <span class="{{ $label }}">Next billed date</span>
             </div>
             <p class="text-xl font-bold leading-tight text-[#0f2a44]">{{ $nextBilled }}</p>
             <p class="text-xs text-[#5d6e7f]">{{ $nextBilledLine }}</p>
         </li>
 
-        <li class="flex flex-col gap-2 rounded-xl border border-[#e3e8ef] bg-white p-4">
+        <li class="flex flex-col gap-2 rounded-xl border border-[#cfd8f3] bg-[#f2f5fd] p-4">
             <div class="flex items-center gap-2.5">
-                <span class="{{ $iconBox }} bg-[#eef2f6] text-[#334155]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg></span>
+                <span class="{{ $iconBox }} bg-white text-[#3b4fa8]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg></span>
                 <span class="{{ $label }}">Plan Subscription Type</span>
             </div>
             <p class="text-xl font-bold leading-tight text-[#0f2a44]">{{ $annual ? 'Annual' : 'Monthly' }}</p>
