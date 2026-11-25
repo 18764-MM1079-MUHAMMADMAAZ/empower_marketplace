@@ -10,6 +10,7 @@ use App\Services\EmpowerSsoApiClient;
 use App\Services\EmpowerSsoLoginResult;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
@@ -496,6 +497,17 @@ new class extends Component
         $detailsAvailable = $chosenId === null || $chosenId === $result->selectedPracticeId;
         $chosenName = collect($result->practices)->firstWhere('id', $chosenId)['name'] ?? $result->practiceName;
 
+        // TEMPORARY diagnostic (remove once confirmed), paired with the one in EmpowerSsoApiClient:
+        // which practice was picked, and whether its phone/address could be taken from the response.
+        Log::warning('SSO login practice chosen', [
+            'provider' => $this->ssoProvider,
+            'chosen_practice_id' => $chosenId,
+            'selected_practice_id' => $result->selectedPracticeId,
+            'details_available' => $detailsAvailable,
+            'has_phone' => filled($result->practicePhone),
+            'has_address' => filled($result->practiceAddress),
+        ]);
+
         // Match by the partner's permanent user ID first (emails change), then by email.
         $user = ($result->externalUserId ? User::where('external_id', $result->externalUserId)->first() : null)
             ?? User::where('email', $result->email)->first();
@@ -550,7 +562,8 @@ new class extends Component
                 $practice->update(array_filter([
                     'source_system' => $practice->source_system ?? $sourceSystem,
                     'external_practice_id' => $chosenId,
-                    'phone' => $practice->phone ?? $result->practicePhone,
+                    // The response's phone belongs to the selected practice only, never to another pick.
+                    'phone' => $practice->phone ?? ($detailsAvailable ? $result->practicePhone : null),
                 ]));
             }
 
@@ -560,10 +573,17 @@ new class extends Component
 
             // Billing standing can change on the partner's side, so refresh it each time we have it.
             if ($practice && $detailsAvailable && ($practice->external_practice_id === null || $practice->external_practice_id === $chosenId)) {
+                $address = collect([$result->practiceAddress, $result->practiceCity, $result->practiceState, $result->practiceZip])->filter()->implode(', ');
+
                 $practice->update(array_filter([
                     'account_status' => $result->accountStatus,
                     'subscription_account_id' => $result->subscriptionAccountId,
                     'preferred_billing_option' => $result->preferredBillingOption,
+                    // A practice first created without details (e.g. picked when it wasn't the
+                    // selected one) gets its phone and address the first time they come back.
+                    // Only fills blanks: never overwrites what's already saved.
+                    'phone' => blank($practice->phone) ? $result->practicePhone : null,
+                    'address' => blank($practice->address) && $address !== '' ? $address : null,
                 ], fn ($value) => $value !== null));
             }
         }

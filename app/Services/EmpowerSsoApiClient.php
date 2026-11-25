@@ -82,6 +82,20 @@ class EmpowerSsoApiClient
         $address = $practice['address'] ?? [];
         $specialty = trim((string) ($data['specialty'] ?? $data['specialization'] ?? ''));
 
+        // TEMPORARY diagnostic (remove once confirmed): whether the partner sent the practice's phone
+        // and address, and whether the practices list carries any details. Presence flags, counts
+        // and IDs only, no personal data.
+        Log::warning('SSO login practice details', [
+            'provider' => $provider,
+            'selected_practice_id' => $data['selected_practice_id'] ?? null,
+            'practice_object_id' => $practice['id'] ?? null,
+            'practice_keys' => array_keys($practice),
+            'has_phone' => filled($practice['phone'] ?? null),
+            'has_address' => filled($address['street'] ?? null),
+            'practices_count' => count($data['practices'] ?? []),
+            'practices_item_keys' => array_keys($data['practices'][0] ?? []),
+        ]);
+
         return new EmpowerSsoLoginResult(
             success: true,
             externalUserId: isset($data['external_user_id']) ? (string) $data['external_user_id'] : null,

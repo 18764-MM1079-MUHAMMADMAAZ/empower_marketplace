@@ -995,6 +995,64 @@ class AuthTest extends TestCase
         $this->assertSame('p1500', $user->practice->external_practice_id);
     }
 
+    /** A practice first created without details gets its phone and address on a later sign-in. */
+    public function test_a_returning_carecloud_user_gets_a_missing_practice_phone_and_address_filled_in(): void
+    {
+        $this->enableCarecloud();
+        $user = User::factory()->create(['email' => 'talha@practice.com', 'external_id' => '18759d01-226c-4355-89a9-b49b2892d502']);
+        $practice = Practice::factory()->create([
+            'user_id' => $user->id, 'source_system' => 'cch', 'external_practice_id' => '77b81aa8',
+            'phone' => null, 'address' => null,
+        ]);
+        $this->fakeCarecloud($this->carecloudPayload());
+
+        $this->carecloudLogin();
+
+        $practice->refresh();
+        $this->assertSame('3052654200', $practice->phone);
+        $this->assertSame('786 BOSTON POST ROAD, MADISON, CT, 064433036', $practice->address);
+    }
+
+    public function test_a_returning_carecloud_user_keeps_an_already_saved_phone_and_address(): void
+    {
+        $this->enableCarecloud();
+        $user = User::factory()->create(['email' => 'talha@practice.com', 'external_id' => '18759d01-226c-4355-89a9-b49b2892d502']);
+        $practice = Practice::factory()->create([
+            'user_id' => $user->id, 'source_system' => 'cch', 'external_practice_id' => '77b81aa8',
+            'phone' => '2015550100', 'address' => '1 Main St, Newark, NJ, 07102',
+        ]);
+        $this->fakeCarecloud($this->carecloudPayload());
+
+        $this->carecloudLogin();
+
+        $practice->refresh();
+        $this->assertSame('2015550100', $practice->phone);
+        $this->assertSame('1 Main St, Newark, NJ, 07102', $practice->address);
+    }
+
+    /** The response's phone belongs to the selected practice: picking another one must not take it. */
+    public function test_picking_a_practice_other_than_the_selected_one_never_takes_its_phone(): void
+    {
+        $this->enableCarecloud();
+        $user = User::factory()->create(['email' => 'talha@practice.com', 'external_id' => '18759d01-226c-4355-89a9-b49b2892d502']);
+        $practice = Practice::factory()->create([
+            'user_id' => $user->id, 'source_system' => 'cch', 'external_practice_id' => null,
+            'phone' => null, 'address' => null,
+        ]);
+        $this->fakeCarecloud($this->carecloudPayload([
+            'practices' => [['id' => '77b81aa8', 'name' => 'CareCloud Clinic', 'user_name' => 'u1'], ['id' => 'other1', 'name' => 'Nephrology Assoc', 'user_name' => 'u2']],
+        ]));
+
+        $this->carecloudLogin()
+            ->set('pickedPracticeId', 'other1')
+            ->call('choosePractice');
+
+        $practice->refresh();
+        $this->assertSame('other1', $practice->external_practice_id);
+        $this->assertNull($practice->phone);
+        $this->assertNull($practice->address);
+    }
+
     public function test_the_pending_multi_practice_login_is_not_kept_in_the_session(): void
     {
         $this->enableCarecloud();
