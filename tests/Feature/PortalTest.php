@@ -1112,10 +1112,13 @@ class PortalTest extends TestCase
             ->set('billingState', 'NJ')
             ->set('billingZip', '08873')
             ->assertSeeHtml('href="'.route('carecloud.msa').'"')
-            ->assertSee('Please open and review the CareCloud MSA before agreeing.')
+            ->assertSee('Before we process your payment, please confirm you agree to our Terms &amp; Conditions.', false)
+            ->assertSee('Read the Terms &amp; Conditions', false)
+            ->assertDontSee('MSA')
+            ->assertSee('Please open and review the Terms &amp; Conditions before agreeing.', false)
             ->call('pay', 'Jane Provider', '4242 4242 4242 4242', '12/27', '123', true)
             ->assertHasErrors(['termsAccepted'])
-            ->assertSee('Please open and review the CareCloud MSA before agreeing to the Terms &amp; Conditions.', false);
+            ->assertSee('Please open and review the Terms &amp; Conditions before agreeing to them.', false);
 
         $this->assertDatabaseMissing('orders', ['user_id' => $user->id]);
     }

@@ -1650,9 +1650,9 @@ new class extends Component
     }
 
     /**
-     * The Terms & Conditions box must be ticked, and the CareCloud MSA must have been opened first:
-     * the popup's "Read the CareCloud MSA" link goes through route('carecloud.msa'), which records
-     * that in the session before redirecting to the MSA. Checked here too, so skipping the popup
+     * The Terms & Conditions box must be ticked, and the Terms & Conditions must have been opened
+     * first: the popup's "Read the Terms & Conditions" link goes through route('carecloud.msa'),
+     * which records that in the session before redirecting to the document. Checked here too, so skipping the popup
      * (or calling pay() directly) can't get around it.
      */
     private function validateTermsAcceptance(bool $termsAccepted): void
@@ -1660,7 +1660,7 @@ new class extends Component
         $validator = Validator::make(compact('termsAccepted'), ['termsAccepted' => 'accepted'], $this->messages())
             ->after(function ($validator) {
                 if ($validator->errors()->isEmpty() && ! session()->has(CareCloudMsaController::SESSION_KEY)) {
-                    $validator->errors()->add('termsAccepted', 'Please open and review the CareCloud MSA before agreeing to the Terms & Conditions.');
+                    $validator->errors()->add('termsAccepted', 'Please open and review the Terms & Conditions before agreeing to them.');
                 }
             });
 
@@ -3688,20 +3688,18 @@ $progressPct = match (true) {
                     x-on:click.outside="showTerms = false">
                     <h3 class="text-base font-semibold text-navy mb-2">Review &amp; Accept Terms &amp; Conditions
                     </h3>
-                    <p class="text-sm text-empower-muted mb-4">Before we process your payment, please confirm you
-                        agree
-                        to our Terms &amp; Conditions and the CareCloud Master Services Agreement (MSA).</p>
-                    {{-- Opening the MSA is required before the box below can be ticked: the link goes
-                    through route('carecloud.msa'), which records it in the session (pay() and
-                    payFreeTrial() check that too) before redirecting to the MSA. --}}
+                    <p class="text-sm text-empower-muted mb-4">Before we process your payment, please confirm you agree to our Terms &amp; Conditions.</p>
+                    {{-- Opening the Terms & Conditions is required before the box below can be ticked: the
+                    link goes through route('carecloud.msa'), which records it in the session (pay() and
+                    payFreeTrial() check that too) before redirecting to the document. --}}
                     <a href="{{ route('carecloud.msa') }}" target="_blank" rel="noopener noreferrer"
                         x-on:click="msaOpened = true" data-msa-link
                         class="inline-flex items-center gap-1 text-sm font-semibold text-[#1a7aad] hover:underline mb-2">
-                        Read the CareCloud MSA &#8599;
+                        Read the Terms &amp; Conditions &#8599;
                     </a>
                     <p x-show="!msaOpened" class="text-xs font-semibold text-[#9a6700] mb-3" data-msa-required>
-                        Please open and review the CareCloud MSA before agreeing.</p>
-                    <p x-show="msaOpened" x-cloak class="text-xs font-semibold text-[#117a51] mb-3">&#10003; MSA opened</p>
+                        Please open and review the Terms &amp; Conditions before agreeing.</p>
+                    <p x-show="msaOpened" x-cloak class="text-xs font-semibold text-[#117a51] mb-3">&#10003; Terms &amp; Conditions opened</p>
                     <label class="flex items-start gap-2.5 mb-5" :class="msaOpened ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'">
                         <input type="checkbox" x-model="termsAccepted" :disabled="!msaOpened"
                             class="mt-0.5 h-4 w-4 rounded border-empower-border text-accent focus:ring-accent disabled:cursor-not-allowed">
