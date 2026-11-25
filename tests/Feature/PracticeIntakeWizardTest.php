@@ -1012,9 +1012,10 @@ class PracticeIntakeWizardTest extends TestCase
         Livewire::actingAs($user)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
             ->set('screen', 't_practice')
-            // legalPracticeName pre-fills from the practice name captured on the basics screen —
-            // clear it here to also exercise its own "required" validation.
+            // legalPracticeName pre-fills from the practice name captured on the basics screen, and
+            // mainEmail from the account's email — clear both to exercise their "required" rules.
             ->set('legalPracticeName', '')
+            ->set('mainEmail', '')
             ->set('practiceLocations', [''])
             ->call('continueFromPractice')
             ->assertHasErrors(['legalPracticeName', 'mainPhone', 'mainEmail', 'practiceLocations']);
@@ -1130,7 +1131,7 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertSet('mainEmail', 'jane@riverside.example');
     }
 
-    public function test_saved_main_details_win_over_the_partner_sign_in_and_other_practices_start_empty(): void
+    public function test_saved_main_details_win_over_the_partner_sign_in_and_direct_sign_ups_start_with_their_email(): void
     {
         $partner = User::factory()->create();
         Practice::factory()->create(['user_id' => $partner->id, 'source_system' => 'talkehr', 'phone' => '7325550148', 'main_phone' => '908-555-0101', 'main_email' => 'office@practice.com']);
@@ -1140,13 +1141,31 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertSet('mainPhone', '(908) 555-0101')
             ->assertSet('mainEmail', 'office@practice.com');
 
-        $direct = User::factory()->create();
+        // A direct sign-up: the email entered at Step 1 is the account's email. No phone is asked
+        // for at sign-up, so that one still starts empty.
+        $direct = User::factory()->create(['email' => 'casey@practice.example']);
         Practice::factory()->create(['user_id' => $direct->id, 'source_system' => null, 'phone' => '7325550148', 'main_phone' => null, 'main_email' => null]);
 
         Livewire::actingAs($direct)
             ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeProfessionalOrder($direct)->id]])
             ->assertSet('mainPhone', '')
-            ->assertSet('mainEmail', '');
+            ->assertSet('mainEmail', 'casey@practice.example');
+    }
+
+    public function test_main_email_has_a_quick_add_for_the_sign_up_email(): void
+    {
+        $user = User::factory()->create(['email' => 'casey@practice.example']);
+        Practice::factory()->create(['user_id' => $user->id, 'source_system' => null, 'main_email' => 'front-desk@practice.example']);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$this->makeProfessionalOrder($user)->id]])
+            ->set('screen', 't_practice')
+            ->assertSet('mainEmail', 'front-desk@practice.example')
+            ->assertSeeHtml('data-use-account-email')
+            ->assertSee('Use casey@practice.example')
+            ->call('useAccountEmailAsMainEmail')
+            ->assertSet('mainEmail', 'casey@practice.example')
+            ->assertDontSeeHtml('data-use-account-email');
     }
 
     public function test_the_hotline_step_no_longer_asks_for_posters_and_leaves_a_saved_count_alone(): void
@@ -1267,6 +1286,65 @@ class PracticeIntakeWizardTest extends TestCase
             ->assertSet('hipaaPrivacyOfficerName', 'Jane Provider')
             ->assertSet('hipaaPrivacyOfficerPhone', '(555) 555-0100')
             ->assertSet('hipaaPrivacyOfficerEmail', 'jane@example.com');
+    }
+
+    public function test_quick_add_you_fills_the_main_phone_by_default(): void
+    {
+        $user = User::factory()->create(['name' => 'Casey Wessel', 'email' => 'casey@practice.example']);
+        Practice::factory()->create(['user_id' => $user->id, 'main_phone' => '(248) 555-0142']);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers')
+            ->call('copyOfficerContact', 'hipaaPrivacyOfficer', 'you')
+            ->assertSet('hipaaPrivacyOfficerName', 'Casey Wessel')
+            ->assertSet('hipaaPrivacyOfficerPhone', '(248) 555-0142')
+            ->assertSet('hipaaPrivacyOfficerEmail', 'casey@practice.example')
+            // Still editable afterwards.
+            ->set('hipaaPrivacyOfficerPhone', '(248) 555-0199')
+            ->assertSet('hipaaPrivacyOfficerPhone', '(248) 555-0199');
+    }
+
+    public function test_quick_add_you_reuses_a_phone_typed_for_you_in_another_role(): void
+    {
+        $user = User::factory()->create(['name' => 'Casey Wessel', 'email' => 'casey@practice.example']);
+        Practice::factory()->create(['user_id' => $user->id, 'main_phone' => '(248) 555-0142']);
+        $order = $this->makeProfessionalOrder($user);
+
+        Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers')
+            ->set('hipaaPrivacyOfficerName', 'Casey Wessel')
+            ->set('hipaaPrivacyOfficerPhone', '2485550177')
+            ->call('copyOfficerContact', 'hipaaSecurityOfficer', 'you')
+            ->assertSet('hipaaSecurityOfficerPhone', '(248) 555-0177')
+            // And on to the IT step, without typing it again.
+            ->call('copyItContact', 'you')
+            ->assertSet('itContactName', 'Casey Wessel')
+            ->assertSet('itContactPhone', '(248) 555-0177');
+    }
+
+    public function test_apply_to_all_copies_one_role_to_every_compliance_role(): void
+    {
+        $user = User::factory()->create(['name' => 'Casey Wessel', 'email' => 'casey@practice.example']);
+        Practice::factory()->create(['user_id' => $user->id, 'main_phone' => '(248) 555-0142']);
+        $order = $this->makeProfessionalOrder($user);
+
+        $component = Livewire::actingAs($user)
+            ->test('portal.practice-intake-wizard', ['orderIds' => [$order->id]])
+            ->set('screen', 't_officers')
+            ->assertDontSeeHtml('data-apply-to-all="hipaaPrivacyOfficer"')
+            ->set('hipaaPrivacyOfficerName', 'Alex Privacy')
+            ->set('hipaaPrivacyOfficerEmail', 'alex@practice.example')
+            ->assertSeeHtml('data-apply-to-all="hipaaPrivacyOfficer"')
+            ->call('applyOfficerToAll', 'hipaaPrivacyOfficer');
+
+        foreach (['hipaaPrivacyOfficer', 'hipaaSecurityOfficer', 'releaseOfInfoOfficer', 'complianceOfficer'] as $prefix) {
+            $component->assertSet($prefix.'Name', 'Alex Privacy')
+                ->assertSet($prefix.'Phone', '(248) 555-0142')
+                ->assertSet($prefix.'Email', 'alex@practice.example');
+        }
     }
 
     public function test_it_quick_add_pill_copies_name_phone_and_email(): void

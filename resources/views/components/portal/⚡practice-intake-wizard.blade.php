@@ -272,11 +272,12 @@ new class extends Component
         $this->dbaName = $practice?->dba_name ?? '';
         $this->otherEntities = $practice?->other_entities ?? '';
         // Practices that came in through "Sign in with CareCloud / talkEHR" start with the phone
-        // their sign-in sent us and the email of the account they signed in with (the partner
-        // API has a practice phone but no practice email).
+        // their sign-in sent us (the partner API has a practice phone but no practice email).
+        // Everyone's main email starts as the email of their account: the one entered at sign-up
+        // (Step 1), or the one a partner sign-in came with.
         $fromPartner = in_array($practice?->source_system, ['cch', 'talkehr'], true);
         $this->mainPhone = $practice?->main_phone ?: ($fromPartner ? ($practice->phone ?? '') : '');
-        $this->mainEmail = $practice?->main_email ?: ($fromPartner ? (auth()->user()?->email ?? '') : '');
+        $this->mainEmail = $practice?->main_email ?: (auth()->user()?->email ?? '');
         $this->practiceLocations = ($practice?->practice_locations ?: null) ?? [$practice?->address ?: $this->billingAddressLine];
 
         $this->complianceOfficerName = $practice?->compliance_officer_name ?? '';
@@ -1703,6 +1704,13 @@ new class extends Component
         $this->setWizardScreen('b_logo');
     }
 
+    /** "Use <email>" under Main email: fills in the account's email (the one entered at sign-up). */
+    public function useAccountEmailAsMainEmail(): void
+    {
+        $this->mainEmail = (string) auth()->user()?->email;
+        $this->resetErrorBag('mainEmail');
+    }
+
     public function continueFromPractice(bool $skipValidation = false, bool $stayOnScreen = false): void
     {
         $this->justSaved = false;
@@ -1862,48 +1870,80 @@ new class extends Component
         return $this->quickAddOptions($this->itContactName);
     }
 
+    /**
+     * The contact a "Quick add" pill fills in, as [name, phone, email]. "You" is the account holder:
+     * their name and email, plus the phone (and email) already typed for them in another role if
+     * there is one. Any missing phone falls back to the practice's main phone from the previous
+     * step, so it never has to be typed again. Every field stays editable afterwards.
+     *
+     * @return array{0: string, 1: string, 2: string}|null
+     */
+    private function quickAddContact(string $source): ?array
+    {
+        if ($source === 'you') {
+            $name = trim((string) (auth()->user()?->name ?? ''));
+            $typed = collect(array_keys(self::OFFICER_PREFIXES))
+                ->map(fn (string $p) => ['name' => $this->{$p.'Name'}, 'phone' => $this->{$p.'Phone'}, 'email' => $this->{$p.'Email'}])
+                ->push(['name' => $this->itContactName, 'phone' => $this->itContactPhone, 'email' => $this->itContactEmail])
+                ->filter(fn (array $c) => $name !== '' && strcasecmp(trim((string) $c['name']), $name) === 0);
+
+            return [
+                $name,
+                PhoneNumber::tidy($typed->pluck('phone')->filter()->first() ?: $this->mainPhone),
+                (string) ($typed->pluck('email')->filter()->first() ?: (auth()->user()?->email ?? '')),
+            ];
+        }
+
+        if (! array_key_exists($source, self::OFFICER_PREFIXES)) {
+            return null;
+        }
+
+        return [
+            (string) $this->{$source.'Name'},
+            PhoneNumber::tidy($this->{$source.'Phone'} ?: $this->mainPhone),
+            (string) $this->{$source.'Email'},
+        ];
+    }
+
     /** Copies a name/phone/email from the account holder or another officer onto $toPrefix,
      *  mirroring the prototype's "Quick add" pills. */
     public function copyOfficerContact(string $toPrefix, string $source): void
     {
-        if ($source === '' || ! array_key_exists($toPrefix, self::OFFICER_PREFIXES)) {
+        if (! array_key_exists($toPrefix, self::OFFICER_PREFIXES) || ! ($contact = $this->quickAddContact($source))) {
             return;
         }
 
-        if ($source === 'you') {
-            $this->{$toPrefix.'Name'} = auth()->user()?->name ?? '';
-            $this->{$toPrefix.'Email'} = auth()->user()?->email ?? '';
+        [$this->{$toPrefix.'Name'}, $this->{$toPrefix.'Phone'}, $this->{$toPrefix.'Email'}] = $contact;
+        $this->resetErrorBag([$toPrefix.'Name', $toPrefix.'Phone', $toPrefix.'Email']);
+    }
 
+    /** "Apply to all": the same person fills every compliance role. Copies this role's
+     *  name/phone/email (phone falling back to the main phone) onto all the other roles. */
+    public function applyOfficerToAll(string $fromPrefix): void
+    {
+        if (! array_key_exists($fromPrefix, self::OFFICER_PREFIXES) || trim((string) $this->{$fromPrefix.'Name'}) === '') {
             return;
         }
 
-        if (! array_key_exists($source, self::OFFICER_PREFIXES)) {
-            return;
-        }
+        $contact = $this->quickAddContact($fromPrefix);
+        [$this->{$fromPrefix.'Name'}, $this->{$fromPrefix.'Phone'}, $this->{$fromPrefix.'Email'}] = $contact;
 
-        $this->{$toPrefix.'Name'} = $this->{$source.'Name'};
-        $this->{$toPrefix.'Phone'} = $this->{$source.'Phone'};
-        $this->{$toPrefix.'Email'} = $this->{$source.'Email'};
+        foreach (array_keys(self::OFFICER_PREFIXES) as $prefix) {
+            [$this->{$prefix.'Name'}, $this->{$prefix.'Phone'}, $this->{$prefix.'Email'}] = $contact;
+            $this->resetErrorBag([$prefix.'Name', $prefix.'Phone', $prefix.'Email']);
+        }
     }
 
     /** Same "Same person as…" copy behavior as copyOfficerContact(), for the in-house IT
      *  contact — a plain property trio, not one of the 4 named officer roles. */
     public function copyItContact(string $source): void
     {
-        if ($source === 'you') {
-            $this->itContactName = auth()->user()?->name ?? '';
-            $this->itContactEmail = auth()->user()?->email ?? '';
-
+        if (! ($contact = $this->quickAddContact($source))) {
             return;
         }
 
-        if (! array_key_exists($source, self::OFFICER_PREFIXES)) {
-            return;
-        }
-
-        $this->itContactName = $this->{$source.'Name'};
-        $this->itContactPhone = $this->{$source.'Phone'};
-        $this->itContactEmail = $this->{$source.'Email'};
+        [$this->itContactName, $this->itContactPhone, $this->itContactEmail] = $contact;
+        $this->resetErrorBag(['itContactName', 'itContactPhone', 'itContactEmail']);
     }
 
     public function backToPractice(): void
@@ -3509,6 +3549,15 @@ new class extends Component
                             title="Please include a domain extension, e.g. name@example.com"
                             class="w-full rounded-xl border {{ $errors->has('mainEmail') ? 'border-red-400' : 'border-[#dbe4ee]' }} bg-[#f8fbfd] px-4 py-2.5 text-sm text-[#173045] focus:outline-none focus:ring-2 focus:ring-[#0b9ed0] focus:border-transparent transition">
                         @error('mainEmail') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        {{-- Quick add: puts the account's email (entered at sign-up) back in one click. --}}
+                        @php $accountEmail = auth()->user()?->email; @endphp
+                        @if($accountEmail && strcasecmp(trim($mainEmail), $accountEmail) !== 0)
+                        <button type="button" wire:click="useAccountEmailAsMainEmail" data-use-account-email
+                            class="mt-1.5 inline-flex max-w-full items-center gap-1 text-xs font-semibold text-[#0b7fb3] hover:underline">
+                            <span aria-hidden="true">+</span>
+                            <span class="truncate">Use {{ $accountEmail }}</span>
+                        </button>
+                        @endif
                     </div>
                 </div>
 
@@ -3592,17 +3641,27 @@ new class extends Component
                 <div class="rounded-xl border border-[#dbe4ee] bg-[#f8fbfd] p-4">
                     <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
                         <p class="text-sm font-semibold text-[#12304f]">{{ $label }}</p>
-                        @if(count($quickAddOptions) > 0)
+                        @if(count($quickAddOptions) > 0 || trim((string) $this->{$prefix.'Name'}) !== '')
                         <span class="flex flex-wrap items-center gap-1.5 text-xs text-[#5d6e7f]">
+                            @if(count($quickAddOptions) > 0)
                             Quick add:
                             @foreach($quickAddOptions as $option)
                             <button type="button"
                                 wire:click="copyOfficerContact('{{ $prefix }}', '{{ $option['source'] }}')"
-                                wire:loading.attr="disabled" wire:target="copyOfficerContact"
+                                wire:loading.attr="disabled" wire:target="copyOfficerContact,applyOfficerToAll"
                                 class="inline-flex items-center rounded-full border border-[#9ed3e9] bg-white px-2.5 py-1 text-xs font-semibold text-[#0b7ca8] hover:bg-[#eaf7fc] transition-colors disabled:opacity-50">
                                 + {{ $option['label'] }}
                             </button>
                             @endforeach
+                            @endif
+                            {{-- Same person for every role: copies this role's details to all the others. --}}
+                            @if(trim((string) $this->{$prefix.'Name'}) !== '')
+                            <button type="button" wire:click="applyOfficerToAll('{{ $prefix }}')" data-apply-to-all="{{ $prefix }}"
+                                wire:loading.attr="disabled" wire:target="copyOfficerContact,applyOfficerToAll"
+                                class="inline-flex items-center rounded-full border border-[#12304f] bg-[#12304f] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#0c233b] transition-colors disabled:opacity-50">
+                                Apply to all
+                            </button>
+                            @endif
                         </span>
                         @endif
                     </div>
