@@ -2467,7 +2467,7 @@ new class extends Component
             'mtbc_reference_number' => $tokenizeResult['referenceNumber'],
         ]);
 
-        ActivityLog::record('order.card_updated', "Payment method updated for {$order->package->name}.", user: auth()->user(), order: $order);
+        ActivityLog::record('order.card_updated', 'Payment method updated for '.($order->package?->name ?? 'package').'.', user: auth()->user(), order: $order);
 
         unset($this->userOrders, $this->batchOrders, $this->currentOrder);
     }
@@ -5096,7 +5096,7 @@ $progressPct = match (true) {
                     </div>
 
                     <p class="text-xs text-[#5d6e7f] mt-2">For any queries, <a
-                            href="{{ route('contact', ['package' => $this->currentOrder->package?->slug]) }}"
+                            href="{{ route('contact', ['package' => $this->currentOrder?->package?->slug]) }}"
                             wire:navigate class="font-semibold text-[#1a7aad] hover:underline">contact us</a>.</p>
                 </div>
                 @elseif($dashboardTab === 'payments')

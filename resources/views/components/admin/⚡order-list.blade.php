@@ -187,7 +187,7 @@ new class extends Component
                             <div class="font-semibold text-navy">{{ $order->user->name }}</div>
                             <div class="text-xs text-empower-muted">{{ $order->user->email }}</div>
                         </td>
-                        <td class="px-5 py-3.5 text-empower-text">{{ $order->package->name }}</td>
+                        <td class="px-5 py-3.5 text-empower-text">{{ $order->package?->name ?? 'Package removed' }}</td>
                         <td class="px-5 py-3.5">
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[0.68rem] font-extrabold uppercase tracking-wider bg-[#eef6fb] text-empower-muted">
                                 {{ ucwords(str_replace('_', ' ', $order->status->value)) }}

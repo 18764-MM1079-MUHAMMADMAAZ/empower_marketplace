@@ -37,7 +37,7 @@ new class extends Component
         $this->orderId = $order->id;
         $this->clientName = $order->user->name;
         $this->clientEmail = $order->user->email;
-        $this->packageName = $order->package->name;
+        $this->packageName = $order->package?->name ?? 'Package removed';
         $this->status = $order->status->value;
         $this->amountPaid = $order->amount_paid !== null ? (string) $order->amount_paid : null;
         $this->paymentReference = $order->payment_reference ?? '';

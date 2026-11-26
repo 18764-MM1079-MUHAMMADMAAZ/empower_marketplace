@@ -540,7 +540,7 @@ new class extends Component
         <div class="bg-white border border-empower-border rounded-[1.25rem] shadow-[0_18px_50px_rgba(10,32,55,0.08)] p-5 flex flex-wrap items-center justify-between gap-3">
             <div>
                 <p class="text-sm text-empower-muted">Test order #{{ $order->id }}</p>
-                <p class="text-base font-semibold text-navy">{{ $order->user->name }} &middot; {{ $order->package->name }}</p>
+                <p class="text-base font-semibold text-navy">{{ $order->user->name }} &middot; {{ $order->package?->name ?? 'Package removed' }}</p>
             </div>
             <div class="flex gap-2">
                 @if($order->intakeSubmission)
