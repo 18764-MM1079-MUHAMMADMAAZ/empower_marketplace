@@ -30,7 +30,7 @@ $lastSynced = $partner
     : null;
 $dummy = ($user->user_type ?? 'actual') === 'dummy';
 $fields = [
-    'Personal details' => [['First name', $first], ['Middle name', $middle], ['Last name', $last], ['Credentials', null]],
+    'Personal details' => [['First name', $first], ['Middle name', $middle], ['Last name', $last], ['Title', null]],
     'Professional details' => [[$partner ? "Role ({$partner})" : 'Role', $role], ['NPI', null], ['Specialty', $practice?->specialty]],
     'Contact' => [['Email', $user->email], ['Phone', null]],
 ];
