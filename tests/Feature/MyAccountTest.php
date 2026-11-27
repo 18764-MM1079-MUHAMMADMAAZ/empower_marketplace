@@ -289,11 +289,9 @@ class MyAccountTest extends TestCase
 
         Livewire::test('account.documents')
             ->assertSeeHtml('data-doc-tile="in-review"')
-            ->assertSeeInOrder(['In Review', '1', 'Approved', '2', 'Reference', '1', 'All Documents', '4'])
+            ->assertSeeInOrder(['In Review', '1', 'Approved', '1', 'Reference', '1', 'All Documents', '3'])
             ->assertSeeHtml(route('documents.download', $approved))
-            ->assertSee('Compliance Hotline Poster')
-            ->assertSeeHtml('href="'.asset('compliance%20hotline%20poster_empower.pdf').'"')
-            ->assertSeeHtml('download="compliance-hotline-poster.pdf"')
+            ->assertDontSee('Compliance Hotline Poster')
             ->assertSee('Not ready yet')
             ->assertSee('Available once the compliance team finishes review')
             ->assertSee('Intake answers')
@@ -302,16 +300,29 @@ class MyAccountTest extends TestCase
             ->assertDontSee('Regenerate');
     }
 
-    /** Same rule as the portal dashboard: the poster is offered only once an intake is approved. */
-    public function test_documents_hide_the_hotline_poster_until_the_intake_is_approved(): void
+    /** The poster lives in the Compliance Hotline card and is offered to practices on the Empower
+     *  hotline (the poster prints that number) without waiting for the intake to be approved. */
+    public function test_hotline_offers_the_poster_before_the_intake_is_approved(): void
     {
-        [$user, $order] = $this->client();
+        [$user, $order] = $this->client(practiceAttributes: ['uses_ehcp_hotline' => true, 'compliance_hotline_number' => null]);
         $order->intakeSubmission->update(['status' => IntakeSubmissionStatus::UnderReview, 'submitted_at' => now()]);
         $this->actingAs($user);
 
-        Livewire::test('account.documents')
-            ->assertDontSee('Compliance Hotline Poster')
-            ->assertDontSeeHtml('data-hotline-poster-row');
+        Livewire::test('account.hotline')
+            ->assertSeeHtml('data-hotline-poster')
+            ->assertSee('Compliance Hotline Poster')
+            ->assertSeeHtml('href="'.asset('compliance%20hotline%20poster_empower.pdf').'"')
+            ->assertSeeHtml('download="compliance-hotline-poster.pdf"');
+    }
+
+    public function test_hotline_hides_the_poster_for_a_practice_with_its_own_number(): void
+    {
+        [$user, $order] = $this->client(practiceAttributes: ['uses_ehcp_hotline' => false, 'compliance_hotline_number' => '(555) 555-0100']);
+        $order->intakeSubmission->update(['status' => IntakeSubmissionStatus::Approved, 'submitted_at' => now()]);
+        $this->actingAs($user);
+
+        Livewire::test('account.hotline')
+            ->assertDontSee('Compliance Hotline Poster');
     }
 
     public function test_generating_a_document_again_bumps_its_version(): void

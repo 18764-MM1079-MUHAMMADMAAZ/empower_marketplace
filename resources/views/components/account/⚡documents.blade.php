@@ -34,10 +34,6 @@ $submissions = $account->orders()
     ->unique('id');
 $approved = $documents->filter->isReady();
 $inReview = $documents->reject->isReady();
-// The Compliance Hotline Poster (a static PDF in public/) is offered once an intake is approved —
-// the same rule as the portal dashboard's documents list.
-$posterSubmission = $submissions->filter(fn ($s) => $s->status === IntakeSubmissionStatus::Approved)->sortByDesc('reviewed_at')->first();
-$posterCount = $posterSubmission ? 1 : 0;
 $tile = 'flex flex-col gap-2 rounded-xl border p-4';
 $count = 'text-center text-[2rem] font-bold leading-none tracking-tight text-[#0f2a44]';
 $iconBox = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg';
@@ -63,7 +59,7 @@ $downloadBtn = 'inline-flex h-8 items-center rounded-lg border border-[#cbd5e1] 
                 <span class="{{ $iconBox }} bg-[#e7f5ee] text-[#146c43]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg></span>
                 <span class="text-[13px] font-semibold text-[#146c43]">Approved</span>
             </div>
-            <p class="{{ $count }}">{{ $approved->count() + $posterCount }}</p>
+            <p class="{{ $count }}">{{ $approved->count() }}</p>
             <p class="text-xs text-[#5d6e7f]">Ready to download</p>
         </li>
         <li class="{{ $tile }} border-[#e3e8ef] bg-[#f8fafc]" data-doc-tile="reference">
@@ -79,7 +75,7 @@ $downloadBtn = 'inline-flex h-8 items-center rounded-lg border border-[#cbd5e1] 
                 <span class="{{ $iconBox }} bg-[#e8f1fa] text-[#145a93]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6" /></svg></span>
                 <span class="text-[13px] font-semibold text-[#145a93]">All Documents</span>
             </div>
-            <p class="{{ $count }}">{{ $documents->count() + $posterCount + $submissions->count() }}</p>
+            <p class="{{ $count }}">{{ $documents->count() + $submissions->count() }}</p>
             <p class="text-xs text-[#5d6e7f]">Listed in the table below</p>
         </li>
     </ul>
@@ -135,25 +131,6 @@ $downloadBtn = 'inline-flex h-8 items-center rounded-lg border border-[#cbd5e1] 
                     </td>
                 </tr>
                 @endforeach
-
-                @if($posterSubmission)
-                <tr wire:key="hotline-poster" data-hotline-poster-row>
-                    <td class="px-4 py-3">
-                        <div class="flex items-center gap-3 min-w-0">
-                            <span class="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-lg bg-[#f1f5f9] text-[#5d6e7f]" aria-hidden="true"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6" /></svg></span>
-                            <div class="min-w-0">
-                                <p class="font-medium text-[#173045]">Compliance Hotline Poster</p>
-                                <p class="text-xs text-[#5d6e7f]">Print and post where staff can see it</p>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="px-4 py-3"><span class="rounded-full bg-[#e7f5ee] px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap text-[#146c43]">Approved</span></td>
-                    <td class="px-4 py-3 whitespace-nowrap text-[13px] text-[#5d6e7f]">{{ ($posterSubmission->reviewed_at ?? $posterSubmission->submitted_at)?->format('M j, Y') }}</td>
-                    <td class="px-4 py-3 text-right whitespace-nowrap">
-                        <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}" download="compliance-hotline-poster.pdf" class="{{ $downloadBtn }}">Download</a>
-                    </td>
-                </tr>
-                @endif
 
                 @foreach($submissions as $submission)
                 <tr wire:key="answers-{{ $submission->id }}" data-intake-answers-row>

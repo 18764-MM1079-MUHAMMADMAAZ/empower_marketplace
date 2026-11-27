@@ -175,6 +175,23 @@ $button ='inline-flex h-10 items-center rounded-lg border px-4 text-[13px] font-
         <span class="rounded-full bg-[#fdf0d8] px-2.5 py-0.5 text-xs font-semibold text-[#7a4a00]">Not added yet</span>
         @endif
     </div>
+    {{-- The poster prints the Empower hotline number, so it's offered to practices using it (no approval needed). --}}
+    @if($usesEmpower)
+    <div class="mt-4.5 flex flex-wrap items-center gap-3 rounded-xl border border-[#e3e8ef] bg-[#f8fafc] p-3.5" data-hotline-poster>
+        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white text-[#145a93] border border-[#e3e8ef]" aria-hidden="true">
+            <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6" /></svg>
+        </span>
+        <div class="flex-1 min-w-[12rem]">
+            <p class="text-sm font-semibold text-[#173045]">Compliance Hotline Poster</p>
+            <p class="text-xs text-[#5d6e7f]">Print and post where staff can see it.</p>
+        </div>
+        <a href="{{ asset('compliance%20hotline%20poster_empower.pdf') }}" download="compliance-hotline-poster.pdf"
+            class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#cbd5e1] bg-white px-3.5 text-[13px] font-semibold text-[#173045] hover:bg-[#f4f7fb] transition-colors">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+            Download
+        </a>
+    </div>
+    @endif
     @if($saved)
     <p role="status" class="mt-3 text-[13px] text-[#146c43]">Hotline saved. Your compliance manuals will be regenerated with the new details.</p>
     @endif
