@@ -165,7 +165,7 @@ $tz = ClientActivity::timezoneLabel();
                         <p class="text-[13px] text-[#173045]">{{ $row['where'] }}</p>
                         @if($row['detail'])<p class="text-xs text-[#5d6e7f]">{{ $row['detail'] }}</p>@endif
                     </td>
-                    <td class="px-4 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs font-semibold {{ $typeChip[$row['type']] }}">{{ $row['type_label'] }}</span></td>
+                    <td class="px-4 py-2.5"><span class="inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold {{ $typeChip[$row['type']] }}">{{ $row['type_label'] }}</span></td>
                 </tr>
                 @empty
                 <tr>
